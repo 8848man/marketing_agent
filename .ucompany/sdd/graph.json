@@ -64,6 +64,11 @@
       "from": "FEAT-TRACK2",
       "to": "DOC-ORIGIN",
       "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-HISTORY",
+      "type": "documented_by"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -138,7 +143,12 @@
       "id": "DOC-ORIGIN",
       "path": "SOURCE_OF_TRUTH.md",
       "type": "document"
+    },
+    {
+      "id": "DOC-HISTORY",
+      "path": ".ucompany/sdd/history.md",
+      "type": "document"
     }
   ],
-  "version": 34
+  "version": 35
 }
