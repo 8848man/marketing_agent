@@ -52,6 +52,11 @@
     },
     {
       "from": "DOC-TRACK2",
+      "to": "CODE-SETTINGS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
       "to": "VAL-TRACK2",
       "type": "validated_by"
     },
@@ -124,6 +129,11 @@
       "status": "in_progress"
     },
     {
+      "id": "CODE-SETTINGS",
+      "path": "src/marketing_agent/dashboard_settings.py",
+      "type": "code"
+    },
+    {
       "id": "DOC-PRODUCT",
       "path": "SDD.md",
       "type": "document"
@@ -150,5 +160,5 @@
       "type": "document"
     }
   ],
-  "version": 35
+  "version": 36
 }

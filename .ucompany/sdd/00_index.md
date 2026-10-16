@@ -28,6 +28,7 @@
 | CODE-DRAFT | code | [drafts.py](../../src/marketing_agent/drafts.py) | 초안 저장·사람 승인 해시 검증 |
 | CODE-TRACK2-UI | code | [dashboard_ui.py](../../src/marketing_agent/dashboard_ui.py) | 3단계 화면과 상태 안내 |
 | CODE-AI | code | [ai_client.py](../../src/marketing_agent/ai_client.py) | 제공사별 공통 JSON 호출 인터페이스 |
+| CODE-SETTINGS | code | [dashboard_settings.py](../../src/marketing_agent/dashboard_settings.py) | 대시보드 설정·키 파일 경계 |
 | DOC-PRODUCT | document | [SDD.md](../../SDD.md) | 제품 폴더의 SDD 안내 |
 | DOC-ORIGIN | document | [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md) | 외부 PDF 판본과 내부 문서 권위 |
 | DOC-HISTORY | document | [history.md](history.md) | 날짜별 작업 이력과 당시 시험 기록 |
