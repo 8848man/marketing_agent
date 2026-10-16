@@ -180,8 +180,10 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
     cited_detail = cited_detail if isinstance(cited_detail, str) else ""
     sources = draft.get("evidence_sources", ())
     sources = tuple(item for item in sources if isinstance(item, str)) if isinstance(sources, list) else ()
+    source_text = draft.get("source_text", "")
+    source_text = source_text if isinstance(source_text, str) else ""
     def blocked(reason: str) -> DraftPreview:
-        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources)
+        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources, source_text)
 
     if draft.get("video_id") != video.video_id:
         return blocked("DRAFT_VIDEO_MISMATCH")
@@ -207,4 +209,4 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
         return blocked("APPROVAL_HASH_MISMATCH")
     if not all(isinstance(draft.get(key), str) and draft[key].strip() for key in ("reviewer", "reviewed_at")):
         return blocked("HUMAN_REVIEW_MISSING")
-    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources)
+    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources, source_text)

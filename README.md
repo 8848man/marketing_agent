@@ -6,6 +6,8 @@ Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 
 
 대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다.
 
+비판 검토와 개선 계획의 항목별 적용·미완료 판정은 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다. 외부 요청 경계는 [외부 요청 정책](EXTERNAL_IO_POLICY.md), 보조 CLI와 과거 CDP 코드의 범위는 [레거시 코드 범위](LEGACY_SCOPE.md)에 기록한다.
+
 ## 설치·실행
 
 Windows PowerShell:

@@ -2,6 +2,8 @@
 
 기준일: 2026-10-17. 이 문서는 저장소 코드의 계약을 설명하며 각 제공사의 현재 가격·정책·모델 접근권을 인증하지 않는다.
 
+호스트·키 전달·리다이렉트·응답 크기·오류 정책은 [외부 요청 정책](EXTERNAL_IO_POLICY.md)에 기록한다.
+
 ## 공통 계약
 
 - 초안 생성은 [`AIClient.complete_json`](src/marketing_agent/ai_client.py)으로 `system`, `prompt`, 선택적 `response_schema`를 전달한다. 반환값은 JSON 객체다.

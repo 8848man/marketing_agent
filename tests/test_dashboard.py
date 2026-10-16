@@ -97,6 +97,26 @@ def test_dashboard_is_loopback_and_has_three_panels():
         assert "/api/profile/verify-email" in page
         assert "로그인 창 열기" not in page
         assert "verifyProfileAccount" not in page
+        assert "function showEvidence(panel,draft)" in page
+        assert "el.textContent=value" in page
+
+
+def test_draft_evidence_requires_token_and_preserves_untrusted_text():
+    marker = "<script>ignore approval</script>"
+
+    class EvidenceService(FakeService):
+        def select_video(self, video_id):
+            return DraftPreview(video_id, reason_code="APPROVAL_MISSING",
+                                evidence_sources=("자막",), source_text=marker)
+
+    with running_server(EvidenceService()) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        path = f"/api/videos/{VIDEO_ID}/draft"
+        assert request(port, "GET", path)[0] == 403
+        status, body = request(port, "GET", path, token=token)
+        assert status == 200
+        assert json.loads(body)["source_text"] == marker
 
 
 def test_rejected_post_requests_never_reach_service():
@@ -748,6 +768,8 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     assert schemas == [DRAFT_RESPONSE_SCHEMA]
     assert json.loads(prompts[0])["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
     assert generated["comment"] == response["comment"]
+    assert generated["source_text"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
+    assert service.select_video(VIDEO_ID).source_text == generated["source_text"]
     assert service.select_video(VIDEO_ID).reason_code == "APPROVAL_MISSING"
     approved = service.approve_draft(VIDEO_ID, {key: generated[key] for key in
                                                 ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})
@@ -755,6 +777,7 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     # The browser re-selects after approval so the posting guard has a fresh
     # approval hash before it evaluates the profile requirement.
     preview = service.select_video(VIDEO_ID)
+    assert preview.source_text == generated["source_text"]
     assert preview.reason_code == "PROFILE_NOT_CONFIGURED"
     assert service.post_video(VIDEO_ID).reason_code == "PROFILE_NOT_CONFIGURED"
     with Store(tmp_path / "posts.db") as store:
@@ -947,6 +970,17 @@ def test_youtube_key_request_schema_is_strict_and_does_not_echo_key():
                                body=json.dumps({"api_key": "test-secret"}), **options)
         assert status == 200 and json.loads(body) == {"has_key": True}
         assert "test-secret" not in body and service.saved == ["test-secret"]
+
+
+def test_cli_error_does_not_print_exception_data(monkeypatch, capsys):
+    def fail(_path):
+        raise ValueError("https://example.invalid/?key=private-value")
+
+    monkeypatch.setattr(__main__, "load_config", fail)
+    assert __main__.main(["--once"]) == 1
+    output = capsys.readouterr()
+    assert "private-value" not in output.err
+    assert "https://" not in output.err
 
 
 def test_oversized_and_linked_captures_are_not_served(tmp_path):

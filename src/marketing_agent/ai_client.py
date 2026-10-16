@@ -50,8 +50,8 @@ def _response_json(request: Request, transport: Callable) -> dict:
         with transport(request, timeout=20) as response:
             try:
                 raw = response.read(MAX_RESPONSE + 1)
-            except TypeError:  # Small injected transports may expose read() only.
-                raw = response.read()
+            except TypeError:
+                raise ValueError("AI_TRANSPORT_INVALID") from None
     except HTTPError as exc:
         if exc.code in {301, 302, 303, 307, 308}:
             code = "AI_REDIRECT_BLOCKED"

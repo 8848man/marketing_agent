@@ -31,6 +31,7 @@ class DraftPreview:
     reason_code: str = "DRAFT_MISSING"
     cited_detail: str = ""
     evidence_sources: tuple[str, ...] = ()
+    source_text: str = ""
 
 
 @dataclass(frozen=True)

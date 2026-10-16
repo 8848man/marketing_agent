@@ -864,7 +864,7 @@ class ConfiguredPostingService(PostingService):
             )
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile)
-            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources")} | {"evidence_notice": evidence.notice}
+            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text")} | {"evidence_notice": evidence.notice}
 
     def approve_draft(self, video_id: str, values: dict) -> dict[str, object]:
         with self._settings_lock:

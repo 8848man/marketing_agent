@@ -84,9 +84,18 @@ async function loadCapture(path){{
  image.alt='실패 화면 캡처';image.style.maxWidth='100%';
  image.onload=()=>URL.revokeObjectURL(url);$('capture').replaceChildren(image);
 }}
+function showEvidence(panel,draft){{
+ const details=document.createElement('details');details.className='draft-evidence';
+ const summary=document.createElement('summary');summary.textContent='초안 근거 원문 확인';details.append(summary);
+ if(draft.evidence_sources?.length)line(details,'p','출처: '+draft.evidence_sources.join(' · ')).className='draft-note';
+ if(draft.source_text)line(details,'pre',draft.source_text);
+ else line(details,'p','저장된 근거 원문이 없습니다. 이전 초안은 영상 원문을 별도로 확인하세요.').className='draft-note';
+ panel.append(details);
+}}
 function editor(panel,draft){{
- const fields=[['worry_summary','고민 한 줄',draft.worry_summary||''],['cited_detail','영상 제목의 구체 근거',draft.cited_detail||''],['comment','댓글 초안',draft.comment||''],['reviewer','검토자 이름','']];
- line(panel,'h3','사람 검토 및 승인');line(panel,'p','AI 제안은 승인 전에는 게시할 수 없습니다. 제목을 근거로 내용을 확인하고 수정하세요.').className='draft-note';
+ showEvidence(panel,draft);
+ const fields=[['worry_summary','고민 한 줄',draft.worry_summary||''],['cited_detail','근거 원문에서 확인한 표현',draft.cited_detail||''],['comment','댓글 초안',draft.comment||''],['reviewer','검토자 이름','']];
+ line(panel,'h3','사람 검토 및 승인');line(panel,'p','AI 제안은 승인 전에는 게시할 수 없습니다. 위 근거 원문과 인용 표현을 대조하고 수정하세요.').className='draft-note';
  for(const [name,label,value] of fields){{const labelEl=document.createElement('label');labelEl.htmlFor='draft-'+name;labelEl.textContent=label;panel.append(labelEl);const input=name==='comment'?document.createElement('textarea'):document.createElement('input');input.id='draft-'+name;input.value=value;input.maxLength=name==='comment'?120:1000;panel.append(input);}}
  const lengthState=line(panel,'p','');lengthState.className='draft-note';const actions=document.createElement('div');actions.className='draft-actions';const approve=document.createElement('button');approve.type='button';approve.textContent='승인하고 저장';
  function updateCommentLength(){{const length=$('draft-comment').value.trim().length;const valid=length>=40&&length<=120;lengthState.textContent=length+'자 / 40~120자'+(valid?'':' · 범위에 맞게 댓글을 수정하세요.');lengthState.classList.toggle('error',!valid);guideButton(approve,valid?'':'댓글을 40~120자로 수정한 뒤 승인해주세요.');}}
@@ -106,7 +115,7 @@ if(data.videos.length)setStep('select');
 async function selectVideo(id){{selected=id;ready=false;profileRequired=false;setStep('select');guideButton($('post'),'초안을 확인하는 중입니다. 잠시 기다려주세요.');$('selection').className='status';$('selection').textContent='초안을 확인하는 중입니다…';$('post-state').textContent='초안을 확인하고 있습니다.';
 try{{const draft=await json(await fetch('/api/videos/'+encodeURIComponent(id)+'/draft',{{headers:{{'X-Session-Token':token}}}}));if(selected!==id)return;
 for(const card of document.querySelectorAll('.card'))card.classList.remove('selected');for(const card of document.querySelectorAll('.card'))if(card.dataset.videoId===id)card.classList.add('selected');
-const panel=$('selection');panel.className='';panel.replaceChildren();const missing=draft.reason_code==='DRAFT_MISSING';if(missing){{line(panel,'h3','아직 댓글 초안이 없습니다.');line(panel,'p','AI 초안을 만든 뒤 내용을 검토하고 승인해주세요.').className='status';}}else{{line(panel,'h3','고민 한 줄');line(panel,'p',draft.worry_summary||'준비된 고민 요약이 없습니다.');line(panel,'h3','댓글 초안');line(panel,'pre',draft.comment||'준비된 댓글 초안이 없습니다.');}}if(draft.evidence_sources?.length)line(panel,'p','초안 근거: '+draft.evidence_sources.join(' · ')).className='draft-note';
+const panel=$('selection');panel.className='';panel.replaceChildren();const missing=draft.reason_code==='DRAFT_MISSING';if(missing){{line(panel,'h3','아직 댓글 초안이 없습니다.');line(panel,'p','AI 초안을 만든 뒤 내용을 검토하고 승인해주세요.').className='status';}}else{{line(panel,'h3','고민 한 줄');line(panel,'p',draft.worry_summary||'준비된 고민 요약이 없습니다.');line(panel,'h3','댓글 초안');line(panel,'pre',draft.comment||'준비된 댓글 초안이 없습니다.');}}if(!missing)showEvidence(panel,draft);
 const defaultChromeRoot=draft.reason_code==='DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED';const profileIssue=(String(draft.reason_code).startsWith('PROFILE_')&&draft.reason_code!=='PROFILE_LOCKED')||String(draft.reason_code).startsWith('USER_DATA_')||defaultChromeRoot;const profileMessage=defaultChromeRoot?'현재 기본 Chrome 데이터 폴더는 자동화에 사용할 수 없습니다. 자동화 전용 폴더를 준비하고 해당 Chrome에서 직접 로그인하세요.':'Chrome 프로필을 연결하면 댓글 달기를 계속할 수 있습니다.';if(!missing)line(panel,'p',draft.can_post?'승인된 초안입니다. 내용을 검토한 뒤 직접 게시하세요.':profileIssue?profileMessage:'게시 불가: '+draft.reason_code).className=draft.can_post?'ready':profileIssue?'status':'status error';ready=draft.can_post;profileRequired=profileIssue;guideButton($('post'),ready||profileRequired?'':missing?'먼저 AI 초안을 만들고 내용을 검토·승인해주세요.':draft.reason_code==='PROFILE_LOCKED'?'앱 전용 Chrome 창을 닫은 뒤 영상을 다시 선택해주세요.':'게시 조건을 확인하고 초안을 승인해주세요.');$('post-state').textContent=draft.can_post?'초안 검토 후 댓글 달기를 누르세요.':missing?'AI 초안을 만들고 사람이 승인하면 댓글을 달 수 있습니다.':draft.reason_code==='PROFILE_LOCKED'?'앱 전용 Chrome 로그인 창을 정상 종료한 뒤 영상을 다시 선택하세요.':profileIssue?'댓글 달기를 누르면 Chrome 프로필 연결을 시작합니다.':'AI 초안을 만들고 사람이 승인하면 게시할 수 있습니다.';if(draft.can_post||profileIssue||draft.reason_code==='PROFILE_LOCKED')setStep('post');if(profileIssue)createProfileButton(panel);else if(!draft.can_post&&draft.reason_code!=='PROFILE_LOCKED')createDraftButton(panel);
 }}catch(error){{if(selected===id){{$('selection').className='status error';$('selection').textContent='초안을 확인하지 못했습니다: '+error.message;$('post-state').textContent='초안 확인에 실패해 게시할 수 없습니다.';guideButton($('post'),'초안 확인에 실패했습니다. 영상을 다시 선택해주세요.');}}}}}}
 async function postComment(){{if(!selected)return;if(profileRequired){{openProfileDialog();return;}}if(!ready)return;guideButton($('post'),'게시 결과를 확인하는 중입니다. 중복 게시를 막기 위해 기다려주세요.');$('post-state').classList.remove('error');$('post-state').textContent='게시 요청을 확인하고 있습니다. 결과를 확인할 때까지 다시 누르지 마세요.';

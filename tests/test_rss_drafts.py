@@ -144,6 +144,7 @@ def test_generated_draft_needs_human_approval_before_posting(tmp_path):
         ("worry_summary", "cited_detail", "comment")}, "reviewer": "human reviewer"}, tmp_path)
     assert approved_draft["approval_hash"] == approved_draft["content_hash"]
     assert preview(card, tmp_path).can_post
+    assert preview(card, tmp_path).source_text == card.title
 
 
 def test_evidence_uses_captions_then_title_description_and_optional_comments():

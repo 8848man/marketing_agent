@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                           capture_dir=capture_dir)
             return 0
         except (OSError, ValueError) as exc:
-            print(f"dashboard error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            print(f"dashboard error: {type(exc).__name__}", file=sys.stderr)
             return 1
     parser = argparse.ArgumentParser(description="Run the guarded marketing agent")
     parser.add_argument("--config", default="config.legacy.example.yaml")
@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                       f"errors={outcome['errors']}")
         return 0
     except Exception as exc:
-        print(f"agent error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"agent error: {type(exc).__name__}", file=sys.stderr)
         return 1
 
 
