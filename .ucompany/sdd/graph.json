@@ -84,6 +84,11 @@
       "from": "DOC-TRACK2",
       "to": "CODE-GENERATOR",
       "type": "touches"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-CONFIG-EXAMPLES",
+      "type": "documented_by"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -178,7 +183,12 @@
       "id": "CODE-GENERATOR",
       "path": "src/marketing_agent/draft_generation.py",
       "type": "code"
+    },
+    {
+      "id": "DOC-CONFIG-EXAMPLES",
+      "path": "CONFIG_EXAMPLE_CONTRACT.md",
+      "type": "document"
     }
   ],
-  "version": 38
+  "version": 39
 }

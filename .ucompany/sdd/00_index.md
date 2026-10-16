@@ -34,6 +34,7 @@
 | DOC-PRODUCT | document | [SDD.md](../../SDD.md) | 제품 폴더의 SDD 안내 |
 | DOC-ORIGIN | document | [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md) | 외부 PDF 판본과 내부 문서 권위 |
 | DOC-HISTORY | document | [history.md](history.md) | 날짜별 작업 이력과 당시 시험 기록 |
+| DOC-CONFIG-EXAMPLES | document | [CONFIG_EXAMPLE_CONTRACT.md](../../CONFIG_EXAMPLE_CONTRACT.md) | 예시 설정의 필드·파서·소비 위치 |
 
 ## 관계 어휘
 

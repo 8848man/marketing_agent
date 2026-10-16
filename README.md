@@ -6,6 +6,8 @@ Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 
 
 대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다.
 
+각 예시 필드의 필수성·파서·사용처는 [예시 설정 계약](CONFIG_EXAMPLE_CONTRACT.md)에 정리했다.
+
 비판 검토와 개선 계획의 항목별 적용·미완료 판정은 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다. 외부 요청 경계는 [외부 요청 정책](EXTERNAL_IO_POLICY.md), 보조 CLI와 과거 CDP 코드의 범위는 [레거시 코드 범위](LEGACY_SCOPE.md)에 기록한다.
 
 ## 설치·실행
@@ -64,6 +66,6 @@ python3 -m venv .venv
 python -m pytest -q
 ```
 
-2026-10-17 Windows Python 3.11에서 자동 테스트 145개가 통과했다. 실제 `유튜브3`의 로그인 상태는 Windows에서 확인했다. 타인의 Windows PC와 macOS의 설치·Chrome 프로필·실제 댓글 게시까지 통과했다는 뜻은 아니다. 각 PC에서 위 설치, 대시보드 접속, 전용 프로필 로그인, 계정 확인, 허용된 테스트 영상의 게시 검수를 수행해야 한다.
+2026-10-17 Windows 로컬 환경에서 자동 테스트 157개가 통과했다. 실제 `유튜브3`의 로그인 상태는 Windows에서 확인했다. 타인의 Windows PC와 macOS의 설치·Chrome 프로필·실제 댓글 게시까지 통과했다는 뜻은 아니다. 각 PC에서 위 설치, 대시보드 접속, 전용 프로필 로그인, 계정 확인, 허용된 테스트 영상의 게시 검수를 수행해야 한다.
 
 SDD 문서의 ID·관계 원본은 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 관리되는 요구사항은 [docs/track2-agent/spec.md](docs/track2-agent/spec.md)에 있다. 작업 지침은 [AGENTS.md](AGENTS.md)를 따른다.

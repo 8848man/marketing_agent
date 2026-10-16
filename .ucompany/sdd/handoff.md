@@ -1,5 +1,7 @@
 # Handoff
 
+- H15 예시 설정 계약 (2026-10-17): `CONFIG_EXAMPLE_CONTRACT.md`에 대시보드/보조 CLI YAML과 `.env`의 필수성·기본값·파서·소비 위치를 표로 대조했다. README의 당시 145개 시험 표기를 현행 157개로 고쳤다. 실제 사용자 설정 내용은 읽지 않았다.
+
 - H14 AI 생성 경계 (2026-10-17): `DraftGenerator`와 기본 `ProviderDraftGenerator`를 분리하고 `ConfiguredPostingService` 생성자에서 주입할 수 있게 했다. 근거 수집·프로필 확인·초안 저장·승인은 서비스에 유지했다. 가짜 생성기와 기본 공통 스키마 시험 포함, 전체 회귀 157개를 확인한다. 실계정 모델·정책 수락은 남아 있다.
 
 - H13 선택 기능 계약 (2026-10-17): `dashboard_contracts.py`에 기능별 런타임 검사 가능한 Protocol을 정의하고 HTTP `hasattr` 분기를 대체했다. 데모·부분 서비스의 기존 404와 채널 ID 폴백을 유지했다. 대시보드·보안 HTTP 47개 및 전체 회귀 156개 통과. 서비스·HTTP 분리 및 레거시 게시 함수 격리는 남아 있다.
