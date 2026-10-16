@@ -1,0 +1,1085 @@
+"""Focused dashboard request boundary and CLI tests."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+import http.client
+import json
+from pathlib import Path
+import re
+from tempfile import TemporaryDirectory
+import threading
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+import yaml
+
+from marketing_agent import __main__
+from marketing_agent.captions import EvidenceResult, YouTubeDataComments
+from marketing_agent.dashboard import (DRAFT_RESPONSE_SCHEMA, HOST, ConfiguredPostingService,
+                                       DashboardSettings, DemoService, _capture_url,
+                                       check_channel_connection, create_server)
+from marketing_agent.dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
+from marketing_agent.poster import VisibleChromePoster
+from marketing_agent.rss_feed import list_videos, recheck_video
+from marketing_agent.storage import Store
+
+
+VIDEO_ID = "AbCdEfGhI12"
+
+
+class FakeService:
+    def __init__(self):
+        self.posts = 0
+        self.reservations = 0
+        self.chrome_opens = 0
+        self.selections = 0
+
+    def list_videos(self):
+        return VideoList((VideoCard(VIDEO_ID, "channel", "채널", "제목",
+                                    "2026-10-15", "https://i.ytimg.com/vi/x/hqdefault.jpg"),))
+
+    def select_video(self, video_id):
+        self.selections += 1
+        return DraftPreview(video_id, "고민", "검토된 초안", True, "")
+
+    def post_video(self, video_id):
+        self.posts += 1
+        self.reservations += 1
+        self.chrome_opens += 1
+        return PostStatus("posted")
+
+
+@contextmanager
+def running_server(service, **kwargs):
+    server = create_server(service, **kwargs)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        thread.join(timeout=3)
+        server.server_close()
+
+
+def request(port, method, path, *, host=None, origin=None, token=None, body=None):
+    connection = http.client.HTTPConnection(HOST, port, timeout=3)
+    headers = {"Host": host if host is not None else f"{HOST}:{port}"}
+    if origin is not None:
+        headers["Origin"] = origin
+    if token is not None:
+        headers["X-Session-Token"] = token
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    connection.request(method, path, body=body, headers=headers)
+    response = connection.getresponse()
+    result = response.status, response.read().decode("utf-8")
+    connection.close()
+    return result
+
+
+def test_dashboard_is_loopback_and_has_three_panels():
+    server = create_server(FakeService())
+    assert server.server_address[0] == "127.0.0.1"
+    server.server_close()
+    with running_server(FakeService()) as port:
+        status, page = request(port, "GET", "/")
+        assert status == 200
+        assert all(label in page for label in ("① 영상 불러오기", "② 영상 선택", "③ 댓글 달기"))
+        assert "fetch('/api/post'" in page
+        selection = page.split("async function selectVideo", 1)[1].split("async function postComment", 1)[0]
+        assert "/api/post" not in selection
+        assert "POST" not in selection
+        assert "const missing=draft.reason_code==='DRAFT_MISSING'" in page
+        assert "guideButton($('post')" in page
+        assert "/api/profile/verify-email" in page
+        assert "로그인 창 열기" not in page
+        assert "verifyProfileAccount" not in page
+
+
+def test_rejected_post_requests_never_reach_service():
+    service = FakeService()
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        valid = json.dumps({"video_id": VIDEO_ID})
+        cases = [
+            ("GET", "/api/post", {}, None, 405),
+            ("POST", "/api/post", {"host": "evil.example", "origin": f"http://{HOST}:{port}", "token": token}, valid, 403),
+            ("POST", "/api/post", {"origin": "http://evil.example", "token": token}, valid, 403),
+            ("POST", "/api/post", {"token": token}, valid, 403),
+            ("POST", "/api/post", {"origin": f"http://{HOST}:{port}", "token": "wrong"}, valid, 403),
+            ("POST", "/api/post", {"origin": f"http://{HOST}:{port}"}, valid, 403),
+            ("POST", "/api/post", {"origin": f"http://{HOST}:{port}", "token": token}, json.dumps({"video_id": "bad"}), 400),
+        ]
+        for method, path, options, body, expected in cases:
+            assert request(port, method, path, body=body, **options)[0] == expected
+        assert (service.posts, service.reservations, service.chrome_opens) == (0, 0, 0)
+        assert request(port, "POST", "/api/post", origin=f"http://{HOST}:{port}", token=token, body=valid)[0] == 200
+        assert service.posts == 1
+
+
+def test_keep_window_flag_is_strictly_validated_before_posting():
+    service = FakeService()
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert 'id="keep-window"' in page
+        assert 'id="profile-open"' not in page
+        for bad in ("yes", 1, None):
+            status, _ = request(port, "POST", "/api/post", origin=f"http://{HOST}:{port}",
+                                token=token, body=json.dumps({"video_id": VIDEO_ID, "keep_window_open": bad}))
+            assert status == 400
+        assert service.posts == 0
+
+
+def test_profile_email_is_encrypted_and_not_a_login_claim(tmp_path):
+    import os
+    import pytest
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    if os.name != "nt":
+        with pytest.raises(ValueError, match="PROFILE_EMAIL_ENCRYPTION_UNAVAILABLE"):
+            settings.save_profile_email("유튜브1", "reviewer@example.com")
+        return
+    options = settings.save_profile_email("유튜브1", "reviewer@example.com")
+    assert options["options"][0]["email"] == "reviewer@example.com"
+    path = tmp_path / "data" / "dashboard" / "profile-emails.json"
+    assert "reviewer@example.com" not in path.read_text(encoding="ascii")
+    assert DashboardSettings(tmp_path / "config.yaml").profile_options_public()["options"][0]["email"] == "reviewer@example.com"
+    with pytest.raises(ValueError, match="PROFILE_EMAIL_INVALID"):
+        settings.save_profile_email("유튜브4", "reviewer@example.com")
+    with pytest.raises(ValueError, match="PROFILE_EMAIL_INVALID"):
+        settings.save_profile_email("유튜브1", "bad email")
+
+
+def test_profile_email_http_requires_local_token_and_valid_label(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        body = json.dumps({"label": "유튜브1", "email": "reviewer@example.com"})
+        assert request(port, "POST", "/api/profile/email", body=body)[0] == 403
+        assert request(port, "POST", "/api/profile/email", origin=f"http://{HOST}:{port}",
+                       token=token, body=json.dumps({"label": "유튜브4", "email": "reviewer@example.com"}))[0] == 400
+        assert request(port, "POST", "/api/profile/email", origin=f"http://{HOST}:{port}",
+                       token=token, body=body)[0] == 200
+        assert settings.profile_options_public()["options"][0]["email"] == "reviewer@example.com"
+
+
+def test_verified_email_requires_loaded_allowed_video_and_never_posts(tmp_path):
+    import pytest
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    root = settings.app_profile_root("유튜브1")
+    (root / "Default").mkdir(parents=True)
+    settings.save_profile("유튜브1")
+    poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, poster=poster)
+    with pytest.raises(ValueError, match="PROFILE_EMAIL_VIDEO_INVALID"):
+        service.verify_profile_email("유튜브1", VIDEO_ID)
+    channel = next(iter(settings.channels()))
+    service._videos[VIDEO_ID] = VideoCard(VIDEO_ID, channel, "채널", "제목", "now", "")
+    from datetime import datetime, timezone
+    with Store(tmp_path / "posts.db") as store:
+        store.assign_dashboard_videos(service._videos.values(), ["유튜브1"], datetime.now(timezone.utc))
+    with patch.object(poster, "inspect_account_email", return_value="actual@example.com") as inspect:
+        result = service.verify_profile_email("유튜브1", VIDEO_ID)
+    inspect.assert_called_once_with(VIDEO_ID)
+    option = result["options"][0]
+    assert option["verified_email"] == "actual@example.com"
+    assert option["verified_at"]
+    with Store(tmp_path / "posts.db") as store:
+        assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+    with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_EMAIL_NOT_VISIBLE")):
+        with pytest.raises(ValueError, match="PROFILE_EMAIL_NOT_VISIBLE"):
+            service.verify_profile_email("유튜브1", VIDEO_ID)
+    assert service.profile_options_public()["options"][0]["verified_email"] == ""
+    with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_SIGNED_OUT")):
+        with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
+            service.verify_profile_email("유튜브1", VIDEO_ID)
+    assert service.profile_options_public()["options"][0]["account_state"] == "SIGNED_OUT"
+    restarted = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                         settings=settings, poster=poster)
+    assert restarted.profile_options_public()["options"][0]["verified_email"] == ""
+
+
+def test_account_check_without_selected_video_uses_allowed_feed_and_requested_profile(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    for label in ("유튜브1", "유튜브2"):
+        (settings.app_profile_root(label) / "Default").mkdir(parents=True)
+        settings.save_profile(label)
+    poster = VisibleChromePoster(settings.app_profile_root("유튜브1"), "Default",
+                                 screenshot_dir=tmp_path / "shots")
+    allowed = next(iter(settings.channels()))
+    cards = (VideoCard(VIDEO_ID, "untrusted", "타 채널", "제외", "now", ""),
+             VideoCard("QXmBHgPqEUE", allowed, "허용 채널", "허용 영상", "now", ""))
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, poster=poster,
+                                       feed_loader=lambda: VideoList(cards))
+    with patch.object(poster, "inspect_account_email", return_value="current@example.com") as inspect:
+        result = service.verify_profile_email("유튜브2")
+    inspect.assert_called_once_with("QXmBHgPqEUE")
+    assert poster.user_data_dir == settings.app_profile_root("유튜브2")
+    assert result["options"][1]["verified_email"] == "current@example.com"
+    assert service._videos == {}
+    assert not (tmp_path / "posts.db").exists()
+
+
+def test_account_check_reuses_confirmed_allowed_video_when_rss_unavailable(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    root = settings.app_profile_root("유튜브1")
+    (root / "Default").mkdir(parents=True)
+    settings.save_profile("유튜브1")
+    allowed = next(iter(settings.channels()))
+    with Store(tmp_path / "posts.db") as store:
+        for attempt_id, video_id, channel_id, verified in (
+                ("one", VIDEO_ID, allowed, "2026-10-15T00:00:00Z"),
+                ("two", "QXmBHgPqEUE", "untrusted", "2026-10-16T00:00:00Z")):
+            store.db.execute("INSERT INTO dashboard_post_reservations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (attempt_id, video_id, channel_id, "제목", "hash", "approval",
+                              "유튜브1", "2026-10-16", verified, "POSTED", None, None, verified))
+    poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, poster=poster,
+                                       feed_loader=lambda: (_ for _ in ()).throw(OSError("RSS down")))
+    with patch.object(poster, "inspect_account_email", return_value="active@example.com") as inspect:
+        assert service.verify_profile_email("유튜브1")["options"][0]["verified_email"] == "active@example.com"
+    inspect.assert_called_once_with(VIDEO_ID)
+    with Store(tmp_path / "posts.db") as store:
+        assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 2
+
+
+def test_verify_email_http_rejects_untrusted_request_before_browser():
+    class Service(FakeService):
+        def verify_profile_email(self, label, video_id):
+            self.chrome_opens += 1
+            return {"options": []}
+    service = Service()
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        path = "/api/profile/verify-email"
+        body = json.dumps({"label": "유튜브1", "video_id": VIDEO_ID})
+        assert request(port, "POST", path, body=body)[0] == 403
+        assert request(port, "POST", path, token=token, body=body)[0] == 403
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}", body='{"label":"x"}')[0] == 400
+        assert service.chrome_opens == 0
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}", body=body)[0] == 200
+        assert service.chrome_opens == 1
+
+
+def test_ai_key_moves_from_yaml_to_private_env_and_survives_restart(tmp_path):
+    source = dict(DashboardSettings.DEFAULT)
+    source["ai"] = {"provider": "openai", "model": "gpt-5.4-mini", "api_key": "PRIVATE_MIGRATION_KEY"}
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(source, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    assert settings.ai_credentials()[2] == "PRIVATE_MIGRATION_KEY"
+    assert "PRIVATE_MIGRATION_KEY" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    assert "api_key" not in yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))["ai"]
+    env = tmp_path / ".env"
+    assert env.is_file()
+    assert DashboardSettings(tmp_path / "config.yaml").ai_credentials()[2] == "PRIVATE_MIGRATION_KEY"
+    settings.save_ai("openai", "gpt-5.4-mini", "", clear_key=True)
+    assert settings.ai_credentials()[2] == ""
+    assert "PRIVATE_MIGRATION_KEY" not in env.read_text(encoding="utf-8")
+
+
+def test_root_env_preserves_each_provider_and_migrates_old_gemini_key(tmp_path):
+    source = dict(DashboardSettings.DEFAULT)
+    source["ai"] = {"provider": "gemini", "model": "gemini-3.5-flash"}
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(source, allow_unicode=True), encoding="utf-8")
+    (tmp_path / ".env.example").write_text(
+        "YOUTUBE_API_KEY=\nOPENAI_API_KEY=\nGEMINI_API_KEY=\n"
+        "ANTHROPIC_API_KEY=\nXAI_API_KEY=\n", encoding="utf-8")
+    old = tmp_path / "data" / "dashboard" / ".env"
+    old.parent.mkdir(parents=True)
+    old.write_text('GEMINI_API_KEY="LEGACY_GEMINI_KEY"\n', encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    assert settings.ai_credentials()[2] == "LEGACY_GEMINI_KEY"
+    assert not old.exists()
+    env = tmp_path / ".env"
+    assert "YOUTUBE_API_KEY=" in env.read_text(encoding="utf-8")
+    settings.save_ai("openai", "gpt-5.4-mini", "OPENAI_KEY")
+    settings.save_ai("claude", "claude-sonnet-4-6", "CLAUDE_KEY")
+    settings.save_ai("grok", "grok-4.7", "XAI_KEY")
+    settings.save_ai("gemini", "gemini-3.5-flash", "")
+    assert settings.ai_credentials()[2] == "LEGACY_GEMINI_KEY"
+    settings.save_ai("gemini", "gemini-3.5-flash", "", clear_key=True)
+    assert settings.ai_credentials()[2] == ""
+    settings.save_ai("openai", "gpt-5.4-mini", "")
+    assert settings.ai_credentials()[2] == "OPENAI_KEY"
+    settings.save_ai("claude", "claude-sonnet-4-6", "")
+    assert settings.ai_credentials()[2] == "CLAUDE_KEY"
+    settings.save_ai("grok", "grok-4.7", "")
+    assert settings.ai_credentials()[2] == "XAI_KEY"
+    assert "YOUTUBE_API_KEY=" in env.read_text(encoding="utf-8")
+
+
+def test_youtube_key_save_preserves_ai_key_and_returns_no_secret(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_KEY")
+    result = settings.save_youtube_api_key("PRIVATE_YOUTUBE_KEY")
+    assert result == {"has_key": True}
+    assert settings.youtube_api_key() == "PRIVATE_YOUTUBE_KEY"
+    assert settings.ai_credentials()[2] == "PRIVATE_AI_KEY"
+    with pytest.raises(ValueError, match="YOUTUBE_KEY_INVALID"):
+        settings.save_youtube_api_key("bad\nkey")
+
+
+def test_draft_comments_use_current_root_youtube_key_and_environment_fallback(tmp_path, monkeypatch):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    env = tmp_path / ".env"
+    env.write_text('YOUTUBE_API_KEY="ROOT_ONE"\n', encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    comments = service.evidence_provider.comments
+    assert isinstance(comments, YouTubeDataComments)
+    requested = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps({"items": [{"snippet": {"topLevelComment": {
+                "snippet": {"textDisplay": "인기 댓글"}}}}]}).encode()
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == 10
+            requested.append(parse_qs(urlsplit(request.full_url).query)["key"][0])
+            return Response()
+
+    with patch("marketing_agent.captions.build_opener", return_value=Opener()):
+        assert comments.fetch(VIDEO_ID) == ("인기 댓글",)
+        env.write_text('YOUTUBE_API_KEY="ROOT_TWO"\n', encoding="utf-8")
+        assert comments.fetch(VIDEO_ID) == ("인기 댓글",)
+        monkeypatch.setenv("YOUTUBE_API_KEY", "PROCESS_FALLBACK")
+        env.write_text("YOUTUBE_API_KEY=\n", encoding="utf-8")
+        assert comments.fetch(VIDEO_ID) == ("인기 댓글",)
+    assert requested == ["ROOT_ONE", "ROOT_TWO", "PROCESS_FALLBACK"]
+    monkeypatch.delenv("YOUTUBE_API_KEY")
+    with pytest.raises(ValueError, match="COMMENTS_KEY_MISSING"):
+        comments.fetch(VIDEO_ID)
+    env.write_text("YOUTUBE_API_KEY=ROOT_THREE\n", encoding="utf-8")
+    settings.save_ai("openai", "gpt-5.4-mini", "AI_TEST_KEY")
+    assert settings.youtube_api_key() == "ROOT_THREE"
+
+
+def test_ai_env_migration_failure_preserves_original_key_file(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    old = tmp_path / "data" / "dashboard" / ".env"
+    old.parent.mkdir(parents=True)
+    old.write_text('GEMINI_API_KEY="ORIGINAL_KEY"\n', encoding="utf-8")
+    with patch.object(DashboardSettings, "_write_ai_env", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
+            DashboardSettings(tmp_path / "config.yaml")
+    assert old.is_file()
+    assert not (tmp_path / ".env").exists()
+
+
+def test_dashboard_video_assignment_is_durable_and_round_robin(tmp_path):
+    from datetime import datetime, timezone
+    cards = [VideoCard(f"AbCdEfGhI{i:02d}", "UCxlc0Ky0aWoD8uI09ad44Tg",
+                       "채널", f"제목 {i}", f"2026-10-{i+1:02d}", "") for i in range(5)]
+    path = tmp_path / "posts.db"
+    with Store(path) as store:
+        store.assign_dashboard_videos(reversed(cards), ["유튜브1", "유튜브2", "유튜브3"],
+                                      datetime.now(timezone.utc))
+        assert [store.dashboard_assignment(card.video_id)["profile"] for card in cards] == [
+            "유튜브1", "유튜브2", "유튜브3", "유튜브1", "유튜브2"]
+    with Store(path) as store:
+        store.assign_dashboard_videos(cards, ["유튜브3"], datetime.now(timezone.utc))
+        assert [store.dashboard_assignment(card.video_id)["profile"] for card in cards] == [
+            "유튜브1", "유튜브2", "유튜브3", "유튜브1", "유튜브2"]
+
+
+def test_private_settings_ui_saves_channels_and_rejects_cross_origin(tmp_path):
+    example = dict(DashboardSettings.DEFAULT)
+    example["api_key"] = "PRIVATE_TEST_VALUE"
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(example, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, feed_loader=lambda: VideoList())
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert "채널 관리" in page and "options-open" in page
+        assert "고급 설정" not in page and "settings-yaml" not in page
+        assert "PRIVATE_TEST_VALUE" not in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/settings")[0] == 403
+        status, result = request(port, "GET", "/api/settings", token=token)
+        assert status == 200
+        original = json.loads(result)["yaml"]
+        assert "PRIVATE_TEST_VALUE" not in original
+        updated = original.replace("UCkGl2jieOVhGiHPdXF77Yyw", "UCabcdefghijklmnopqrstuv")
+        body = json.dumps({"yaml": updated})
+        endpoint = "/api/settings"
+        assert request(port, "POST", endpoint, token=token, body=body)[0] == 403
+        assert request(port, "POST", endpoint, origin="http://evil.example",
+                       token=token, body=body)[0] == 403
+        assert request(port, "POST", endpoint, origin=f"http://{HOST}:{port}",
+                       token="wrong", body=body)[0] == 403
+        assert not (tmp_path / "config.yaml").exists()
+        status, result = request(port, "POST", endpoint, origin=f"http://{HOST}:{port}",
+                                 token=token, body=body)
+        assert status == 200
+        assert "UCabcdefghijklmnopqrstuv" in json.loads(result)["yaml"]
+        assert "UCabcdefghijklmnopqrstuv" in settings.channels()
+        saved = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+        assert saved["api_key"] == "PRIVATE_TEST_VALUE"
+        assert saved["channels"][-1] == "UCabcdefghijklmnopqrstuv"
+        bad = updated.replace("daily_max_comments: 10", "daily_max_comments: 100")
+        status, result = request(port, "POST", endpoint, origin=f"http://{HOST}:{port}",
+                                 token=token, body=json.dumps({"yaml": bad}))
+        assert status == 400
+        assert json.loads(result)["reason_code"] == "SETTINGS_LIMIT_PDF_LOCKED"
+        assert settings.channels()["UCabcdefghijklmnopqrstuv"] == ""
+
+
+def test_channel_dialog_api_adds_sixth_channel_without_exposing_secrets(tmp_path):
+    example = dict(DashboardSettings.DEFAULT)
+    example["api_key"] = "SECRET_KEEP"
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(example, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, feed_loader=lambda: VideoList())
+    extra = "UCabcdefghijklmnopqrstuv"
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert "SECRET_KEEP" not in page
+        assert "id=\"channel-dialog\"" in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/channels")[0] == 403
+        status, result = request(port, "GET", "/api/channels", token=token)
+        assert status == 200
+        original = json.loads(result)["channels"]
+        assert len(original) == 5 and "SECRET_KEEP" not in result
+        updated = original + [extra]
+        body = json.dumps({"channels": updated})
+        endpoint = "/api/channels"
+        assert request(port, "POST", endpoint, token=token, body=body)[0] == 403
+        assert request(port, "POST", endpoint, origin="http://evil.example",
+                       token=token, body=body)[0] == 403
+        assert not (tmp_path / "config.yaml").exists()
+        status, result = request(port, "POST", endpoint,
+                                 origin=f"http://{HOST}:{port}", token=token, body=body)
+        assert status == 200 and json.loads(result)["channels"] == updated
+        saved = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+        assert saved["api_key"] == "SECRET_KEEP"
+        assert saved["channels"] == updated and extra in settings.channels()
+        bad = json.dumps({"channels": updated + [extra]})
+        assert request(port, "POST", endpoint, origin=f"http://{HOST}:{port}",
+                       token=token, body=bad)[0] == 400
+        assert settings.channel_ids() == updated
+        with patch("marketing_agent.dashboard.check_channel_connection",
+                   return_value={"channel_id": extra, "connected": True, "video_count": 0}) as probe:
+            test_body = json.dumps({"channel_id": extra})
+            assert request(port, "POST", "/api/channels/test", token=token,
+                           body=test_body)[0] == 403
+            assert probe.call_count == 0
+            status, result = request(port, "POST", "/api/channels/test",
+                                     origin=f"http://{HOST}:{port}", token=token,
+                                     body=test_body)
+            assert status == 200 and json.loads(result)["video_count"] == 0
+            probe.assert_called_once_with(extra)
+        assert not (tmp_path / "posts.db").exists()
+
+
+def test_channel_connection_checks_requested_rss_channel_id():
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    feed = (f'<feed xmlns="http://www.w3.org/2005/Atom" '
+            f'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+            f'<yt:channelId>{channel_id}</yt:channelId></feed>').encode()
+    result = check_channel_connection(channel_id, fetch=lambda _id, **_: feed)
+    assert result == {"channel_id": channel_id, "channel_name": "",
+                      "connected": True, "video_count": 0}
+    try:
+        check_channel_connection("bad", fetch=lambda _id, **_: feed)
+    except ValueError as exc:
+        assert str(exc) == "SETTINGS_CHANNEL_ID_INVALID"
+    else:
+        assert False, "invalid ID must be rejected before RSS fetch"
+    try:
+        check_channel_connection(next(iter(DashboardSettings.DEFAULT["channels"])),
+                                 fetch=lambda _id, **_: feed)
+    except ValueError as exc:
+        assert str(exc) == "RSS_CHANNEL_MISMATCH"
+    else:
+        assert False, "mismatched RSS channel must be rejected"
+
+
+def test_channel_id_entries_save_optional_names(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    (tmp_path / ".env").write_text("YOUTUBE_API_KEY=SEARCH_KEY\n", encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, feed_loader=lambda: VideoList())
+    entries = settings.channel_entries()
+    entries[0] = {**entries[0], "channel_name": "사람이 읽는 채널명"}
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        status, result = request(port, "POST", "/api/channels",
+                                 origin=f"http://{HOST}:{port}", token=token,
+                                 body=json.dumps({"entries": entries}))
+        assert status == 200
+        assert json.loads(result)["entries"][0]["channel_name"] == "사람이 읽는 채널명"
+        assert DashboardSettings(tmp_path / "config.yaml").channel_entries()[0] == entries[0]
+        entries[0]["channel_name"] = ""
+        status, result = request(port, "POST", "/api/channels",
+                                 origin=f"http://{HOST}:{port}", token=token,
+                                 body=json.dumps({"entries": entries}))
+        assert status == 200 and json.loads(result)["entries"][0]["channel_name"] == ""
+
+
+def test_ai_settings_are_write_only_and_test_requires_local_request_checks(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, feed_loader=lambda: VideoList())
+    with patch.dict("os.environ", {}, clear=True), running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert 'id="options-menu"' in page and 'id="ai-dialog"' in page
+        assert "gpt-5-nano" in page and "gemini-3.5-flash-lite" in page
+        assert "claude-haiku-4-5" in page and "grok-4-1-fast-non-reasoning" in page
+        assert "추천" in page and "직접 입력" in page
+        assert "updateCommentLength" in page and "await selectVideo(saved.video_id)" in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/ai")[0] == 403
+        public = json.loads(request(port, "GET", "/api/ai", token=token)[1])
+        assert public == {"provider": "openai", "model": "gpt-5.4-mini",
+                          "has_key": False, "key_source": "none"}
+        body = json.dumps({"provider": "openai", "model": "gpt-5.4-mini",
+                           "api_key": "PRIVATE_AI_TEST_KEY", "clear_key": False})
+        endpoint = "/api/ai"
+        assert request(port, "POST", endpoint, token=token, body=body)[0] == 403
+        assert request(port, "POST", endpoint, token=token, origin="http://evil.example",
+                       body=body)[0] == 403
+        assert request(port, "POST", endpoint, token="wrong",
+                       origin=f"http://{HOST}:{port}", body=body)[0] == 403
+        assert not (tmp_path / "config.yaml").exists()
+        status, result = request(port, "POST", endpoint, token=token,
+                                 origin=f"http://{HOST}:{port}", body=body)
+        assert status == 200 and "PRIVATE_AI_TEST_KEY" not in result
+        assert settings.ai_credentials() == ("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+        assert "PRIVATE_AI_TEST_KEY" not in request(port, "GET", "/api/ai", token=token)[1]
+        assert "PRIVATE_AI_TEST_KEY" not in settings.yaml_text()
+        settings.save_channels(settings.channel_ids())
+        assert settings.ai_credentials()[2] == "PRIVATE_AI_TEST_KEY"
+        with patch("marketing_agent.dashboard.test_ai_connection", return_value=True) as probe:
+            assert request(port, "POST", "/api/ai/test", host="evil.example",
+                           token=token, origin=f"http://{HOST}:{port}", body="{}")[0] == 403
+            assert request(port, "POST", "/api/ai/test", token=token,
+                           body="{}")[0] == 403
+            assert request(port, "POST", "/api/ai/test", token=token,
+                           origin="http://evil.example", body="{}")[0] == 403
+            probe.assert_not_called()
+            status, result = request(port, "POST", "/api/ai/test", token=token,
+                                     origin=f"http://{HOST}:{port}", body="{}")
+            assert status == 200 and json.loads(result)["connected"]
+            probe.assert_called_once_with("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+        switch = json.dumps({"provider": "grok", "model": "grok-4.7",
+                             "api_key": "", "clear_key": False})
+        assert request(port, "POST", endpoint, token=token,
+                       origin=f"http://{HOST}:{port}", body=switch)[0] == 200
+        assert settings.ai_credentials() == ("grok", "grok-4.7", "")
+        assert request(port, "POST", "/api/ai/test", token=token,
+                       origin=f"http://{HOST}:{port}", body="{}")[0] == 409
+        settings.save_ai("grok", "grok-4.7", "SECOND_PRIVATE_KEY")
+        settings.save_ai("grok", "grok-4.7", "")
+        assert settings.ai_credentials()[2] == "SECOND_PRIVATE_KEY"
+        settings.save_ai("grok", "grok-4.7", "", clear_key=True)
+        assert settings.ai_credentials()[2] == ""
+        assert not (tmp_path / "posts.db").exists()
+    with running_server(DemoService()) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/ai", token=token)[0] == 404
+        assert request(port, "POST", "/api/ai/test", token=token,
+                       origin=f"http://{HOST}:{port}", body="{}")[0] == 404
+
+
+def test_profile_settings_list_only_app_profiles_and_select_by_label(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    external = tmp_path / "Chrome User Data"
+    (external / "Profile 3").mkdir(parents=True)
+    prior = settings._read_full()
+    prior["chrome_profiles"] = {"유튜브1": {"user_data_dir": str(external),
+                                         "profile_directory": "Profile 3"}}
+    settings._write_full(prior)
+    assert settings.profile_public()["configured"] is False
+    assert settings.profile_public()["user_data_dir"] == ""
+    root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube2"
+    (root / "Default").mkdir(parents=True)
+    assert settings.profile_options_public()["options"][1] == {
+        "label": "유튜브2", "email": "", "configured": True, "connected": False, "selected": False}
+    saved = settings.save_profile("유튜브2")
+    assert saved == {"label": "유튜브2", "user_data_dir": str(root),
+                     "profile_directory": "Default", "configured": True}
+    assert settings.profile_public() == saved
+    choices = settings.profile_options_public()
+    assert choices["selected"] == "유튜브2"
+    assert choices["options"] == [
+        {"label": "유튜브1", "email": "", "configured": False, "connected": False, "selected": False},
+        {"label": "유튜브2", "email": "", "configured": True, "connected": True, "selected": True},
+        {"label": "유튜브3", "email": "", "configured": False, "connected": False, "selected": False},
+    ]
+    assert "Chrome User Data" not in str(choices)
+    for label in ("Profile 3", "유튜브4"):
+        try:
+            settings.save_profile(label)
+            assert False
+        except ValueError as exc:
+            assert str(exc) == "PROFILE_SETTINGS_INVALID"
+    try:
+        settings.save_profile("유튜브3")
+        assert False
+    except ValueError as exc:
+        assert str(exc) == "PROFILE_DIRECTORY_MISSING"
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, feed_loader=lambda: VideoList())
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert "profile-menu-open" in page and "profileRequired" in page
+        assert "페이지를 새로고침한 뒤 다시 시도하세요" in page
+        assert "profile-list" in page and "현재 계정 확인" in page
+        assert "이메일 저장" not in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/profile-options")[0] == 403
+        status, body = request(port, "GET", "/api/profile-options", token=token)
+        assert status == 200
+        assert json.loads(body)["options"][1]["label"] == "유튜브2"
+
+
+def test_named_profile_addition_uses_random_private_root_and_rejects_duplicates(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "shots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, poster=poster)
+    created = service.add_profile("브랜드 계정")
+    assert created["label"] == "브랜드 계정"
+    assert re.fullmatch(r"p-[a-f0-9]{16}", created["profile_id"])
+    root = settings.app_profile_root("브랜드 계정")
+    assert root.name == "chrome-profile-" + created["profile_id"]
+    assert "브랜드 계정" not in str(root)
+    assert (root / "Default").is_dir()
+    option = settings.profile_options_public()["options"][-1]
+    assert option["label"] == "브랜드 계정" and option["configured"] and option["connected"]
+    with pytest.raises(ValueError, match="PROFILE_NAME_DUPLICATE"):
+        settings.add_profile("  브랜드 계정  ")
+    with pytest.raises(ValueError, match="PROFILE_NAME_INVALID"):
+        settings.add_profile("잘못된/이름")
+    restarted = DashboardSettings(tmp_path / "config.yaml")
+    assert restarted.app_profile_root("브랜드 계정") == root
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        body = json.dumps({"label": "추가 계정"})
+        assert request(port, "POST", "/api/profile/add", token=token, body=body)[0] == 403
+        status, response = request(port, "POST", "/api/profile/add", token=token,
+                                   origin=f"http://{HOST}:{port}", body=body)
+        assert status == 200 and json.loads(response)["label"] == "추가 계정"
+        status, response = request(port, "POST", "/api/profile/add", token=token,
+                                   origin=f"http://{HOST}:{port}", body=body)
+        assert status == 400 and json.loads(response)["reason_code"] == "PROFILE_NAME_DUPLICATE"
+    for index in range(15):
+        settings.add_profile(f"추가 {index}")
+    with pytest.raises(ValueError, match="PROFILE_LIMIT_REACHED"):
+        settings.add_profile("한도 초과")
+
+
+def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    root = settings.app_profile_root("유튜브1")
+    (root / "Default").mkdir(parents=True)
+    settings.save_profile("유튜브1")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult(
+        "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글", ("자막", "인기 댓글"))})()
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, feed_loader=lambda: VideoList((card,)))
+    service.list_videos()
+    response = {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
+                "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
+    schemas, prompts = [], []
+    class FakeAI:
+        def complete_json(self, *_args, response_schema=None):
+            schemas.append(response_schema)
+            prompts.append(_args[1])
+            return response
+    fake_ai = FakeAI()
+    with patch("marketing_agent.dashboard.create_ai_client", return_value=fake_ai) as factory:
+        generated = service.generate_draft(VIDEO_ID)
+    factory.assert_called_once_with("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    assert schemas == [DRAFT_RESPONSE_SCHEMA]
+    assert json.loads(prompts[0])["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
+    assert generated["comment"] == response["comment"]
+    assert service.select_video(VIDEO_ID).reason_code == "APPROVAL_MISSING"
+    approved = service.approve_draft(VIDEO_ID, {key: generated[key] for key in
+                                                ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})
+    assert approved["can_post"] is True
+    # The browser re-selects after approval so the posting guard has a fresh
+    # approval hash before it evaluates the profile requirement.
+    preview = service.select_video(VIDEO_ID)
+    assert preview.reason_code == "PROFILE_NOT_CONFIGURED"
+    assert service.post_video(VIDEO_ID).reason_code == "PROFILE_NOT_CONFIGURED"
+    with Store(tmp_path / "posts.db") as store:
+        assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+
+
+def test_rejected_draft_generation_never_calls_service():
+    class DraftService(FakeService):
+        generated = 0
+
+        def generate_draft(self, video_id):
+            self.generated += 1
+            return {"video_id": video_id, "worry_summary": "고민", "cited_detail": "근거", "comment": "초안"}
+
+    service = DraftService()
+    with running_server(service) as port:
+        token = re.search(r'name="session-token" content="([^"]+)"', request(port, "GET", "/")[1]).group(1)
+        body = json.dumps({"video_id": VIDEO_ID})
+        assert request(port, "POST", "/api/drafts/generate", host="evil.example", token=token,
+                       origin=f"http://{HOST}:{port}", body=body)[0] == 403
+        assert service.generated == 0 and service.posts == 0
+        assert request(port, "POST", "/api/drafts/generate", token=token,
+                       origin=f"http://{HOST}:{port}", body=body)[0] == 200
+        assert service.generated == 1 and service.posts == 0
+
+
+def test_configured_channel_drives_rss_and_test_video_conflict(tmp_path):
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    feed = (f'<feed xmlns="http://www.w3.org/2005/Atom" '
+            f'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+            f'<yt:channelId>{channel_id}</yt:channelId><title>새 채널</title><entry>'
+            f'<yt:videoId>{VIDEO_ID}</yt:videoId><yt:channelId>{channel_id}</yt:channelId>'
+            f'<title>새 영상</title><published>2026-10-15T00:00:00Z</published>'
+            f'</entry></feed>').encode()
+    channels = {channel_id: ""}
+    loaded = list_videos(fetch=lambda candidate: feed, channels=channels)
+    assert len(loaded.videos) == 1
+    assert loaded.videos[0].channel == "새 채널"
+    assert recheck_video(VIDEO_ID, channel_id, fetch=lambda candidate: feed,
+                         channels=channels) == loaded.videos[0]
+    assert recheck_video(VIDEO_ID, next(iter(DashboardSettings.DEFAULT["channels"])),
+                         fetch=lambda candidate: feed, channels=channels) is None
+
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    updated = settings.yaml_text().replace("UCkGl2jieOVhGiHPdXF77Yyw", channel_id)
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+        settings=settings,
+        test_videos=[{"video_id": VIDEO_ID, "channel_id": channel_id, "title": "내 영상"}])
+    try:
+        service.save_settings_yaml(updated)
+        assert False
+    except ValueError as exc:
+        assert str(exc) == "SETTINGS_TEST_CHANNEL_CONFLICT"
+    assert not (tmp_path / "config.yaml").exists()
+
+
+def test_selection_only_reads_draft():
+    service = FakeService()
+    with running_server(service) as port:
+        assert request(port, "GET", "/api/videos")[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{VIDEO_ID}/draft")
+        assert status == 200
+        assert json.loads(body)["worry_summary"] == "고민"
+    assert service.selections == 1
+    assert (service.posts, service.reservations, service.chrome_opens) == (0, 0, 0)
+
+
+def test_offline_demo_never_invokes_posting_service():
+    service = DemoService()
+    with running_server(service) as port:
+        status, page = request(port, "GET", "/")
+        assert status == 200
+        assert "오프라인 연습 모드" in page
+        assert "YouTube 요청" in page
+        assert request(port, "GET", "/api/videos")[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{service.VIDEO_ID}/draft")
+        assert status == 200 and json.loads(body)["can_post"]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        status, body = request(port, "POST", "/api/post",
+                               origin=f"http://{HOST}:{port}", token=token,
+                               body=json.dumps({"video_id": service.VIDEO_ID}))
+        assert status == 409
+        assert json.loads(body)["reason_code"] == "DEMO_NO_POST"
+    with patch("marketing_agent.dashboard.run_dashboard") as run:
+        assert __main__.main(["dashboard", "--demo"]) == 0
+        assert isinstance(run.call_args.kwargs["service"], DemoService)
+        assert run.call_args.kwargs["capture_dir"] is None
+        assert __main__.main(["dashboard", "--demo", "--test-videos-config", "config.yaml"]) == 1
+
+
+def test_dashboard_subcommand_connects_posting_service():
+    with patch("marketing_agent.dashboard.run_dashboard") as run:
+        assert __main__.main(["dashboard", "--port", "9234"]) == 0
+        args = run.call_args.kwargs
+        assert args["port"] == 9234
+        assert args["service"].poster is not None
+        expected = DashboardSettings(__main__._app_path("config.yaml")).profile_public()
+        assert args["service"].poster.profile_directory == expected["profile_directory"]
+        assert args["service"].daily_limit == 10
+        assert args["capture_dir"] == __main__.APP_ROOT / "data/dashboard/screenshots"
+    with patch("marketing_agent.dashboard.run_dashboard") as run:
+        assert __main__.main(["dashboard", "--chrome-user-data-dir", "/tmp/chrome",
+                              "--chrome-profile-directory", "Profile 2"]) == 0
+        poster = run.call_args.kwargs["service"].poster
+        assert poster.user_data_dir == Path("/tmp/chrome")
+        assert poster.profile_directory == "Profile 2"
+    assert __main__.main(["--config", "missing-config.yaml", "--once"]) == 1
+
+
+def test_owned_test_video_cli_requires_explicit_local_evidence(tmp_path):
+    video_id = "MyTestVid01"
+    channel_id = "UCabcdefghijklmnopqrstuv"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "dashboard_test_videos:\n"
+        f"  - video_id: {video_id}\n"
+        f"    channel_id: {channel_id}\n"
+        "    title: My own test video\n", encoding="utf-8")
+    work_dir = tmp_path / "data"
+    work_dir.mkdir()
+    proof = work_dir / "ownership.txt"
+    proof.write_text("Checked by the user in YouTube Studio.", encoding="utf-8")
+    with patch.object(__main__, "APP_ROOT", tmp_path):
+        with patch("marketing_agent.dashboard.run_dashboard") as run:
+            command = ["dashboard", "--work-dir", "data", "--test-videos-config",
+                       "config.yaml", "--register-owned-test-video", video_id]
+            assert __main__.main(command) == 1
+            run.assert_not_called()
+            assert not (work_dir / "posts.db").exists()
+            assert __main__.main(command + ["--ownership-evidence", "config.yaml"]) == 1
+            assert not (work_dir / "posts.db").exists()
+            assert __main__.main(command + ["--ownership-evidence", "data/ownership.txt"]) == 0
+            run.assert_not_called()
+            with Store(work_dir / "posts.db") as store:
+                record = store.ownership(video_id)
+                assert record["owner_channel_id"] == channel_id
+                assert record["evidence_path"] == "ownership.txt"
+            assert __main__.main(["dashboard", "--work-dir", "data",
+                                  "--test-videos-config", "config.yaml"]) == 0
+            assert video_id in run.call_args.kwargs["service"].test_videos
+            assert __main__.main(["dashboard", "--work-dir", ".."]) == 1
+
+
+def test_only_dashboard_capture_directory_is_served():
+    with TemporaryDirectory() as root:
+        captures = Path(root) / "screenshots"
+        captures.mkdir()
+        allowed = captures / f"{VIDEO_ID}-123.png"
+        allowed.write_bytes(b"PNG")
+        outside = Path(root) / f"{VIDEO_ID}-456.png"
+        outside.write_bytes(b"PNG")
+        assert _capture_url(str(allowed), captures) == f"/captures/{allowed.name}"
+        assert _capture_url(str(outside), captures) == ""
+        with running_server(FakeService(), capture_dir=captures) as port:
+            assert request(port, "GET", f"/captures/{allowed.name}")[0] == 200
+            assert request(port, "GET", f"/captures/{outside.name}")[0] == 404
+            assert request(port, "GET", "/captures/../../secret.png")[0] == 404
+
+
+def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, monkeypatch):
+    local_app_data = tmp_path / "LocalAppData"
+    root = local_app_data / "Google" / "Chrome" / "User Data"
+    (root / "Profile 1").mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    poster = VisibleChromePoster(root, "Profile 1", screenshot_dir=tmp_path / "screenshots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", poster=poster)
+    assert service._profile_reason() == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
+    with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+        result = service.post_video(VIDEO_ID)
+    assert result.reason_code == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
+    post.assert_not_called()
+    assert poster.events == []
+
+
+def test_missing_profile_blocks_before_store_or_chrome():
+    with TemporaryDirectory() as root:
+        poster = VisibleChromePoster(root, "", screenshot_dir=Path(root) / "screenshots")
+        service = ConfiguredPostingService(Path(root) / "posts.db", Path(root) / "drafts",
+                                           poster=poster)
+        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+            result = service.post_video(VIDEO_ID)
+        assert result.reason_code == "PROFILE_NOT_CONFIGURED"
+        post.assert_not_called()
+        assert poster.events == []
+
+
+def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    prior = tmp_path / "data" / "dashboard" / "chrome-profile-youtube1"
+    (prior / "Default").mkdir(parents=True)
+    settings.save_profile("유튜브1")
+    poster = VisibleChromePoster(prior, "Default", screenshot_dir=tmp_path / "screenshots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       poster=poster, settings=settings)
+    with patch("marketing_agent.dashboard._open_login_window",
+               side_effect=ValueError("CHROME_NOT_FOUND")):
+        try:
+            service.open_app_profile()
+            assert False
+        except ValueError as exc:
+            assert str(exc) == "CHROME_NOT_FOUND"
+    assert settings.profile_public()["user_data_dir"] == str(prior)
+    assert poster.user_data_dir == prior
+    root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube1"
+    with patch("marketing_agent.dashboard._open_login_window") as launch:
+        saved = service.open_app_profile("유튜브1")
+    launch.assert_called_once_with(root)
+    assert saved["profile_directory"] == "Default"
+    assert saved["login_window_opened"] is True
+    assert (root / "Default").is_dir()
+    assert poster.user_data_dir == prior
+    assert poster.profile_directory == "Default"
+    assert service.profile == "유튜브1"
+    assert not (tmp_path / "posts.db").exists()
+
+
+def test_login_window_opens_google_login_without_video(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "shots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       settings=settings, poster=poster)
+    with patch("marketing_agent.dashboard._open_login_window") as launch:
+        service.open_app_profile("유튜브2")
+        launch.assert_called_once_with(settings.app_profile_root("유튜브2"))
+    assert settings.profile_public()["label"] == "유튜브1"
+    assert settings.profile_options_public()["options"][1]["connected"] is True
+    assert poster.user_data_dir == tmp_path
+    assert not (tmp_path / "posts.db").exists()
+    with patch("marketing_agent.dashboard._installed_chrome", return_value=Path("chrome.exe")), \
+         patch("marketing_agent.dashboard.subprocess.Popen") as start:
+        from marketing_agent.dashboard import GOOGLE_LOGIN_URL, _open_login_window
+        _open_login_window(settings.app_profile_root("유튜브2"))
+        second = start.call_args.args[0]
+        _open_login_window(settings.app_profile_root("유튜브1"))
+        first = start.call_args.args[0]
+    assert second[-1] == first[-1] == GOOGLE_LOGIN_URL
+    assert "accounts.google.com/AccountChooser" in GOOGLE_LOGIN_URL
+    assert "youtube.com" not in GOOGLE_LOGIN_URL
+    assert f"--user-data-dir={settings.app_profile_root('유튜브2')}" in second
+    assert f"--user-data-dir={settings.app_profile_root('유튜브1')}" in first
+    assert first != second
+
+
+def test_app_profile_setup_http_boundary(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       poster=poster, settings=settings)
+    with patch("marketing_agent.dashboard._open_login_window") as launch:
+        with running_server(service) as port:
+            page = request(port, "GET", "/")[1]
+            assert "profile-setup" in page
+            token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+            assert request(port, "GET", "/api/profile/setup", token=token)[0] == 404
+            setup_body = json.dumps({"label": "유튜브1"})
+            assert request(port, "POST", "/api/profile/setup", body=setup_body)[0] == 403
+            assert request(port, "POST", "/api/profile/setup", token=token,
+                           origin="http://evil.invalid", body=setup_body)[0] == 403
+            assert request(port, "POST", "/api/profile/setup", token=token,
+                           origin=f"http://{HOST}:{port}", body='{"extra":1}')[0] == 400
+            assert request(port, "POST", "/api/profile/setup", token=token,
+                           origin=f"http://{HOST}:{port}",
+                           body=json.dumps({"label": "유튜브1", "video_id": VIDEO_ID}))[0] == 400
+            launch.assert_not_called()
+            status, body = request(port, "POST", "/api/profile/setup", token=token,
+                                    origin=f"http://{HOST}:{port}", body=setup_body)
+            assert status == 200
+            assert json.loads(body)["login_window_opened"] is True
+            launch.assert_called_once()
+    assert not (tmp_path / "posts.db").exists()
+
+
+def test_profile_selection_http_uses_only_private_roots(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube2"
+    (root / "Default").mkdir(parents=True)
+    poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       poster=poster, settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        body = json.dumps({"label": "유튜브2"})
+        assert request(port, "POST", "/api/profile", body=body)[0] == 403
+        assert request(port, "POST", "/api/profile", token=token,
+                       origin=f"http://{HOST}:{port}", body='{"label":"Profile 2"}')[0] == 400
+        status, response = request(port, "POST", "/api/profile", token=token,
+                                   origin=f"http://{HOST}:{port}", body=body)
+        assert status == 200
+        assert json.loads(response)["label"] == "유튜브2"
+    assert poster.user_data_dir == root
+    assert poster.profile_directory == "Default"
+    assert service.profile == "유튜브2"
+    assert not (tmp_path / "posts.db").exists()
+
+
+def test_app_login_window_blocks_post_until_closed(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
+                                       poster=poster, settings=settings)
+    with patch("marketing_agent.dashboard._open_login_window") as launch:
+        launch.return_value.poll.return_value = None
+        service.open_app_profile()
+        poster.user_data_dir = settings.app_profile_root("유튜브1")
+        poster.profile_directory = "Default"
+        service.profile = "유튜브1"
+        assert service._profile_reason() == "PROFILE_LOCKED"
+        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+            result = service.post_video(VIDEO_ID)
+        assert result.reason_code == "PROFILE_LOCKED"
+        post.assert_not_called()
+        assert poster.events == []
+        assert not (tmp_path / "posts.db").exists()
+        launch.return_value.poll.return_value = 0
+        assert service._profile_reason() == ""

@@ -1,0 +1,165 @@
+"""Command line entry point for the marketing agent."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+from time import sleep
+
+import yaml
+
+from .config import load_config
+from .logging import EventLogger
+from .pipeline import run_cycle
+from .storage import Store
+from .watcher import cycle_times
+
+
+APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _app_path(value: str | Path) -> Path:
+    """Keep dashboard reads and writes inside the downloaded app folder."""
+    path = Path(value)
+    resolved = (APP_ROOT / path if not path.is_absolute() else path).resolve()
+    if not resolved.is_relative_to(APP_ROOT):
+        raise ValueError("DASHBOARD_PATH_OUTSIDE_APP")
+    return resolved
+
+
+def _load_test_videos(config_name: str | None) -> list[dict]:
+    if not config_name:
+        return []
+    config_path = _app_path(config_name)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("dashboard_test_videos"), list):
+        raise ValueError("TEST_VIDEO_CONFIG_INVALID")
+    entries = data["dashboard_test_videos"]
+    from .posting_service import _test_cards
+    _test_cards(entries)
+    return entries
+
+
+def _register_owned_test_video(db_path: Path, work_dir: Path, entries: list[dict],
+                               video_id: str, evidence_name: str) -> None:
+    from .posting_service import _test_cards
+    cards = _test_cards(entries)
+    if video_id not in cards:
+        raise ValueError("TEST_VIDEO_NOT_CONFIGURED")
+    evidence = _app_path(evidence_name)
+    if not evidence.is_relative_to(work_dir) or not evidence.is_file():
+        raise ValueError("OWNERSHIP_EVIDENCE_MISSING")
+    card = cards[video_id]
+    now = datetime.now(timezone.utc)
+    with Store(db_path) as store:
+        existing = store.video(video_id)
+        if existing is not None and existing["channel_id"] != card.channel_id:
+            raise ValueError("TEST_VIDEO_CHANNEL_CHANGED")
+        store.save_video(video_id, card.channel_id, now, title=card.title)
+        store.register_owned_video(video_id, card.channel_id, now,
+                                   str(evidence.relative_to(work_dir)))
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "dashboard":
+        dashboard_parser = argparse.ArgumentParser(description="Run the local dashboard")
+        dashboard_parser.add_argument("--port", type=int, default=8765)
+        dashboard_parser.add_argument("--demo", action="store_true", help="Offline UI walkthrough; never contacts YouTube or opens the posting profile")
+        dashboard_parser.add_argument("--drafts-dir", default="drafts")
+        dashboard_parser.add_argument("--work-dir", default="data/dashboard")
+        dashboard_parser.add_argument("--test-videos-config", help="Local YAML with explicitly owned test videos")
+        dashboard_parser.add_argument("--register-owned-test-video", metavar="VIDEO_ID",
+                                      help="Record your manually verified ownership, then exit without posting")
+        dashboard_parser.add_argument("--ownership-evidence",
+                                      help="Existing evidence file inside --work-dir, required for registration")
+        dashboard_parser.add_argument("--chrome-user-data-dir",
+                                      default=str(Path.home() / "Library/Application Support/Google/Chrome"))
+        dashboard_parser.add_argument("--chrome-profile-directory", default="")
+        dashboard_args = dashboard_parser.parse_args(argv[1:])
+        from .dashboard import ConfiguredPostingService, DashboardSettings, DemoService, run_dashboard
+        from .poster import VisibleChromePoster
+        from .rss_feed import list_videos, recheck_video
+        try:
+            if dashboard_args.demo:
+                if (dashboard_args.test_videos_config or dashboard_args.register_owned_test_video
+                        or dashboard_args.ownership_evidence):
+                    raise ValueError("DEMO_CANNOT_REGISTER_REAL_VIDEO")
+                run_dashboard(port=dashboard_args.port, service=DemoService(), capture_dir=None)
+                return 0
+            work_dir = _app_path(dashboard_args.work_dir)
+            drafts_dir = _app_path(dashboard_args.drafts_dir)
+            entries = _load_test_videos(dashboard_args.test_videos_config)
+            if dashboard_args.register_owned_test_video:
+                if not dashboard_args.test_videos_config or not dashboard_args.ownership_evidence:
+                    raise ValueError("TEST_VIDEO_CONFIG_AND_EVIDENCE_REQUIRED")
+                _register_owned_test_video(work_dir / "posts.db", work_dir, entries,
+                                           dashboard_args.register_owned_test_video,
+                                           dashboard_args.ownership_evidence)
+                print("Owned test video registered locally; no YouTube or Chrome action was performed.")
+                return 0
+            if dashboard_args.ownership_evidence:
+                raise ValueError("OWNERSHIP_EVIDENCE_REQUIRES_REGISTRATION")
+            capture_dir = work_dir / "screenshots"
+            settings = DashboardSettings(_app_path("config.yaml"))
+            poster = VisibleChromePoster(
+                dashboard_args.chrome_user_data_dir,
+                dashboard_args.chrome_profile_directory,
+                screenshot_dir=capture_dir,
+            )
+            service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
+                                               poster=poster, profile="유튜브1",
+                                               test_videos=entries, settings=settings,
+                                               feed_loader=lambda: list_videos(channels=settings.channels()),
+                                               recheck=lambda video_id, channel_id: recheck_video(
+                                                   video_id, channel_id, channels=settings.channels()))
+            # A command-line profile is an explicit one-run override; otherwise
+            # the locally saved dashboard selection is applied by the service.
+            if dashboard_args.chrome_profile_directory:
+                poster.user_data_dir = Path(dashboard_args.chrome_user_data_dir)
+                poster.profile_directory = dashboard_args.chrome_profile_directory
+            run_dashboard(port=dashboard_args.port, service=service,
+                          capture_dir=capture_dir)
+            return 0
+        except (OSError, ValueError) as exc:
+            print(f"dashboard error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    parser = argparse.ArgumentParser(description="Run the guarded marketing agent")
+    parser.add_argument("--config", default="config.example.yaml")
+    parser.add_argument("--once", action="store_true", help="Run one immediate cycle without posting")
+    parser.add_argument("--offline-fixtures", action="store_true", help="Use fixed inputs without network or posting")
+    parser.add_argument("--dry-run", action="store_true", help="Run one immediate cycle without posting")
+    parser.add_argument("--db", default="data/agent.db")
+    parser.add_argument("--output", default="data/dry_run/comments.jsonl")
+    parser.add_argument("--log", default="logs/run.log")
+    parser.add_argument("--duration-hours", type=float, default=3)
+    args = parser.parse_args(argv)
+    try:
+        config = load_config(args.config)
+        immediate = args.once or args.offline_fixtures or args.dry_run
+        start = datetime.now(timezone.utc)
+        boundaries = cycle_times(start, interval_minutes=config.poll_interval_min,
+                                 duration_hours=args.duration_hours, once=immediate)
+        logger = EventLogger(args.log)
+        with Store(args.db) as store:
+            for boundary in boundaries:
+                delay = (boundary - datetime.now(timezone.utc)).total_seconds()
+                if delay > 0:
+                    sleep(delay)
+                outcome = run_cycle(config=config, store=store, logger=logger,
+                                    dry_run_path=args.output, screenshot_dir=Path("data/screenshots"),
+                                    offline=args.offline_fixtures, dry_run=immediate)
+                print(f"run_id={outcome['run_id']} candidates={outcome['candidates']} "
+                      f"comments={outcome['comments']} post_calls={outcome['post_calls']} "
+                      f"errors={outcome['errors']}")
+        return 0
+    except Exception as exc:
+        print(f"agent error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

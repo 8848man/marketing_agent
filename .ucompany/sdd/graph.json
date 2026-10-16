@@ -1,0 +1,137 @@
+{
+  "edges": [
+    {
+      "from": "FEAT-TRACK2",
+      "to": "CON-1",
+      "type": "governed_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "REQ-TRACK2",
+      "type": "has_requirement"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "PLAN-TRACK2",
+      "type": "planned_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-TRACK2",
+      "type": "has_task"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "REQ-TRACK2",
+      "type": "implements"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-TRACK2",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-RSS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-DRAFT",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-TRACK2-UI",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-AI",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "VAL-TRACK2",
+      "type": "validated_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-PRODUCT",
+      "type": "documented_by"
+    }
+  ],
+  "focus": "FEAT-TRACK2",
+  "nodes": [
+    {
+      "id": "CON-1",
+      "path": ".ucompany/sdd/constitution.md",
+      "type": "constitution"
+    },
+    {
+      "id": "FEAT-TRACK2",
+      "path": ".ucompany/sdd/features/track2-dashboard/feature.md",
+      "type": "feature",
+      "status": "in_progress"
+    },
+    {
+      "id": "REQ-TRACK2",
+      "path": "docs/track2-agent/spec.md",
+      "type": "requirement"
+    },
+    {
+      "id": "PLAN-TRACK2",
+      "path": "docs/track2-agent/plan.md",
+      "type": "plan"
+    },
+    {
+      "id": "CODE-TRACK2",
+      "path": "src/marketing_agent/dashboard.py",
+      "type": "code",
+      "status": "in_progress"
+    },
+    {
+      "id": "CODE-RSS",
+      "path": "src/marketing_agent/rss_feed.py",
+      "type": "code",
+      "status": "in_progress"
+    },
+    {
+      "id": "CODE-DRAFT",
+      "path": "src/marketing_agent/drafts.py",
+      "type": "code",
+      "status": "in_progress"
+    },
+    {
+      "id": "CODE-TRACK2-UI",
+      "path": "src/marketing_agent/dashboard_ui.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-AI",
+      "path": "src/marketing_agent/ai_client.py",
+      "type": "code",
+      "status": "in_progress"
+    },
+    {
+      "id": "DOC-PRODUCT",
+      "path": "SDD.md",
+      "type": "document"
+    },
+    {
+      "id": "VAL-TRACK2",
+      "path": "docs/track2-agent/validation-protocol.md",
+      "type": "validation"
+    },
+    {
+      "id": "DOC-TRACK2",
+      "path": "docs/track2-agent/tasks.md",
+      "type": "task",
+      "status": "in_progress"
+    }
+  ],
+  "version": 31
+}
+
+
+

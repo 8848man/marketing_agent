@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+config.yaml
+*.db
+*.sqlite*
+__pycache__/
+.pytest_cache/
+*.egg-info/
+data/
+logs/
+chrome-profile/
+chrome_profile/
+**/Chrome/User Data/
+**/cookies*
+**/*session*.json
+data/screenshots/
+screenshots/
+
+drafts/
