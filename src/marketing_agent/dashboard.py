@@ -20,9 +20,16 @@ import xml.etree.ElementTree as ET
 
 from .ai_client import create_ai_client, test_ai_connection
 from .captions import VideoEvidence
-from .dashboard_contracts import (BAD_REQUEST, FORBIDDEN, INTERNAL_ERROR,
-                                  INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
-                                  DashboardService, DraftPreview, PostStatus, VideoCard, VideoList)
+from .dashboard_contracts import (
+    AIReadService, AITestService, AIWriteService, BAD_REQUEST, ChannelEntryReadService,
+    ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
+    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview,
+    FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
+    PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
+    ProfileOptionsService, ProfileReadService, ProfileVerifyService,
+    ProfileWriteService, SettingsReadService, SettingsWriteService,
+    VideoCard, VideoList, VideoStateService, YouTubeKeyService,
+)
 from .dashboard_ui import FeedDraftService
 from .dashboard_settings import DashboardSettings
 from .dashboard_page import render_page as _page
@@ -595,43 +602,43 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._reject(403, FORBIDDEN)
                 try:
                     result = asdict(service.list_videos())
-                    if hasattr(service, "video_states"):
+                    if isinstance(service, VideoStateService):
                         result["states"] = service.video_states()
                     return self._json(200, result)
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
-            if self.path == "/api/settings" and hasattr(service, "settings_yaml"):
+            if self.path == "/api/settings" and isinstance(service, SettingsReadService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, {"yaml": service.settings_yaml()})
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
-            if self.path == "/api/channels" and hasattr(service, "channel_ids"):
+            if self.path == "/api/channels" and isinstance(service, ChannelReadService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
                 try:
-                    entries = service.channel_entries() if hasattr(service, "channel_entries") else [
+                    entries = service.channel_entries() if isinstance(service, ChannelEntryReadService) else [
                         {"channel_name": channel_id, "channel_id": channel_id}
                         for channel_id in service.channel_ids()]
                     return self._json(200, {"channels": service.channel_ids(), "entries": entries})
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
-            if self.path == "/api/ai" and hasattr(service, "ai_public"):
+            if self.path == "/api/ai" and isinstance(service, AIReadService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.ai_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
-            if self.path == "/api/profile" and hasattr(service, "profile_public"):
+            if self.path == "/api/profile" and isinstance(service, ProfileReadService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.profile_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
-            if self.path == "/api/profile-options" and hasattr(service, "profile_options_public"):
+            if self.path == "/api/profile-options" and isinstance(service, ProfileOptionsService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
                 try:
@@ -757,7 +764,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             except (ValueError, UnicodeDecodeError):
                 return self._reject(400, BAD_REQUEST)
             if self.path == "/api/settings":
-                if not hasattr(service, "save_settings_yaml"):
+                if not isinstance(service, SettingsWriteService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, {"yaml": service.save_settings_yaml(data["yaml"])})
@@ -767,15 +774,15 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/channels":
-                if not hasattr(service, "save_channel_ids"):
+                if not isinstance(service, ChannelWriteService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    if "entries" in data and hasattr(service, "save_channel_entries"):
+                    if "entries" in data and isinstance(service, ChannelEntryWriteService):
                         entries = service.save_channel_entries(data["entries"])
                         return self._json(200, {"channels": [item["channel_id"] for item in entries],
                                                 "entries": entries})
                     channels = service.save_channel_ids(data["channels"])
-                    entries = service.channel_entries() if hasattr(service, "channel_entries") else [
+                    entries = service.channel_entries() if isinstance(service, ChannelEntryReadService) else [
                         {"channel_name": channel_id, "channel_id": channel_id} for channel_id in channels]
                     return self._json(200, {"channels": channels, "entries": entries})
                 except ValueError as exc:
@@ -784,7 +791,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/profile/setup":
-                if not hasattr(service, "open_app_profile"):
+                if not isinstance(service, ProfileOpenService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.open_app_profile(data["label"]))
@@ -796,7 +803,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "PROFILE_SETUP_FAILED")
             if self.path == "/api/profile/add":
-                if not hasattr(service, "add_profile"):
+                if not isinstance(service, ProfileAddService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.add_profile(data["label"]))
@@ -806,7 +813,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "PROFILE_SETUP_FAILED")
             if self.path == "/api/profile":
-                if not hasattr(service, "save_profile"):
+                if not isinstance(service, ProfileWriteService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.save_profile(data["label"]))
@@ -816,7 +823,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/profile/email":
-                if not hasattr(service, "save_profile_email"):
+                if not isinstance(service, ProfileEmailService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.save_profile_email(data["label"], data["email"]))
@@ -825,7 +832,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "PROFILE_EMAIL_WRITE_FAILED")
             if self.path == "/api/profile/verify-email":
-                if not hasattr(service, "verify_profile_email"):
+                if not isinstance(service, ProfileVerifyService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.verify_profile_email(data["label"], data["video_id"]))
@@ -838,7 +845,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = getattr(exc, "code", "PROFILE_EMAIL_CHECK_FAILED")
                     return self._reject(503, reason)
             if self.path == "/api/channels/test":
-                if not hasattr(service, "channel_ids"):
+                if not isinstance(service, ChannelReadService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, check_channel_connection(data["channel_id"]))
@@ -849,7 +856,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except (OSError, TimeoutError):
                     return self._reject(503, "CHANNEL_TEST_NETWORK_FAILED")
             if self.path == "/api/ai":
-                if not hasattr(service, "save_ai"):
+                if not isinstance(service, AIWriteService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.save_ai(
@@ -861,7 +868,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/youtube-key":
-                if not hasattr(service, "save_youtube_api_key"):
+                if not isinstance(service, YouTubeKeyService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.save_youtube_api_key(data["api_key"]))
@@ -870,7 +877,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/ai/test":
-                if not hasattr(service, "test_ai"):
+                if not isinstance(service, AITestService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.test_ai())
@@ -881,7 +888,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except Exception:
                     return self._reject(503, "AI_TEST_FAILED")
             if self.path == "/api/drafts/generate":
-                if not hasattr(service, "generate_draft"):
+                if not isinstance(service, DraftGenerationService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.generate_draft(data["video_id"]))
@@ -892,7 +899,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except OSError:
                     return self._reject(503, "DRAFT_WRITE_FAILED")
             if self.path == "/api/drafts/approve":
-                if not hasattr(service, "approve_draft"):
+                if not isinstance(service, DraftApprovalService):
                     return self._reject(404, BAD_REQUEST)
                 try:
                     return self._json(200, service.approve_draft(data["video_id"], data["draft"]))

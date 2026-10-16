@@ -74,6 +74,11 @@
       "from": "FEAT-TRACK2",
       "to": "DOC-HISTORY",
       "type": "documented_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-CONTRACTS",
+      "type": "touches"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -158,7 +163,12 @@
       "id": "DOC-HISTORY",
       "path": ".ucompany/sdd/history.md",
       "type": "document"
+    },
+    {
+      "id": "CODE-CONTRACTS",
+      "path": "src/marketing_agent/dashboard_contracts.py",
+      "type": "code"
     }
   ],
-  "version": 36
+  "version": 37
 }

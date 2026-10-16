@@ -1,5 +1,7 @@
 # Handoff
 
+- H13 선택 기능 계약 (2026-10-17): `dashboard_contracts.py`에 기능별 런타임 검사 가능한 Protocol을 정의하고 HTTP `hasattr` 분기를 대체했다. 데모·부분 서비스의 기존 404와 채널 ID 폴백을 유지했다. 대시보드·보안 HTTP 47개 및 전체 회귀 156개 통과. 서비스·HTTP 분리 및 레거시 게시 함수 격리는 남아 있다.
+
 - H12 설정 경계 분리 (2026-10-17): `DashboardSettings` 500여 줄을 `dashboard_settings.py`로 이동하고 `dashboard.py`에서 다시 공개해 기존 import를 유지했다. 설정·키·대시보드와 전체 pytest 156개 통과. HTTP 라우터와 서비스 분리, `hasattr` 계약 제거는 ARCH-01/02의 남은 작업이다.
 
 - H11 SDD 색인 정리 (2026-10-17): `00_index.md`의 날짜별 기록을 내용 손실 없이 `history.md`로 옮겼다. 색인은 문서 권위·ID·관계·탐색 순서와 이력 링크만 담는다. 그래프에 `DOC-HISTORY`를 연결했다. 현행 판정은 적용 상태/공백 감사 문서가 맡고 과거 시험 수는 이력으로 남긴다.
