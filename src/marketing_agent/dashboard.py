@@ -37,6 +37,7 @@ from .storage import Store
 
 
 HOST = "127.0.0.1"
+MAX_CAPTURE_BYTES = 10 * 1024 * 1024
 CHANNEL_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}\Z")
 PROFILE_LABEL = re.compile(r'[^\x00-\x1f\x7f\\/:*?"<>|]{1,30}\Z')
 PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
@@ -1025,7 +1026,9 @@ def _capture_url(path: str, capture_dir: Path | None) -> str:
         return ""
     candidate = Path(path)
     try:
-        if (CAPTURE_NAME.fullmatch(candidate.name) and candidate.is_file()
+        if (CAPTURE_NAME.fullmatch(candidate.name) and not capture_dir.is_symlink()
+                and not candidate.is_symlink() and candidate.is_file()
+                and candidate.stat().st_size <= MAX_CAPTURE_BYTES
                 and candidate.resolve().parent == capture_dir.resolve()):
             return f"/captures/{candidate.name}"
     except OSError:
@@ -1165,8 +1168,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 path = captures / capture.group(1)
                 if _capture_url(str(path), captures):
                     try:
-                        body = path.read_bytes()
+                        with path.open("rb") as stream:
+                            body = stream.read(MAX_CAPTURE_BYTES + 1)
                     except OSError:
+                        return self._reject(404, BAD_REQUEST)
+                    if len(body) > MAX_CAPTURE_BYTES:
                         return self._reject(404, BAD_REQUEST)
                     self._headers(200, "image/png", len(body))
                     return self.wfile.write(body)
@@ -1225,6 +1231,10 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                         raise ValueError
                 elif self.path == "/api/ai/test":
                     if data != {}:
+                        raise ValueError
+                elif self.path == "/api/youtube-key":
+                    if (not isinstance(data, dict) or set(data) != {"api_key"}
+                            or not isinstance(data["api_key"], str)):
                         raise ValueError
                 elif self.path == "/api/channels/test":
                     if (not isinstance(data, dict) or set(data) not in ({"channel_id"}, {"channel_name", "channel_id"})

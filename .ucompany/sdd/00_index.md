@@ -1,6 +1,6 @@
 # marketing_agent — SDD 색인
 
-현재 H 개선 적용 결과와 미완료 실환경 수락은 [IMPLEMENTATION_STATUS_2026-10-17.md](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 기록한다. H01~H05는 로컬 자동 시험을 통과했고 H06은 남아 있다.
+현재 H 개선 적용 결과와 미완료 실환경 수락은 [IMPLEMENTATION_STATUS_2026-10-17.md](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 기록한다. H01~H05와 H07~H08은 로컬 자동 시험을 통과했고 H06은 남아 있다.
 
 현재 요구사항 출처와 권위는 [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md)에 고정한다. 2026-10-17 H 개선은 [비판 검토](../../REVIEW_CRITIQUE_2026-10-17.md) → [개선 계획](../../IMPROVEMENT_PLAN_2026-10-17.md) → `docs/track2-agent`의 H 작업 순서로 추적한다. 아래 날짜별 서술은 당시 이력이며 현행 수락 판정이 아니다.
 

@@ -18,7 +18,7 @@ import yaml
 from marketing_agent import __main__
 from marketing_agent.captions import EvidenceResult, YouTubeDataComments
 from marketing_agent.dashboard import (DRAFT_RESPONSE_SCHEMA, HOST, ConfiguredPostingService,
-                                       DashboardSettings, DemoService, _capture_url,
+                                       DashboardSettings, DemoService, MAX_CAPTURE_BYTES, _capture_url,
                                        check_channel_connection, create_server)
 from marketing_agent.dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
 from marketing_agent.poster import VisibleChromePoster
@@ -922,6 +922,55 @@ def test_only_dashboard_capture_directory_is_served():
             assert request(port, "GET", f"/captures/{allowed.name}", token=token)[0] == 200
             assert request(port, "GET", f"/captures/{outside.name}", token=token)[0] == 404
             assert request(port, "GET", "/captures/../../secret.png")[0] == 404
+
+
+def test_youtube_key_request_schema_is_strict_and_does_not_echo_key():
+    class KeyService(FakeService):
+        def __init__(self):
+            super().__init__()
+            self.saved = []
+
+        def save_youtube_api_key(self, key):
+            self.saved.append(key)
+            return {"has_key": True}
+
+    service = KeyService()
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        options = {"origin": f"http://{HOST}:{port}", "token": token}
+        for invalid in ({}, [], {"api_key": 123}, {"api_key": "secret", "extra": True}):
+            status, body = request(port, "POST", "/api/youtube-key", body=json.dumps(invalid), **options)
+            assert status == 400 and json.loads(body)["reason_code"] == "BAD_REQUEST"
+        assert service.saved == []
+        status, body = request(port, "POST", "/api/youtube-key",
+                               body=json.dumps({"api_key": "test-secret"}), **options)
+        assert status == 200 and json.loads(body) == {"has_key": True}
+        assert "test-secret" not in body and service.saved == ["test-secret"]
+
+
+def test_oversized_and_linked_captures_are_not_served(tmp_path):
+    captures = tmp_path / "screenshots"
+    captures.mkdir()
+    oversized = captures / f"{VIDEO_ID}-123.png"
+    with oversized.open("wb") as stream:
+        stream.truncate(MAX_CAPTURE_BYTES + 1)
+    assert _capture_url(str(oversized), captures) == ""
+    outside = tmp_path / f"{VIDEO_ID}-456.png"
+    outside.write_bytes(b"PNG")
+    linked = captures / outside.name
+    try:
+        linked.symlink_to(outside)
+    except OSError:
+        linked = None
+    if linked is not None:
+        assert _capture_url(str(linked), captures) == ""
+    with running_server(FakeService(), capture_dir=captures) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", f"/captures/{oversized.name}", token=token)[0] == 404
+        if linked is not None:
+            assert request(port, "GET", f"/captures/{linked.name}", token=token)[0] == 404
 
 
 def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, monkeypatch):
