@@ -18,7 +18,7 @@ from threading import RLock
 import webbrowser
 import xml.etree.ElementTree as ET
 
-from .ai_client import create_ai_client, test_ai_connection
+from .ai_client import test_ai_connection
 from .captions import VideoEvidence
 from .dashboard_contracts import (
     AIReadService, AITestService, AIWriteService, BAD_REQUEST, ChannelEntryReadService,
@@ -34,8 +34,9 @@ from .dashboard_ui import FeedDraftService
 from .dashboard_settings import DashboardSettings
 from .dashboard_page import render_page as _page
 from .drafts import approve as approve_draft, save_generated, _load_record
+from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
-from .prompt_policy import DRAFT_RESPONSE_SCHEMA, build_draft_prompt
+from .prompt_policy import build_draft_prompt
 from .rss_feed import CHANNELS, fetch_channel, list_videos, parse_channel, recheck_video
 from .storage import Store
 
@@ -147,11 +148,13 @@ class ConfiguredPostingService(PostingService):
     """Keep posting disabled until a specific local Chrome profile is set."""
 
     def __init__(self, *args, settings: DashboardSettings | None = None,
-                 evidence_provider: VideoEvidence | None = None, **kwargs):
+                 evidence_provider: VideoEvidence | None = None,
+                 draft_generator: DraftGenerator | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
         self.evidence_provider = evidence_provider or VideoEvidence(
             key_provider=settings.youtube_api_key if settings is not None else None)
+        self.draft_generator = draft_generator or ProviderDraftGenerator()
         self._settings_lock = RLock()
         self._posting_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chrome-post")
         self._login_window_process: subprocess.Popen | None = None
@@ -359,10 +362,7 @@ class ConfiguredPostingService(PostingService):
                 raise ValueError("AI_KEY_MISSING")
             evidence = self.evidence_provider.collect(card)
             prompt = build_draft_prompt(evidence)
-            result = create_ai_client(provider, model, key).complete_json(
-                prompt.system, prompt.user,
-                response_schema=DRAFT_RESPONSE_SCHEMA,
-            )
+            result = self.draft_generator.generate(provider, model, key, prompt)
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile)
             return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text")} | {"evidence_notice": evidence.notice}

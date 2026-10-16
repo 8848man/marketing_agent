@@ -79,6 +79,11 @@
       "from": "DOC-TRACK2",
       "to": "CODE-CONTRACTS",
       "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-GENERATOR",
+      "type": "touches"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -168,7 +173,12 @@
       "id": "CODE-CONTRACTS",
       "path": "src/marketing_agent/dashboard_contracts.py",
       "type": "code"
+    },
+    {
+      "id": "CODE-GENERATOR",
+      "path": "src/marketing_agent/draft_generation.py",
+      "type": "code"
     }
   ],
-  "version": 37
+  "version": 38
 }

@@ -17,11 +17,13 @@ import yaml
 
 from marketing_agent import __main__
 from marketing_agent.captions import EvidenceResult, YouTubeDataComments
-from marketing_agent.dashboard import (DRAFT_RESPONSE_SCHEMA, HOST, ConfiguredPostingService,
+from marketing_agent.dashboard import (HOST, ConfiguredPostingService,
                                        DashboardSettings, DemoService, MAX_CAPTURE_BYTES, _capture_url,
                                        check_channel_connection, create_server)
 from marketing_agent.dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
+from marketing_agent.draft_generation import ProviderDraftGenerator
 from marketing_agent.poster import VisibleChromePoster
+from marketing_agent.prompt_policy import DRAFT_RESPONSE_SCHEMA, DraftPrompt
 from marketing_agent.rss_feed import list_videos, recheck_video
 from marketing_agent.storage import Store
 
@@ -750,23 +752,21 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
     evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult(
         "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글", ("자막", "인기 댓글"))})()
-    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
-                                       evidence_provider=evidence, feed_loader=lambda: VideoList((card,)))
-    service.list_videos()
     response = {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
                 "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
-    schemas, prompts = [], []
-    class FakeAI:
-        def complete_json(self, *_args, response_schema=None):
-            schemas.append(response_schema)
-            prompts.append(_args[1])
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append((provider, model, key, prompt))
             return response
-    fake_ai = FakeAI()
-    with patch("marketing_agent.dashboard.create_ai_client", return_value=fake_ai) as factory:
-        generated = service.generate_draft(VIDEO_ID)
-    factory.assert_called_once_with("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
-    assert schemas == [DRAFT_RESPONSE_SCHEMA]
-    assert json.loads(prompts[0])["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service.list_videos()
+    generated = service.generate_draft(VIDEO_ID)
+    assert calls[0][:3] == ("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    assert isinstance(calls[0][3], DraftPrompt)
+    assert json.loads(calls[0][3].user)["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
     assert generated["comment"] == response["comment"]
     assert generated["source_text"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
     assert service.select_video(VIDEO_ID).source_text == generated["source_text"]
@@ -782,6 +782,18 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     assert service.post_video(VIDEO_ID).reason_code == "PROFILE_NOT_CONFIGURED"
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+
+
+def test_default_draft_generator_uses_shared_schema():
+    calls = []
+    class FakeAI:
+        def complete_json(self, system, user, *, response_schema=None):
+            calls.append((system, user, response_schema))
+            return {"comment": "test"}
+    factory = lambda provider, model, key: FakeAI() if (provider, model, key) == ("mock", "model", "key") else None
+    result = ProviderDraftGenerator(factory).generate("mock", "model", "key", DraftPrompt("system", "user"))
+    assert result == {"comment": "test"}
+    assert calls == [("system", "user", DRAFT_RESPONSE_SCHEMA)]
 
 
 def test_rejected_draft_generation_never_calls_service():
