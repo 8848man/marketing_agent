@@ -1,5 +1,9 @@
 # marketing_agent — SDD 색인
 
+현재 H 개선 적용 결과와 미완료 실환경 수락은 [IMPLEMENTATION_STATUS_2026-10-17.md](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 기록한다. H01~H05는 로컬 자동 시험을 통과했고 H06은 남아 있다.
+
+현재 요구사항 출처와 권위는 [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md)에 고정한다. 2026-10-17 H 개선은 [비판 검토](../../REVIEW_CRITIQUE_2026-10-17.md) → [개선 계획](../../IMPROVEMENT_PLAN_2026-10-17.md) → `docs/track2-agent`의 H 작업 순서로 추적한다. 아래 날짜별 서술은 당시 이력이며 현행 수락 판정이 아니다.
+
 2026-10-17부터 이 폴더와 `docs/track2-agent`가 제품 SDD의 원본이다. 상위 샘플프로젝트 경로를 참조하지 않는다. Windows 자동 회귀는 통과했으며 macOS 실기기 설치·계정 확인·게시 검수는 남아 있다.
 
 2026-10-17 U40 감사: README의 안전 규칙 표와 PROCESS 제작 노트가 현재 판정의 진입점이다. `marketing_agent/`를 대시보드 폴더로 해석하므로 앱 루트의 설정·초안 파일은 그 폴더 내부다. Google 로그인 URL과 외부 프로필 옵션 등 남은 경계는 검토가 필요하다.
@@ -29,6 +33,7 @@
 | CODE-TRACK2-UI | code | [dashboard_ui.py](../../src/marketing_agent/dashboard_ui.py) | 3단계 화면과 상태 안내 |
 | CODE-AI | code | [ai_client.py](../../src/marketing_agent/ai_client.py) | 제공사별 공통 JSON 호출 인터페이스 |
 | DOC-PRODUCT | document | [SDD.md](../../SDD.md) | 제품 폴더의 SDD 안내 |
+| DOC-ORIGIN | document | [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md) | 외부 PDF 판본과 내부 문서 권위 |
 
 ## 관계 어휘
 

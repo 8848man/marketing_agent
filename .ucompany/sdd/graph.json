@@ -59,6 +59,11 @@
       "from": "FEAT-TRACK2",
       "to": "DOC-PRODUCT",
       "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-ORIGIN",
+      "type": "documented_by"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -128,10 +133,12 @@
       "path": "docs/track2-agent/tasks.md",
       "type": "task",
       "status": "in_progress"
+    },
+    {
+      "id": "DOC-ORIGIN",
+      "path": "SOURCE_OF_TRUTH.md",
+      "type": "document"
     }
   ],
-  "version": 31
+  "version": 32
 }
-
-
-

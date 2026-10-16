@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"dashboard error: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
     parser = argparse.ArgumentParser(description="Run the guarded marketing agent")
-    parser.add_argument("--config", default="config.example.yaml")
+    parser.add_argument("--config", default="config.legacy.example.yaml")
     parser.add_argument("--once", action="store_true", help="Run one immediate cycle without posting")
     parser.add_argument("--offline-fixtures", action="store_true", help="Use fixed inputs without network or posting")
     parser.add_argument("--dry-run", action="store_true", help="Run one immediate cycle without posting")

@@ -11,6 +11,9 @@ from urllib.parse import urlencode
 
 from .dashboard_contracts import VideoCard
 
+MAX_PRIMARY_CHARS = 12_000
+MAX_COMMENT_CHARS = 500
+
 
 @dataclass(frozen=True)
 class CaptionResult:
@@ -104,9 +107,9 @@ class VideoEvidence:
     def collect(self, card: VideoCard) -> EvidenceResult:
         caption = self.captions.fetch(card.video_id)
         if caption.available:
-            primary, sources = caption.text, ["자막"]
+            primary, sources = caption.text[:MAX_PRIMARY_CHARS], ["자막"]
         else:
-            primary = "\n".join(part for part in (card.title, card.description) if part.strip())
+            primary = "\n".join(part for part in (card.title, card.description) if part.strip())[:MAX_PRIMARY_CHARS]
             sources = ["제목", *( ["설명"] if card.description.strip() else [])]
         if not primary.strip():
             raise ValueError("EVIDENCE_MISSING")
@@ -121,6 +124,6 @@ class VideoEvidence:
             elif str(exc) == "COMMENTS_KEY_INVALID":
                 notice = "YouTube Data API 키가 유효하지 않아 인기 댓글 없이 자막 또는 제목·설명만 근거로 사용합니다."
         if popular:
-            primary += "\n\n[인기 댓글]\n" + "\n".join(popular)
+            primary += "\n\n[인기 댓글]\n" + "\n".join(comment[:MAX_COMMENT_CHARS] for comment in popular[:10])
             sources.append("인기 댓글")
         return EvidenceResult(primary, tuple(sources), notice)

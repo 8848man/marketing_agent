@@ -2,6 +2,10 @@
 
 Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 로컬 앱이다. 설치와 실행은 **이 폴더**에서 한다. 사용자 데이터(`config.yaml`, `.env`, `data/`, `drafts/`)는 배포본에 포함하지 않는다. 각 PC에서 앱 전용 Chrome 프로필을 만들고 직접 Google 계정에 로그인한다. 다른 PC의 Chrome 프로필이나 로그인 정보는 복사하지 않는다.
 
+원요구사항 PDF의 판본·해시와 SDD 문서 권위는 [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md)에 있다. 기본 실행은 `dashboard`이며, 이전 키워드 탐색 CLI는 초안·로그를 만드는 읽기 전용 보조 경로다. 보조 CLI는 공개 댓글을 게시하지 않는다.
+
+대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다.
+
 ## 설치·실행
 
 Windows PowerShell:
@@ -39,6 +43,8 @@ python3 -m venv .venv
 
 아래 평가는 코드의 **현재 상태**다. 심사 규칙을 문자 그대로 적용하면 **전체 통과가 아니므로 심사자 계정에서 실행 전 수정·재검토가 필요하다.**
 
+대시보드는 영상·초안·실패 캡처 GET에 세션 토큰을 요구한다. 루트 화면은 같은 PC의 브라우저가 토큰을 받도록 열려 있으므로 이 토큰은 **다른 로컬 프로세스에 대한 사용자 인증이 아니다.** PC의 다른 사용자·프로세스를 신뢰하지 않는 환경이라면 OS 권한을 쓰는 별도 접근 제어가 필요하다.
+
 | 규칙 | 현재 코드에서 확인한 사실 | 판정 |
 | --- | --- | --- |
 | 쿠키·비밀번호·브라우저 저장 정보 직접 읽기·저장 금지 | Python 코드가 Chrome 프로필 내부 파일을 직접 열거나 쿠키를 추출하는 경로는 확인되지 않았다. 다만 Playwright의 지속 프로필 Chrome이 로그인 데이터를 자체적으로 저장·사용한다. | 브라우저 자체의 저장까지 금지하는 해석이면 미충족 |
@@ -58,4 +64,4 @@ python -m pytest -q
 
 2026-10-17 Windows Python 3.11에서 자동 테스트 145개가 통과했다. 실제 `유튜브3`의 로그인 상태는 Windows에서 확인했다. 타인의 Windows PC와 macOS의 설치·Chrome 프로필·실제 댓글 게시까지 통과했다는 뜻은 아니다. 각 PC에서 위 설치, 대시보드 접속, 전용 프로필 로그인, 계정 확인, 허용된 테스트 영상의 게시 검수를 수행해야 한다.
 
-SDD 원본은 이 폴더의 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md)와 [docs/track2-agent](docs/track2-agent)에 있다. 작업 지침은 [AGENTS.md](AGENTS.md)를 따른다.
+SDD 문서의 ID·관계 원본은 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 관리되는 요구사항은 [docs/track2-agent/spec.md](docs/track2-agent/spec.md)에 있다. 작업 지침은 [AGENTS.md](AGENTS.md)를 따른다.

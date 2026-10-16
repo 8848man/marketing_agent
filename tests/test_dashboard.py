@@ -816,8 +816,13 @@ def test_configured_channel_drives_rss_and_test_video_conflict(tmp_path):
 def test_selection_only_reads_draft():
     service = FakeService()
     with running_server(service) as port:
-        assert request(port, "GET", "/api/videos")[0] == 200
-        status, body = request(port, "GET", f"/api/videos/{VIDEO_ID}/draft")
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/videos")[0] == 403
+        assert request(port, "GET", f"/api/videos/{VIDEO_ID}/draft")[0] == 403
+        assert service.selections == 0
+        assert request(port, "GET", "/api/videos", token=token)[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{VIDEO_ID}/draft", token=token)
         assert status == 200
         assert json.loads(body)["worry_summary"] == "고민"
     assert service.selections == 1
@@ -831,10 +836,10 @@ def test_offline_demo_never_invokes_posting_service():
         assert status == 200
         assert "오프라인 연습 모드" in page
         assert "YouTube 요청" in page
-        assert request(port, "GET", "/api/videos")[0] == 200
-        status, body = request(port, "GET", f"/api/videos/{service.VIDEO_ID}/draft")
-        assert status == 200 and json.loads(body)["can_post"]
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/videos", token=token)[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{service.VIDEO_ID}/draft", token=token)
+        assert status == 200 and json.loads(body)["can_post"]
         status, body = request(port, "POST", "/api/post",
                                origin=f"http://{HOST}:{port}", token=token,
                                body=json.dumps({"video_id": service.VIDEO_ID}))
@@ -911,8 +916,11 @@ def test_only_dashboard_capture_directory_is_served():
         assert _capture_url(str(allowed), captures) == f"/captures/{allowed.name}"
         assert _capture_url(str(outside), captures) == ""
         with running_server(FakeService(), capture_dir=captures) as port:
-            assert request(port, "GET", f"/captures/{allowed.name}")[0] == 200
-            assert request(port, "GET", f"/captures/{outside.name}")[0] == 404
+            page = request(port, "GET", "/")[1]
+            token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+            assert request(port, "GET", f"/captures/{allowed.name}")[0] == 403
+            assert request(port, "GET", f"/captures/{allowed.name}", token=token)[0] == 200
+            assert request(port, "GET", f"/captures/{outside.name}", token=token)[0] == 404
             assert request(port, "GET", "/captures/../../secret.png")[0] == 404
 
 
