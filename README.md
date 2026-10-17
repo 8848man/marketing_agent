@@ -17,8 +17,7 @@ Windows PowerShell:
 ```powershell
 cd <압축을 푼 marketing_agent 폴더>
 py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[test]"
-.\.venv\Scripts\python.exe -m pip install playwright
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m marketing_agent dashboard --port 8770
 ```
 
@@ -27,12 +26,13 @@ macOS Terminal:
 ```sh
 cd /path/to/marketing_agent
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
-.venv/bin/python -m pip install playwright
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m marketing_agent dashboard --port 8770
 ```
 
 브라우저에서 `http://127.0.0.1:8770/`을 연다. Chrome이 설치되어 있지 않으면 프로필 창을 열 수 없다. 앱은 앱 폴더의 `data/dashboard/chrome-profile-*`만 사용한다. Windows의 `.venv/Scripts`와 macOS의 `.venv/bin` 차이 외에 설정 파일 형식은 같다. Chrome 실제 실행과 한국어 YouTube 선택자는 macOS 실기기에서 별도 확인이 필요하다.
+
+Windows에서 기존 가상환경으로 실행할 때 `ZoneInfoNotFoundError: No time zone found with key Asia/Seoul`이 나오면, 업데이트된 프로젝트 폴더에서 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`를 다시 실행한다. 이 명령이 Windows에 필요한 `tzdata`도 설치한다. 재설치 전 즉시 복구하려면 `.\.venv\Scripts\python.exe -m pip install tzdata`를 실행할 수 있다. 8770 포트를 다른 대시보드가 사용 중이면 다른 포트를 지정하거나 기존 서버를 종료한다.
 
 ## 설정과 사용
 

@@ -1,5 +1,9 @@
 # Handoff
 
+- H17 단일 설치 명령 (2026-10-17): `requirements.txt`가 `-e .[test]`와 Playwright를 한 명령으로 설치한다. README의 Windows/macOS 절차와 시간대 오류 복구 안내를 갱신했다. Windows pip dry-run이 프로젝트·PyYAML·pytest·Playwright 및 조건부 tzdata를 해석했다. 사용자 Python 3.13 실제 설치·실행은 남아 있다.
+
+- H16 Windows 새 클론 실행 오류 (2026-10-17): `storage.py`와 `search_budget.py`가 import 시 `ZoneInfo("Asia/Seoul")`을 생성한다. `pyproject.toml`에 Windows 조건부 `tzdata` 런타임 의존성을 추가하고 README에 기존 venv 재설치·즉시 복구 명령을 기록했다. 사용자 Python 3.13 환경 재설치와 8770 포트 충돌 여부는 현장 확인이 남는다.
+
 - H15 예시 설정 계약 (2026-10-17): `CONFIG_EXAMPLE_CONTRACT.md`에 대시보드/보조 CLI YAML과 `.env`의 필수성·기본값·파서·소비 위치를 표로 대조했다. README의 당시 145개 시험 표기를 현행 157개로 고쳤다. 실제 사용자 설정 내용은 읽지 않았다.
 
 - H14 AI 생성 경계 (2026-10-17): `DraftGenerator`와 기본 `ProviderDraftGenerator`를 분리하고 `ConfiguredPostingService` 생성자에서 주입할 수 있게 했다. 근거 수집·프로필 확인·초안 저장·승인은 서비스에 유지했다. 가짜 생성기와 기본 공통 스키마 시험 포함, 전체 회귀 157개를 확인한다. 실계정 모델·정책 수락은 남아 있다.
