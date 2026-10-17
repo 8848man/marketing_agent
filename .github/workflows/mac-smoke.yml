@@ -1,0 +1,54 @@
+# IMP-12 macOS rehearsal: README install → dashboard up → Chrome (app profile) opens
+# an allowed watch page in Korean. No sign-in, no posting. Manual or on push to main.
+name: mac-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["src/**", "requirements.txt", "pyproject.toml", "README.md", ".ucompany/scripts/mac_smoke.py"]
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash   # -eo pipefail: a failing script is not hidden by tee
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: README 설치 명령 그대로 (시간 측정)
+        run: |
+          start=$(date +%s)
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          echo "install_seconds=$(( $(date +%s) - start ))" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Chrome 위치 확인
+        run: ls "/Applications/Google Chrome.app/Contents/MacOS/" && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+      - name: 대시보드 기동·접속
+        run: |
+          .venv/bin/python -m marketing_agent dashboard --port 8770 > dashboard.log 2>&1 &
+          for i in $(seq 1 30); do
+            code=$(curl -s -o page.html -w "%{http_code}" http://127.0.0.1:8770/ || true)
+            [ "$code" = "200" ] && break; sleep 1
+          done
+          echo "dashboard_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -q "④ 실행 기록" page.html
+          test "$code" = "200"
+      - name: Chrome으로 우리 채널 영상 페이지(ko-KR) 열기
+        run: .venv/bin/python .ucompany/scripts/mac_smoke.py --out smoke-artifacts | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: 안전 규칙 정적 검사(strict)
+        run: .venv/bin/python .ucompany/scripts/safety_scan.py --strict
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-smoke
+          path: |
+            smoke-artifacts/
+            dashboard.log
