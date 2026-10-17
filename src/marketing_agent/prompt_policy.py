@@ -39,7 +39,8 @@ def build_draft_prompt(evidence: EvidenceResult, *, brand_name: str,
         "evidence": evidence.text,
         "sources": evidence.sources,
         "brand": {"name": brand_name, "description": brand_description},
-        "instruction": "Use only evidence. Return worry_summary, cited_detail, comment. "
+        "instruction": "Use video evidence only for claims about the video; use brand details only for brand context. "
+        "Return worry_summary, cited_detail, comment. "
         "The cited_detail must be an exact phrase from evidence and also appear in comment. "
         "Write a distinct 40-120 Korean character viewer-perspective comment. "
         "Include the brand name naturally and use its description to choose relevant wording. "
