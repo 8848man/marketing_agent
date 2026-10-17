@@ -426,3 +426,16 @@ README는 설치·실행, 유튜브1~3 앱 전용 프로필 연결, AI 키 입�
 - IMP-06: 플랫폼 전용 시험은 해당 플랫폼에서만 실행되거나 플랫폼별 경로를 쓴다(macOS CI 대비).
 
 수용 기준: `check_sdd.py` 오류 0, `safety_scan.py` FAIL 0, 전체 pytest 통과(Linux 147 passed·1 skipped, 2026-10-18). G-01(Google 로그인·YouTube 홈 열기) 해소와 V4 Mac 수락은 이 절의 범위 밖이며 미완료다.
+
+## R-SUBMIT-2026-10-18 — 제출 전 보완 (2026-10-18, 사용자 승인)
+
+사용자가 2026-10-18 제출 전 결정표(추천안)를 승인했다. 근거: `../../improvements/2026-10-17/07-submission-decisions.md`, [ADR-0003](../../decisions/ADR-0003-watch-page-account-check.md).
+
+- IMP-07 (`R-LOG-01` 수락 기준 보강): 대시보드에 ④ 실행 기록 패널을 둔다. `GET /api/history`는 세션 토큰이 없으면 403이며, 최근 50건을 예약 시각 역순으로 시간(KST)·영상 ID·제목·채널 ID·프로필·댓글 본문·상태(게시 완료/게시 전 중단/결과 확인 필요/진행 중)·사유 코드·캡처 URL·검증 시각과 함께 돌려준다. 오늘(KST) 게시 수와 하루 상한도 함께 준다. 키·이메일은 포함하지 않는다. 새 예약은 댓글 본문을 저장하고, 본문 열이 없던 이전 기록은 승인 해시가 같은 초안 파일에서 복원하며 없으면 빈 값이다. 게시 시도 직후 패널이 갱신된다.
+- IMP-08 (대체: U30 `R-PROFILE-DIRECT-LOGIN-01`, H18, U26의 이메일 확인): 계정 확인과 로그인 창은 **허용 채널 영상의 watch 페이지만** 연다. 확인용 영상은 불러온 영상 중 하나, 없으면 PDF 2쪽 예시 영상 중 설정 채널에 속한 것이다. 확인은 아바타 표시=`SIGNED_IN`, 로그인 링크 표시=`SIGNED_OUT`, 그 외=`UNKNOWN`으로만 판정하고 계정 메뉴를 클릭하거나 이메일을 읽지 않는다. 로그인 창은 같은 watch 페이지를 앱 전용 프로필로 열며 Google 로그인 화면으로의 이동은 사용자가 YouTube의 "로그인" 버튼을 눌러서만 일어난다. 코드에 `accounts.google.com`·`myaccount.google.com`·YouTube 홈 이동이 없어야 한다(`safety_scan.py --strict` 통과).
+- IMP-09: 영상 자동 배정 후보는 이번 실행에서 `SIGNED_IN`으로 확인된 프로필이다. 확인된 프로필이 없으면 설정된 첫 프로필(기본 유튜브1) 하나만 후보로 쓴다. 이미 배정된 영상은 바꾸지 않는다.
+- IMP-10: 개발용 가드. `data/dashboard/DEV_BLOCK_OUR_CHANNELS` 파일이 있으면 등록된 본인 테스트 영상이 아닌 영상의 게시를 DB 예약·Chrome 실행 전에 `DEV_OUR_CHANNEL_BLOCKED`로 막는다. 파일은 Git 제외 폴더에 있으므로 심사자 PC에는 없다.
+- IMP-11: `python -m marketing_agent drafts --latest N`(기본 3, 1~15)은 설정 채널 RSS에서 채널별 최신 N개 영상을 골라, 아직 승인 초안이 없는 영상만 현재 AI 설정·프롬프트로 생성해 **미승인**으로 저장한다. 게시·Chrome·게시 DB 예약을 하지 않으며 키 값은 출력하지 않는다. 결과는 영상 ID·채널·성공/실패 코드만 출력한다.
+- IMP-12: GitHub Actions `mac-smoke`는 macOS에서 README 설치 명령, 대시보드 기동·접속, 앱 전용 프로필로 Chrome을 열어 허용 영상 watch 페이지(ko-KR)의 댓글 영역·로그인 버튼 존재를 확인하고 스크린샷을 남긴다. 로그인·게시는 하지 않는다.
+
+수락 기준: 위 각 항목의 자동 시험, `check_sdd.py` 0, `safety_scan.py --strict` 0. V4(Mac 실기기·실게시)는 별도.

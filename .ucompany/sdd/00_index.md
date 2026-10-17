@@ -2,7 +2,7 @@
 
 이 폴더(`.ucompany/sdd/`)가 제품의 **유일한 SDD 위치**다(2026-10-18 통합, [ADR-0001](decisions/ADR-0001-sdd-consolidation.md)). 이 색인이 ID·관계 어휘·읽는 순서의 원본이고, `graph.json`은 같은 내용을 기계가 읽도록 옮긴 파생 색인이다. 둘이 다르면 이 파일이 이긴다. 정합성은 `python .ucompany/scripts/check_sdd.py`로 검사한다.
 
-**현재 상태(2026-10-18):** 개선 사이클의 현행 판정은 [improvements/2026-10-17/05-plan-validity-review.md](improvements/2026-10-17/05-plan-validity-review.md)를 따른다. 제출 전 최우선 공백은 안전 규칙 G-01(Google 로그인·YouTube 홈 열기), 초안 저장소 포함 G-02, 실행 기록 화면 G-03, 초안 품질 G-04, Mac 수락 H06이다.
+**현재 상태(2026-10-18):** 현행 판정은 [05 재검토](improvements/2026-10-17/05-plan-validity-review.md)와 [07 제출 전 결정](improvements/2026-10-17/07-submission-decisions.md)을 따른다. G-00·G-01·G-03은 해소, 남은 것은 제출용 초안 G-02, 초안 품질 G-04, Mac 수락 H06, 시연 영상 G-07이다.
 
 ## 폴더 구조
 
@@ -49,6 +49,7 @@
 | REV-TRACK2 | document | [reviews/](features/track2-dashboard/reviews/three-pass-review.md) | 작성 당시 검토·재사용 감사·원문 대조 |
 | ADR-0001 | decision | [ADR-0001](decisions/ADR-0001-sdd-consolidation.md) | SDD 통합 위치와 이동표 |
 | ADR-0002 | decision | [ADR-0002](decisions/ADR-0002-local-threat-model.md) | 로컬 위협 모델(제안) |
+| ADR-0003 | decision | [ADR-0003](decisions/ADR-0003-watch-page-account-check.md) | 계정 확인·로그인은 허용 영상 watch 페이지에서만 |
 | IMP-2026-10-17 | improvement | [improvements/2026-10-17/](improvements/2026-10-17/README.md) | 비판 검토·계획·적용·감사·재검토·적합성 보고서 |
 | DOC-ORIGIN | document | [source-of-truth.md](source-of-truth.md) | 외부 PDF 판본과 내부 문서 권위 |
 | DOC-HISTORY | document | [history.md](history.md) | 날짜별 작업 이력과 당시 시험 기록 |
@@ -59,6 +60,7 @@
 | DOC-LEGACY | contract | [legacy-scope.md](contracts/legacy-scope.md) | 레거시 코드 범위와 제거 기록 |
 | TOOL-SDD | tool | [check_sdd.py](../scripts/check_sdd.py) | SDD 링크·그래프 검사 |
 | TOOL-SAFETY | tool | [safety_scan.py](../scripts/safety_scan.py) | 안전 규칙 정적 검사 |
+| TOOL-MAC-SMOKE | tool | [mac_smoke.py](../scripts/mac_smoke.py) | macOS 리허설(GitHub Actions mac-smoke) |
 | CODE-TRACK2 | code | [dashboard.py](../../src/marketing_agent/dashboard.py) | 제품의 로컬 HTTP 진입점 |
 | CODE-RSS | code | [rss_feed.py](../../src/marketing_agent/rss_feed.py) | RSS 파싱·영상 소속 재조회 |
 | CODE-DRAFT | code | [drafts.py](../../src/marketing_agent/drafts.py) | 초안 저장·품질 검사·사람 승인 해시 검증 |

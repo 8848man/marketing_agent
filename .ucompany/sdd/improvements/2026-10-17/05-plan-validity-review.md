@@ -51,3 +51,7 @@
 | IMP-04 | `.ucompany/scripts/check_sdd.py`, `safety_scan.py`, GitHub Actions(macOS·Ubuntu), PR 템플릿 | V1 둘 다 FAIL 0, WARN 1(`accounts.google.com`, G-01) |
 | IMP-05 | `drafts/` Git 추적 허용 | 커밋할 초안은 제출 직전 재생성 필요 |
 | IMP-06 | Windows 전용 시험 2개를 플랫폼별로 정리(macOS CI 대비) | Linux에서 통과/skip |
+
+## 5. 2026-10-18 후속 반영
+
+[07 제출 전 결정](07-submission-decisions.md) 승인에 따라: G-00 완료(사용자 삭제), G-01 해소(ADR-0003, `safety_scan.py --strict` WARN 0), G-03 구현(IMP-07), 프로필 배정 결함 수정(IMP-09), 초안 일괄 명령(IMP-11)·macOS 스모크(IMP-12) 추가. G-02(초안 재생성·승인)·G-05(Mac 실기기)·G-07(시연 영상)은 진행 중.
