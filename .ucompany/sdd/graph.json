@@ -52,12 +52,42 @@
     },
     {
       "from": "DOC-TRACK2",
+      "to": "CODE-SETTINGS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
       "to": "VAL-TRACK2",
       "type": "validated_by"
     },
     {
       "from": "FEAT-TRACK2",
       "to": "DOC-PRODUCT",
+      "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-ORIGIN",
+      "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-HISTORY",
+      "type": "documented_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-CONTRACTS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-GENERATOR",
+      "type": "touches"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-CONFIG-EXAMPLES",
       "type": "documented_by"
     }
   ],
@@ -114,6 +144,11 @@
       "status": "in_progress"
     },
     {
+      "id": "CODE-SETTINGS",
+      "path": "src/marketing_agent/dashboard_settings.py",
+      "type": "code"
+    },
+    {
       "id": "DOC-PRODUCT",
       "path": "SDD.md",
       "type": "document"
@@ -128,10 +163,32 @@
       "path": "docs/track2-agent/tasks.md",
       "type": "task",
       "status": "in_progress"
+    },
+    {
+      "id": "DOC-ORIGIN",
+      "path": "SOURCE_OF_TRUTH.md",
+      "type": "document"
+    },
+    {
+      "id": "DOC-HISTORY",
+      "path": ".ucompany/sdd/history.md",
+      "type": "document"
+    },
+    {
+      "id": "CODE-CONTRACTS",
+      "path": "src/marketing_agent/dashboard_contracts.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-GENERATOR",
+      "path": "src/marketing_agent/draft_generation.py",
+      "type": "code"
+    },
+    {
+      "id": "DOC-CONFIG-EXAMPLES",
+      "path": "CONFIG_EXAMPLE_CONTRACT.md",
+      "type": "document"
     }
   ],
-  "version": 31
+  "version": 39
 }
-
-
-

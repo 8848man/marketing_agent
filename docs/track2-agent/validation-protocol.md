@@ -1,5 +1,7 @@
 # PDF 기준 검증 절차와 증거 기록
 
+> 아래 날짜별 자동 시험 수는 작성 당시의 이력이다. 현행 회귀 수와 보안 개선 검증은 `tasks.md` H 작업 기록을 확인한다. 원문 식별은 [`SOURCE_OF_TRUTH.md`](../../SOURCE_OF_TRUTH.md)를 따른다.
+
 > 기준: `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf` 2~6쪽. 이 문서는 **시험 설계**다. 현재 Mac 실측, 라이브 RSS 응답, 실제 게시 결과는 아직 없다. `checklist.md`의 완료 표시는 아래 증거가 확보된 뒤에만 바꾼다.
 
 ## 먼저 해결할 기술 관문

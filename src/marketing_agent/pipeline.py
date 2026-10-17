@@ -7,7 +7,8 @@ import json
 import os
 from pathlib import Path
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
 
 from .ai_client import ClaudeClient
@@ -16,14 +17,17 @@ from .classifier import Classifier, Video
 from .config import AgentConfig, load_config
 from .dry_run import save_comment
 from .fixtures import OFFLINE_VIDEO, OfflineAI, OfflineCaptions
-from .guard import check_ownership
 from .logging import EventLogger
-from .poster import submit_comment
 from .search_budget import SearchBudget
 from .storage import Store
 from .trigger import evaluate
 from .watcher import Watcher
 from .writer import Writer
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
 
 
 class YouTubeDataAPI:
@@ -36,8 +40,22 @@ class YouTubeDataAPI:
 
     def _get(self, resource: str, **params) -> dict:
         query = urlencode({**params, "key": self.key})
-        with urlopen(f"https://www.googleapis.com/youtube/v3/{resource}?{query}", timeout=30) as response:
-            return json.load(response)
+        request = Request(f"https://www.googleapis.com/youtube/v3/{resource}?{query}")
+        try:
+            with build_opener(_NoRedirect()).open(request, timeout=30) as response:
+                raw = response.read(1_000_001)
+        except (HTTPError, URLError, OSError, TimeoutError):
+            raise ValueError("YOUTUBE_API_FAILED") from None
+        if len(raw) > 1_000_000:
+            raise ValueError("YOUTUBE_API_RESPONSE_TOO_LARGE")
+        try:
+            result = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise ValueError("YOUTUBE_API_RESPONSE_INVALID") from None
+        if not isinstance(result, dict):
+            raise ValueError("YOUTUBE_API_RESPONSE_INVALID")
+        return result
+
 
     def search(self, **parameters) -> dict:
         return self._get("search", **parameters)
@@ -55,19 +73,24 @@ class YouTubeDataAPI:
 
 
 def _reason(exc: Exception) -> str:
-    return f"{type(exc).__name__}: {str(exc).splitlines()[0][:80]}" if str(exc) else type(exc).__name__
+    # Exception messages may contain a request URL with an API key in its query.
+    if isinstance(exc, ValueError) and str(exc).isupper() and str(exc).replace("_", "").isalnum():
+        return str(exc)
+    return type(exc).__name__
 
 
 def run_cycle(*, config: AgentConfig, store: Store, logger: EventLogger,
               dry_run_path: str | Path, screenshot_dir: str | Path,
               offline: bool = False, dry_run: bool = False, api=None, ai=None,
               captions=None, now: datetime | None = None, run_id: str | None = None,
-              post=submit_comment) -> dict:
-    """Process each candidate independently; safe modes never enter the poster."""
+               post=None) -> dict:
+    """Discover and draft only; the legacy CLI has no public posting capability.
+
+    ``post`` remains accepted for older callers but is never invoked.
+    """
     now = now or datetime.now(timezone.utc)
     run_id = run_id or uuid4().hex
     source = "offline_fixture" if offline else "live_search"
-    safe = offline or dry_run
     summary = {"run_id": run_id, "candidates": 0, "comments": 0, "post_calls": 0, "errors": 0}
 
     def emit(event: str, video_id: str, reason: str, *, attempt_id: str | None = None) -> None:
@@ -149,35 +172,21 @@ def run_cycle(*, config: AgentConfig, store: Store, logger: EventLogger,
             emit(draft.state, video_id, draft.reason or "VALIDATED")
             if draft.state != "COMMENT_WRITTEN":
                 continue
-            comment_id = store.save_comment(video_id, draft.body, now, state="DRY_RUN_SAVED" if safe else "COMMENT_WRITTEN",
+            store.save_comment(video_id, draft.body, now, state="DRY_RUN_SAVED",
                                             worry_summary=draft.worry_summary, cited_detail=draft.cited_detail,
                                             source=source, fit_result="validated",
-                                            dry_run_path=str(dry_run_path) if safe else None)
+                                             dry_run_path=str(dry_run_path))
             summary["comments"] += 1
         except Exception as exc:
             summary["errors"] += 1
             emit("STAGE_ERROR", video_id, f"write: {_reason(exc)}")
             continue
         try:
-            decision = check_ownership(video_id, config.allowed_videos, store.ownership(video_id))
-            emit("GUARD_EVALUATED", video_id, decision.reason)
-            if safe or not decision.allowed:
-                reason = "DRY_RUN" if safe and decision.allowed else decision.reason
-                save_comment(dry_run_path, video_id=video_id, body=draft.body, reason=reason,
-                             run_id=run_id, input_source=source)
-                emit("DRY_RUN_SAVED" if safe else "ALLOWLIST_BLOCKED", video_id, reason)
-                continue
-            summary["post_calls"] += 1
-            outcome = post(store=store, config=config, video=video_id, body=draft.body,
-                           comment_id=comment_id, run_id=run_id, input_source=source,
-                           api_channel_lookup=api.owner, dry_run_path=dry_run_path,
-                           screenshot_dir=screenshot_dir, now=now)
-            event = outcome.status if outcome.attempt_id and outcome.status in {
-                "POST_PENDING", "POST_FAILED", "POST_OUTCOME_UNKNOWN", "POSTED"} else "POST_RESULT"
-            emit(event, video_id, f"{outcome.status}:{outcome.reason}",
-                 attempt_id=outcome.attempt_id if event != "POST_RESULT" else None)
+            save_comment(dry_run_path, video_id=video_id, body=draft.body, reason="READ_ONLY_CLI",
+                         run_id=run_id, input_source=source)
+            emit("DRY_RUN_SAVED", video_id, "READ_ONLY_CLI")
         except Exception as exc:
             summary["errors"] += 1
-            emit("STAGE_ERROR", video_id, f"post: {_reason(exc)}")
+            emit("STAGE_ERROR", video_id, f"save: {_reason(exc)}")
     emit("CYCLE_DONE", "-", f"CANDIDATES_{summary['candidates']}_COMMENTS_{summary['comments']}_POST_CALLS_{summary['post_calls']}")
     return summary

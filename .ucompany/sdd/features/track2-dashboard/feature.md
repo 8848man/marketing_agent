@@ -6,6 +6,8 @@ status: in_progress
 
 # Track 2 로컬 YouTube 댓글 대시보드
 
+> 이 문서의 아래 날짜별 수치와 상태는 해당 시점의 이력이다. 현행 원문 식별은 [`SOURCE_OF_TRUTH.md`](../../../../SOURCE_OF_TRUTH.md), 현재 H 개선 작업은 [`tasks.md`](../../../../docs/track2-agent/tasks.md)를 따른다.
+
 ## 목표
 
 심사자 Mac에서 Chrome `유튜브1` 프로필을 사용해, PDF 지정 다섯 채널의 최신 영상을 불러오고 사람 승인 초안을 선택한 뒤 명시적 클릭으로 댓글 하나를 게시·확인하는 로컬 웹앱을 완성한다.

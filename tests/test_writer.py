@@ -2,6 +2,8 @@ import json
 import sqlite3
 from urllib.error import HTTPError
 
+import pytest
+
 from marketing_agent.ai_client import (ClaudeClient, _parse_json_text, create_ai_client,
                                        test_ai_connection as probe_ai)
 from marketing_agent.classifier import Classification, Video
@@ -93,7 +95,7 @@ def test_claude_adapter_uses_injected_transport():
         def __exit__(self, *args):
             pass
 
-        def read(self):
+        def read(self, size):
             return json.dumps({"content": [{"type": "text", "text": '{"fits":true}'}]}).encode()
 
     def transport(request, timeout):
@@ -102,6 +104,23 @@ def test_claude_adapter_uses_injected_transport():
 
     assert ClaudeClient("test-key", transport=transport).complete_json("system", "prompt") == {"fits": True}
     assert requests[0].get_header("X-api-key") == "test-key"
+
+
+def test_ai_adapter_rejects_transport_without_bounded_read():
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            raise AssertionError("unbounded read must not run")
+
+    with pytest.raises(ValueError, match="^AI_TRANSPORT_INVALID$") as error:
+        ClaudeClient("test-secret", transport=lambda request, timeout: Response()).complete_json(
+            "system", "prompt")
+    assert "test-secret" not in str(error.value)
 
 
 def test_json_parser_recovers_one_object_from_fence_or_explanatory_text():

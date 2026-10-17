@@ -1,32 +1,18 @@
-profiles: [유튜브1, 유튜브2, 유튜브3]  # 심사자 컴퓨터의 Chrome 프로필 표시 이름
+# Dashboard configuration example. Copy to ignored config.yaml if editing by file.
+# Keys are stored separately in .env; the UI updates this YAML for channel/profile changes.
+profiles: [유튜브1, 유튜브2, 유튜브3]  # 앱 전용 Chrome 프로필 표시 이름, 폴더 경로 아님
 channels:  # 영상 불러오기 · 게시 허용 범위
   - UCxlc0Ky0aWoD8uI09ad44Tg  # 외롭여
   - UC-ee_ziASM251TMXe3P3VZA  # 리즈시절 LizTV
   - UC09L3JxGVcn7SKLa-pjTEmw  # 러브커넥트 유지연
   - UCVdtDW-HF4KluixGaBAcI4w  # 연애데이터 노노
   - UCkGl2jieOVhGiHPdXF77Yyw  # 심리조각
-topic: 연애
-keywords:
-  - 연애
-  - 썸
-  - 연애 상담
-  - 이별
-  - 소개팅
-poll_interval_min: 30
-trigger:
-  min_views: 1000
-  max_views: 5000
-  max_age_hours: 12
-  min_views_per_hour: 150
 comment:
   min_chars: 40
   max_chars: 120
   brand: 운명원
 limits:
   daily_max_comments: 10
-  channel_cooldown_hours: 24
-chrome_debug_url: http://localhost:9222
-allowed_videos: []
 # For your own test video, copy this file to ignored config.yaml and fill
 # dashboard_test_videos with its exact public video ID, channel ID and title.
 # Run dashboard --test-videos-config config.yaml --register-owned-test-video
@@ -39,4 +25,3 @@ dashboard_test_videos: []
 #  - video_id: AbCdEfGhI12
 #    channel_id: UCabcdefghijklmnopqrstuv
 #    title: Exact title of my test video
-daily_search_budget: 100

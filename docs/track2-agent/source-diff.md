@@ -1,5 +1,7 @@
 # 원본 PDF와 기존 MD의 차이
 
+> 이 문서는 최초 전환 당시의 **이력 비교**다. 현행 SDD 원본·판본은 [`SOURCE_OF_TRUTH.md`](../../SOURCE_OF_TRUTH.md), 현재 구현·미완료 판정은 `tasks.md`와 `validation-protocol.md`를 따른다.
+
 기준: `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf` 1~6쪽. 비교 대상: 수정 전 `C:/Users/LG/Downloads/track-2-marketing-agent.md`. **PDF가 최상위 요구사항**이다. 기존 MD는 PDF의 단순 축약본이 아니라 다른 과제를 서술했다.
 
 | 항목 | PDF 원본 | 수정 전 MD | 정렬 결정 |
@@ -17,4 +19,4 @@
 
 ## 현재 구현과의 관계
 
-`D:/projects/샘플_폴더/샘플프로젝트/marketing_agent`는 수정 전 MD를 기준으로 만든 CLI다. 현재 README와 코드에는 3칸 localhost 대시보드, 지정 5채널 RSS 목록, 제출 시점의 `drafts/`, 심사자 버튼으로 여는 Mac 크롬 프로필, 한 글자씩 보이는 입력이 없다. 따라서 **PDF 기준 제출물로 완료 판정할 수 없다.** 이 문서 정렬은 코드 구현 완료를 뜻하지 않는다.
+최초 비교 시점의 코드는 수정 전 MD 기준 CLI였고, 대시보드·RSS·초안·수동 게시 기능이 아직 없었다. 이후 대시보드가 구현됐으므로 이 문단은 현재 코드 판정이 아니다. PDF 전체 수락, 특히 macOS 실기기 검증은 별도 증거가 필요하다.

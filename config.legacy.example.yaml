@@ -1,0 +1,24 @@
+# Read-only keyword discovery CLI example. No public posting path exists here.
+# The dashboard uses config.example.yaml instead.
+topic: 연애
+keywords:
+  - 연애
+  - 썸
+  - 연애 상담
+  - 이별
+  - 소개팅
+poll_interval_min: 30
+trigger:
+  min_views: 1000
+  max_views: 5000
+  max_age_hours: 12
+  min_views_per_hour: 150
+comment:
+  min_chars: 40
+  max_chars: 120
+limits:
+  daily_max_comments: 10
+  channel_cooldown_hours: 24
+chrome_debug_url: http://localhost:9222
+allowed_videos: []
+daily_search_budget: 100

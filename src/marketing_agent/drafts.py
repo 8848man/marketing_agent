@@ -20,6 +20,7 @@ HASHTAG = re.compile(r"(?<!\w)#[\w가-힣]+")
 APPROVED_FIELDS = ("video_id", "channel_id", "title", "worry_summary", "comment", "cited_detail", "source_text")
 GENERATED_FIELDS = ("worry_summary", "cited_detail", "comment")
 FAKE_TESTIMONIAL = re.compile(r"(?:운명원.{0,12}|(?:제가|저는).{0,30}운명원.{0,20})(?:써봤|이용해봤|상담받아봤|신청해봤|받아봤)")
+MAX_DRAFT_BYTES = 1_000_000
 
 
 def content_hash(draft: dict) -> str:
@@ -56,8 +57,14 @@ def quality_failure(draft: dict) -> str:
 def _load_record(drafts_dir: Path, video_id: str) -> dict | None:
     if not VIDEO_ID.fullmatch(video_id):
         return None
+    if drafts_dir.is_symlink():
+        raise ValueError("DRAFT_PATH_BLOCKED")
     path = drafts_dir / "latest.json"
-    if path.is_file():
+    if path.is_symlink():
+        raise ValueError("DRAFT_PATH_BLOCKED")
+    if path.exists():
+        if not path.is_file() or path.stat().st_size > MAX_DRAFT_BYTES:
+            raise ValueError("DRAFT_UNREADABLE")
         data = json.loads(path.read_text(encoding="utf-8"))
         records = data.get("drafts", data) if isinstance(data, dict) else data
         if isinstance(records, dict):
@@ -72,8 +79,12 @@ def _load_record(drafts_dir: Path, video_id: str) -> dict | None:
             return None
     # Also accept the documented per-video format, without traversing paths.
     individual = drafts_dir / f"{video_id}.json"
+    if individual.is_symlink():
+        raise ValueError("DRAFT_PATH_BLOCKED")
     if not individual.is_file():
         return None
+    if individual.stat().st_size > MAX_DRAFT_BYTES:
+        raise ValueError("DRAFT_UNREADABLE")
     data = json.loads(individual.read_text(encoding="utf-8"))
     return data if isinstance(data, dict) else None
 
@@ -82,14 +93,19 @@ def _write_record(drafts_dir: Path, video_id: str, record: dict) -> None:
     """Atomically replace one draft without accepting path components from UI."""
     if not VIDEO_ID.fullmatch(video_id):
         raise ValueError("INVALID_VIDEO_ID")
+    if drafts_dir.is_symlink():
+        raise ValueError("DRAFT_PATH_BLOCKED")
     drafts_dir.mkdir(parents=True, exist_ok=True)
     path = drafts_dir / f"{video_id}.json"
     if path.is_symlink():
         raise ValueError("DRAFT_PATH_BLOCKED")
+    encoded = json.dumps(record, ensure_ascii=False, indent=2)
+    if len(encoded.encode("utf-8")) > MAX_DRAFT_BYTES:
+        raise ValueError("DRAFT_TOO_LARGE")
     fd, temporary = tempfile.mkstemp(prefix=f".{video_id}-", suffix=".tmp", dir=drafts_dir)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(record, stream, ensure_ascii=False, indent=2)
+            stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
@@ -164,8 +180,10 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
     cited_detail = cited_detail if isinstance(cited_detail, str) else ""
     sources = draft.get("evidence_sources", ())
     sources = tuple(item for item in sources if isinstance(item, str)) if isinstance(sources, list) else ()
+    source_text = draft.get("source_text", "")
+    source_text = source_text if isinstance(source_text, str) else ""
     def blocked(reason: str) -> DraftPreview:
-        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources)
+        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources, source_text)
 
     if draft.get("video_id") != video.video_id:
         return blocked("DRAFT_VIDEO_MISMATCH")
@@ -191,4 +209,4 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
         return blocked("APPROVAL_HASH_MISMATCH")
     if not all(isinstance(draft.get(key), str) and draft[key].strip() for key in ("reviewer", "reviewed_at")):
         return blocked("HUMAN_REVIEW_MISSING")
-    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources)
+    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources, source_text)

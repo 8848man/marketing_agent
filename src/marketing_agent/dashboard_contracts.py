@@ -8,7 +8,7 @@ as authorization to post.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,7 @@ class DraftPreview:
     reason_code: str = "DRAFT_MISSING"
     cited_detail: str = ""
     evidence_sources: tuple[str, ...] = ()
+    source_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,109 @@ class DashboardService(Protocol):
     def select_video(self, video_id: str) -> DraftPreview: ...
 
     def post_video(self, video_id: str) -> PostStatus: ...
+
+
+# Optional dashboard capabilities remain separate so demo and focused test services
+# can implement only the routes they support. Runtime checks test the named method;
+# annotations document the expected call and response shape for implementers.
+@runtime_checkable
+class VideoStateService(Protocol):
+    def video_states(self) -> dict[str, dict[str, str]]: ...
+
+
+@runtime_checkable
+class SettingsReadService(Protocol):
+    def settings_yaml(self) -> str: ...
+
+
+@runtime_checkable
+class SettingsWriteService(Protocol):
+    def save_settings_yaml(self, source: str) -> str: ...
+
+
+@runtime_checkable
+class ChannelReadService(Protocol):
+    def channel_ids(self) -> list[str]: ...
+
+
+@runtime_checkable
+class ChannelEntryReadService(Protocol):
+    def channel_entries(self) -> list[dict[str, str]]: ...
+
+
+@runtime_checkable
+class ChannelWriteService(Protocol):
+    def save_channel_ids(self, channels: list[str]) -> list[str]: ...
+
+
+@runtime_checkable
+class ChannelEntryWriteService(Protocol):
+    def save_channel_entries(self, entries: list[dict[str, str]]) -> list[dict[str, str]]: ...
+
+
+@runtime_checkable
+class AIReadService(Protocol):
+    def ai_public(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class AIWriteService(Protocol):
+    def save_ai(self, provider: str, model: str, api_key: str, *, clear_key: bool) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class AITestService(Protocol):
+    def test_ai(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileReadService(Protocol):
+    def profile_public(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileOptionsService(Protocol):
+    def profile_options_public(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileWriteService(Protocol):
+    def save_profile(self, label: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileAddService(Protocol):
+    def add_profile(self, label: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileEmailService(Protocol):
+    def save_profile_email(self, label: str, email: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileVerifyService(Protocol):
+    def verify_profile_email(self, label: str, video_id: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class ProfileOpenService(Protocol):
+    def open_app_profile(self, label: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class YouTubeKeyService(Protocol):
+    def save_youtube_api_key(self, key: str) -> dict[str, bool]: ...
+
+
+@runtime_checkable
+class DraftGenerationService(Protocol):
+    def generate_draft(self, video_id: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class DraftApprovalService(Protocol):
+    def approve_draft(self, video_id: str, values: dict[str, str]) -> dict[str, object]: ...
 
 
 # Stable codes exchanged with the UI. Posting services may add more precise codes.

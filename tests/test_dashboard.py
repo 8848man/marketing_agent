@@ -17,11 +17,13 @@ import yaml
 
 from marketing_agent import __main__
 from marketing_agent.captions import EvidenceResult, YouTubeDataComments
-from marketing_agent.dashboard import (DRAFT_RESPONSE_SCHEMA, HOST, ConfiguredPostingService,
-                                       DashboardSettings, DemoService, _capture_url,
+from marketing_agent.dashboard import (HOST, ConfiguredPostingService,
+                                       DashboardSettings, DemoService, MAX_CAPTURE_BYTES, _capture_url,
                                        check_channel_connection, create_server)
 from marketing_agent.dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
+from marketing_agent.draft_generation import ProviderDraftGenerator
 from marketing_agent.poster import VisibleChromePoster
+from marketing_agent.prompt_policy import DRAFT_RESPONSE_SCHEMA, DraftPrompt
 from marketing_agent.rss_feed import list_videos, recheck_video
 from marketing_agent.storage import Store
 
@@ -97,6 +99,26 @@ def test_dashboard_is_loopback_and_has_three_panels():
         assert "/api/profile/verify-email" in page
         assert "로그인 창 열기" not in page
         assert "verifyProfileAccount" not in page
+        assert "function showEvidence(panel,draft)" in page
+        assert "el.textContent=value" in page
+
+
+def test_draft_evidence_requires_token_and_preserves_untrusted_text():
+    marker = "<script>ignore approval</script>"
+
+    class EvidenceService(FakeService):
+        def select_video(self, video_id):
+            return DraftPreview(video_id, reason_code="APPROVAL_MISSING",
+                                evidence_sources=("자막",), source_text=marker)
+
+    with running_server(EvidenceService()) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        path = f"/api/videos/{VIDEO_ID}/draft"
+        assert request(port, "GET", path)[0] == 403
+        status, body = request(port, "GET", path, token=token)
+        assert status == 200
+        assert json.loads(body)["source_text"] == marker
 
 
 def test_rejected_post_requests_never_reach_service():
@@ -730,24 +752,24 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
     evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult(
         "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글", ("자막", "인기 댓글"))})()
-    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
-                                       evidence_provider=evidence, feed_loader=lambda: VideoList((card,)))
-    service.list_videos()
     response = {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
                 "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
-    schemas, prompts = [], []
-    class FakeAI:
-        def complete_json(self, *_args, response_schema=None):
-            schemas.append(response_schema)
-            prompts.append(_args[1])
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append((provider, model, key, prompt))
             return response
-    fake_ai = FakeAI()
-    with patch("marketing_agent.dashboard.create_ai_client", return_value=fake_ai) as factory:
-        generated = service.generate_draft(VIDEO_ID)
-    factory.assert_called_once_with("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
-    assert schemas == [DRAFT_RESPONSE_SCHEMA]
-    assert json.loads(prompts[0])["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service.list_videos()
+    generated = service.generate_draft(VIDEO_ID)
+    assert calls[0][:3] == ("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    assert isinstance(calls[0][3], DraftPrompt)
+    assert json.loads(calls[0][3].user)["evidence"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
     assert generated["comment"] == response["comment"]
+    assert generated["source_text"] == "답장이 늦어질 때 자막 장면\n[인기 댓글]\n공감 댓글"
+    assert service.select_video(VIDEO_ID).source_text == generated["source_text"]
     assert service.select_video(VIDEO_ID).reason_code == "APPROVAL_MISSING"
     approved = service.approve_draft(VIDEO_ID, {key: generated[key] for key in
                                                 ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})
@@ -755,10 +777,23 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     # The browser re-selects after approval so the posting guard has a fresh
     # approval hash before it evaluates the profile requirement.
     preview = service.select_video(VIDEO_ID)
+    assert preview.source_text == generated["source_text"]
     assert preview.reason_code == "PROFILE_NOT_CONFIGURED"
     assert service.post_video(VIDEO_ID).reason_code == "PROFILE_NOT_CONFIGURED"
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+
+
+def test_default_draft_generator_uses_shared_schema():
+    calls = []
+    class FakeAI:
+        def complete_json(self, system, user, *, response_schema=None):
+            calls.append((system, user, response_schema))
+            return {"comment": "test"}
+    factory = lambda provider, model, key: FakeAI() if (provider, model, key) == ("mock", "model", "key") else None
+    result = ProviderDraftGenerator(factory).generate("mock", "model", "key", DraftPrompt("system", "user"))
+    assert result == {"comment": "test"}
+    assert calls == [("system", "user", DRAFT_RESPONSE_SCHEMA)]
 
 
 def test_rejected_draft_generation_never_calls_service():
@@ -816,8 +851,13 @@ def test_configured_channel_drives_rss_and_test_video_conflict(tmp_path):
 def test_selection_only_reads_draft():
     service = FakeService()
     with running_server(service) as port:
-        assert request(port, "GET", "/api/videos")[0] == 200
-        status, body = request(port, "GET", f"/api/videos/{VIDEO_ID}/draft")
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/videos")[0] == 403
+        assert request(port, "GET", f"/api/videos/{VIDEO_ID}/draft")[0] == 403
+        assert service.selections == 0
+        assert request(port, "GET", "/api/videos", token=token)[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{VIDEO_ID}/draft", token=token)
         assert status == 200
         assert json.loads(body)["worry_summary"] == "고민"
     assert service.selections == 1
@@ -831,10 +871,10 @@ def test_offline_demo_never_invokes_posting_service():
         assert status == 200
         assert "오프라인 연습 모드" in page
         assert "YouTube 요청" in page
-        assert request(port, "GET", "/api/videos")[0] == 200
-        status, body = request(port, "GET", f"/api/videos/{service.VIDEO_ID}/draft")
-        assert status == 200 and json.loads(body)["can_post"]
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", "/api/videos", token=token)[0] == 200
+        status, body = request(port, "GET", f"/api/videos/{service.VIDEO_ID}/draft", token=token)
+        assert status == 200 and json.loads(body)["can_post"]
         status, body = request(port, "POST", "/api/post",
                                origin=f"http://{HOST}:{port}", token=token,
                                body=json.dumps({"video_id": service.VIDEO_ID}))
@@ -911,9 +951,72 @@ def test_only_dashboard_capture_directory_is_served():
         assert _capture_url(str(allowed), captures) == f"/captures/{allowed.name}"
         assert _capture_url(str(outside), captures) == ""
         with running_server(FakeService(), capture_dir=captures) as port:
-            assert request(port, "GET", f"/captures/{allowed.name}")[0] == 200
-            assert request(port, "GET", f"/captures/{outside.name}")[0] == 404
+            page = request(port, "GET", "/")[1]
+            token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+            assert request(port, "GET", f"/captures/{allowed.name}")[0] == 403
+            assert request(port, "GET", f"/captures/{allowed.name}", token=token)[0] == 200
+            assert request(port, "GET", f"/captures/{outside.name}", token=token)[0] == 404
             assert request(port, "GET", "/captures/../../secret.png")[0] == 404
+
+
+def test_youtube_key_request_schema_is_strict_and_does_not_echo_key():
+    class KeyService(FakeService):
+        def __init__(self):
+            super().__init__()
+            self.saved = []
+
+        def save_youtube_api_key(self, key):
+            self.saved.append(key)
+            return {"has_key": True}
+
+    service = KeyService()
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        options = {"origin": f"http://{HOST}:{port}", "token": token}
+        for invalid in ({}, [], {"api_key": 123}, {"api_key": "secret", "extra": True}):
+            status, body = request(port, "POST", "/api/youtube-key", body=json.dumps(invalid), **options)
+            assert status == 400 and json.loads(body)["reason_code"] == "BAD_REQUEST"
+        assert service.saved == []
+        status, body = request(port, "POST", "/api/youtube-key",
+                               body=json.dumps({"api_key": "test-secret"}), **options)
+        assert status == 200 and json.loads(body) == {"has_key": True}
+        assert "test-secret" not in body and service.saved == ["test-secret"]
+
+
+def test_cli_error_does_not_print_exception_data(monkeypatch, capsys):
+    def fail(_path):
+        raise ValueError("https://example.invalid/?key=private-value")
+
+    monkeypatch.setattr(__main__, "load_config", fail)
+    assert __main__.main(["--once"]) == 1
+    output = capsys.readouterr()
+    assert "private-value" not in output.err
+    assert "https://" not in output.err
+
+
+def test_oversized_and_linked_captures_are_not_served(tmp_path):
+    captures = tmp_path / "screenshots"
+    captures.mkdir()
+    oversized = captures / f"{VIDEO_ID}-123.png"
+    with oversized.open("wb") as stream:
+        stream.truncate(MAX_CAPTURE_BYTES + 1)
+    assert _capture_url(str(oversized), captures) == ""
+    outside = tmp_path / f"{VIDEO_ID}-456.png"
+    outside.write_bytes(b"PNG")
+    linked = captures / outside.name
+    try:
+        linked.symlink_to(outside)
+    except OSError:
+        linked = None
+    if linked is not None:
+        assert _capture_url(str(linked), captures) == ""
+    with running_server(FakeService(), capture_dir=captures) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert request(port, "GET", f"/captures/{oversized.name}", token=token)[0] == 404
+        if linked is not None:
+            assert request(port, "GET", f"/captures/{linked.name}", token=token)[0] == 404
 
 
 def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, monkeypatch):

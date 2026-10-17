@@ -12,12 +12,18 @@ class AIClient(Protocol):
     def complete_json(self, system: str, prompt: str, *, response_schema: dict | None = None) -> dict[str, Any]: ...
 
 
-PROVIDERS = {
-    "openai": ("gpt-5.4-mini", "OPENAI_API_KEY"),
-    "gemini": ("gemini-3.5-flash", "GEMINI_API_KEY"),
-    "claude": ("claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
-    "grok": ("grok-4.7", "XAI_API_KEY"),
+PROVIDER_DETAILS = {
+    "openai": {"label": "GPT · OpenAI", "default_model": "gpt-5.4-mini", "key_env": "OPENAI_API_KEY",
+               "presets": (("gpt-5.4-mini", "GPT-5.4 mini · 균형"), ("gpt-5-mini", "GPT-5 mini · 빠른 초안"), ("gpt-5-nano", "GPT-5 nano · 저비용"))},
+    "gemini": {"label": "Gemini · Google", "default_model": "gemini-3.5-flash", "key_env": "GEMINI_API_KEY",
+               "presets": (("gemini-3.5-flash", "Gemini 3.5 Flash · 균형"), ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite · 저비용"), ("gemini-2.5-flash", "Gemini 2.5 Flash · 기존 계정용"))},
+    "claude": {"label": "Claude · Anthropic", "default_model": "claude-sonnet-4-6", "key_env": "ANTHROPIC_API_KEY",
+               "presets": (("claude-sonnet-4-6", "Claude Sonnet 4.6 · 균형"), ("claude-haiku-4-5", "Claude Haiku 4.5 · 빠른 초안"))},
+    "grok": {"label": "Grok · xAI", "default_model": "grok-4.7", "key_env": "XAI_API_KEY",
+             "presets": (("grok-4.7", "Grok 4.7 · 균형"), ("grok-4-1-fast-reasoning", "Grok 4.1 Fast Reasoning · 빠른 초안"), ("grok-4-1-fast-non-reasoning", "Grok 4.1 Fast Non-reasoning · 저비용"))},
 }
+PROVIDERS = {name: (details["default_model"], details["key_env"])
+             for name, details in PROVIDER_DETAILS.items()}
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\Z")
 MAX_RESPONSE = 1_000_000
 MAX_STRUCTURED_OUTPUT_TOKENS = 512
@@ -44,8 +50,8 @@ def _response_json(request: Request, transport: Callable) -> dict:
         with transport(request, timeout=20) as response:
             try:
                 raw = response.read(MAX_RESPONSE + 1)
-            except TypeError:  # Small injected transports may expose read() only.
-                raw = response.read()
+            except TypeError:
+                raise ValueError("AI_TRANSPORT_INVALID") from None
     except HTTPError as exc:
         if exc.code in {301, 302, 303, 307, 308}:
             code = "AI_REDIRECT_BLOCKED"
@@ -262,16 +268,41 @@ class GeminiClient:
         return _parse_json_text("".join(chunks))
 
 
+_CLIENT_FACTORIES: dict[str, Callable[[str, str, Callable | None], AIClient]] = {
+    "openai": lambda key, model, transport: ResponsesClient(key, model=model, provider="openai", transport=transport),
+    "grok": lambda key, model, transport: ResponsesClient(key, model=model, provider="grok", transport=transport),
+    "gemini": lambda key, model, transport: GeminiClient(key, model=model, transport=transport),
+    "claude": lambda key, model, transport: ClaudeClient(key, model=model, transport=transport),
+}
+
+
+def register_ai_provider(name: str, *, label: str, default_model: str,
+                         key_env: str, presets: tuple[tuple[str, str], ...],
+                         factory: Callable[[str, str, Callable | None], AIClient]) -> None:
+    """Register a trusted adapter for settings, the UI, and draft generation."""
+    if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", name)
+            or name in PROVIDERS or not isinstance(label, str) or not label.strip()
+            or not isinstance(key_env, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*_API_KEY", key_env)
+            or not callable(factory) or not presets or presets[0][0] != default_model):
+        raise ValueError("AI_PROVIDER_INVALID")
+    validate_model(default_model)
+    if any(not isinstance(item, tuple) or len(item) != 2 or
+           validate_model(item[0]) != item[0] or not isinstance(item[1], str) or not item[1].strip()
+           for item in presets):
+        raise ValueError("AI_PROVIDER_INVALID")
+    details = {"label": label, "default_model": default_model,
+               "key_env": key_env, "presets": presets}
+    PROVIDER_DETAILS[name] = details
+    PROVIDERS[name] = (default_model, key_env)
+    _CLIENT_FACTORIES[name] = factory
+
+
 def create_ai_client(provider: str, model: str, api_key: str,
                      *, transport: Callable | None = None) -> AIClient:
-    if provider not in PROVIDERS:
+    factory = _CLIENT_FACTORIES.get(provider)
+    if factory is None:
         raise ValueError("AI_PROVIDER_INVALID")
-    validate_model(model)
-    if provider == "claude":
-        return ClaudeClient(api_key, model=model, transport=transport)
-    if provider == "gemini":
-        return GeminiClient(api_key, model=model, transport=transport)
-    return ResponsesClient(api_key, model=model, provider=provider, transport=transport)
+    return factory(api_key, validate_model(model), transport)
 
 
 def test_ai_connection(provider: str, model: str, api_key: str,
