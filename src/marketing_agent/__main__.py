@@ -76,9 +76,6 @@ def main(argv: list[str] | None = None) -> int:
                                       help="Record your manually verified ownership, then exit without posting")
         dashboard_parser.add_argument("--ownership-evidence",
                                       help="Existing evidence file inside --work-dir, required for registration")
-        dashboard_parser.add_argument("--chrome-user-data-dir",
-                                      default=str(Path.home() / "Library/Application Support/Google/Chrome"))
-        dashboard_parser.add_argument("--chrome-profile-directory", default="")
         dashboard_args = dashboard_parser.parse_args(argv[1:])
         from .dashboard import ConfiguredPostingService, DashboardSettings, DemoService, run_dashboard
         from .poster import VisibleChromePoster
@@ -105,22 +102,16 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("OWNERSHIP_EVIDENCE_REQUIRES_REGISTRATION")
             capture_dir = work_dir / "screenshots"
             settings = DashboardSettings(_app_path("config.yaml"))
-            poster = VisibleChromePoster(
-                dashboard_args.chrome_user_data_dir,
-                dashboard_args.chrome_profile_directory,
-                screenshot_dir=capture_dir,
-            )
+            # No Chrome path is accepted from the command line: the poster starts
+            # unconfigured inside the app folder and the service applies the saved
+            # app-dedicated profile (data/dashboard/chrome-profile-*) selection.
+            poster = VisibleChromePoster(work_dir, "", screenshot_dir=capture_dir)
             service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
                                                poster=poster, profile="유튜브1",
                                                test_videos=entries, settings=settings,
                                                feed_loader=lambda: list_videos(channels=settings.channels()),
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
-            # A command-line profile is an explicit one-run override; otherwise
-            # the locally saved dashboard selection is applied by the service.
-            if dashboard_args.chrome_profile_directory:
-                poster.user_data_dir = Path(dashboard_args.chrome_user_data_dir)
-                poster.profile_directory = dashboard_args.chrome_profile_directory
             run_dashboard(port=dashboard_args.port, service=service,
                           capture_dir=capture_dir)
             return 0

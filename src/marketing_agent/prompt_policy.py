@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from .captions import EvidenceResult
 
 
-PROMPT_VERSION = "draft-v4-comment-settings"
+PROMPT_VERSION = "draft-v5-brand-proper-noun"
 DRAFT_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -45,6 +45,12 @@ def build_draft_prompt(evidence: EvidenceResult, *, brand_name: str,
         "The cited_detail must be an exact phrase from evidence and also appear in comment. "
         f"Write a distinct {min_chars}-{max_chars} Korean character viewer-perspective comment. "
         "Include the brand name naturally and use its description to choose relevant wording. "
+        "The brand name is the proper name of a place or service, never a common noun: "
+        "do not use it to mean a destined partner or soulmate, do not attach possessives to it, "
+        "and do not say you met, found or are waiting for it. Express curiosity or intent "
+        "(for example wanting to try it someday) rather than a past visit or result. "
+        "Frame the brand positively as something the viewer now wants to try; never say the "
+        "video made consulting it unnecessary or that one should rely on oneself instead. "
         "No links, hashtags, fabricated testimonials, or invented people, scenes, or quotes.",
     }, ensure_ascii=False)
     return DraftPrompt(system, user)

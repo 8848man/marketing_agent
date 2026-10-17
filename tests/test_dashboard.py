@@ -5,8 +5,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 import http.client
 import json
+import os
 from pathlib import Path
 import re
+import sys
 from tempfile import TemporaryDirectory
 import threading
 from unittest.mock import patch
@@ -178,6 +180,7 @@ def test_profile_email_is_encrypted_and_not_a_login_claim(tmp_path):
         settings.save_profile_email("유튜브1", "bad email")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="manual email storage uses Windows DPAPI; macOS rejects it by design")
 def test_profile_email_http_requires_local_token_and_valid_label(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
@@ -1035,12 +1038,13 @@ def test_dashboard_subcommand_connects_posting_service():
         assert args["service"].poster.profile_directory == expected["profile_directory"]
         assert args["service"].daily_limit == 10
         assert args["capture_dir"] == __main__.APP_ROOT / "data/dashboard/screenshots"
+    # External Chrome data roots are no longer accepted (safety rule: no reads
+    # outside the dashboard folder); argparse rejects the removed options.
     with patch("marketing_agent.dashboard.run_dashboard") as run:
-        assert __main__.main(["dashboard", "--chrome-user-data-dir", "/tmp/chrome",
-                              "--chrome-profile-directory", "Profile 2"]) == 0
-        poster = run.call_args.kwargs["service"].poster
-        assert poster.user_data_dir == Path("/tmp/chrome")
-        assert poster.profile_directory == "Profile 2"
+        for removed in ("--chrome-user-data-dir", "--chrome-profile-directory"):
+            with pytest.raises(SystemExit):
+                __main__.main(["dashboard", removed, "/tmp/chrome"])
+        run.assert_not_called()
     assert __main__.main(["--config", "missing-config.yaml", "--once"]) == 1
 
 
@@ -1158,10 +1162,16 @@ def test_oversized_and_linked_captures_are_not_served(tmp_path):
 
 
 def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, monkeypatch):
-    local_app_data = tmp_path / "LocalAppData"
-    root = local_app_data / "Google" / "Chrome" / "User Data"
+    if os.name == "nt":
+        local_app_data = tmp_path / "LocalAppData"
+        root = local_app_data / "Google" / "Chrome" / "User Data"
+        monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    else:  # Path.home() follows $HOME on macOS/Linux
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        root = home / ("Library/Application Support/Google/Chrome" if sys.platform == "darwin"
+                       else ".config/google-chrome")
     (root / "Profile 1").mkdir(parents=True)
-    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
     poster = VisibleChromePoster(root, "Profile 1", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", poster=poster)
     assert service._profile_reason() == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"

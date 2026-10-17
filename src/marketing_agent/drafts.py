@@ -20,6 +20,18 @@ HASHTAG = re.compile(r"(?<!\w)#[\w가-힣]+")
 APPROVED_FIELDS = ("video_id", "channel_id", "title", "worry_summary", "comment", "cited_detail", "source_text")
 GENERATED_FIELDS = ("worry_summary", "cited_detail", "comment")
 FAKE_TESTIMONIAL_END = re.compile(r"(?:써봤|이용해봤|상담받아봤|신청해봤|받아봤)")
+# The brand is the proper name of a saju place (PDF p.2), not a common noun such as
+# "destined partner". These templates catch the misuse seen in 2026-10-16 drafts.
+BRAND_AS_COMMON_NOUN = (r"(?:제|저의|나의|내|우리의|너의|당신의|올|맞는)\s*{brand}",
+                        r"{brand}(?:을|를|과|와)\s*(?:만나|만날|만난|찾|기다리|기다릴|놓치)",
+                        r"{brand}(?:은|는|이|가)\s*(?:언제|어디|누구|나타)")
+BRAND_EXPERIENCE = (r"{brand}(?:에서|에서는|에서도|도 보고)[^.!?。]{{0,15}}?"
+                    r"(?:봤|받았|보니|보니까|봤더니|봤는데|다녀|갔었|상담했)",
+                    r"{brand}(?:은|는)\s*물론", r"{brand}\s*궁합도",
+                    r"{brand}(?:이나 사주)?에서\s*(?:제|내)\s")
+# Comments that tell readers to rely on themselves *instead of* the brand work
+# against the PDF mission ("운명원에서 연애 사주를 보고 싶어지는가").
+BRAND_NEGATIVE = (r"{brand}[^.!?。]{{0,16}}(?:의지하기 전|가기 전|보기 전|받아도|맡겨야 하나|처럼 타고난)",)
 MAX_DRAFT_BYTES = 1_000_000
 
 
@@ -51,6 +63,13 @@ def quality_failure(draft: dict) -> str:
     if re.search(r"(?:" + re.escape(brand_name) + r".{0,12}|(?:제가|저는).{0,30}" +
                  re.escape(brand_name) + r".{0,20})" + FAKE_TESTIMONIAL_END.pattern, body):
         return "FABRICATED_TESTIMONIAL"
+    escaped = re.escape(brand_name)
+    if any(re.search(pattern.format(brand=escaped), body) for pattern in BRAND_EXPERIENCE):
+        return "FABRICATED_TESTIMONIAL"
+    if any(re.search(pattern.format(brand=escaped), body) for pattern in BRAND_AS_COMMON_NOUN):
+        return "BRAND_MISUSED"
+    if any(re.search(pattern.format(brand=escaped), body) for pattern in BRAND_NEGATIVE):
+        return "BRAND_NEGATIVE_FRAMING"
     summary = draft.get("worry_summary", "")
     detail = draft.get("cited_detail", "")
     if not isinstance(summary, str) or not summary.strip() or not isinstance(detail, str) or not detail.strip():
