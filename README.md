@@ -1,14 +1,14 @@
 # YouTube 댓글 대시보드
 
-Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 로컬 앱이다. 설치와 실행은 **이 폴더**에서 한다. 사용자 데이터(`config.yaml`, `.env`, `data/`, `drafts/`)는 배포본에 포함하지 않는다. 각 PC에서 앱 전용 Chrome 프로필을 만들고 직접 Google 계정에 로그인한다. 다른 PC의 Chrome 프로필이나 로그인 정보는 복사하지 않는다.
+Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 로컬 앱이다. 설치와 실행은 **이 폴더**에서 한다. 사용자 데이터(`config.yaml`, `.env`, `data/`)는 배포본에 포함하지 않는다. `drafts/`의 사람 승인 초안은 AI 키가 없는 PC에서도 보이도록 저장소에 포함한다(PDF 제출물). 각 PC에서 앱 전용 Chrome 프로필을 만들고 직접 Google 계정에 로그인한다. 다른 PC의 Chrome 프로필이나 로그인 정보는 복사하지 않는다.
 
-원요구사항 PDF의 판본·해시와 SDD 문서 권위는 [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md)에 있다. 기본 실행은 `dashboard`이며, 이전 키워드 탐색 CLI는 초안·로그를 만드는 읽기 전용 보조 경로다. 보조 CLI는 공개 댓글을 게시하지 않는다.
+원요구사항 PDF의 판본·해시와 SDD 문서 권위는 [.ucompany/sdd/source-of-truth.md](.ucompany/sdd/source-of-truth.md)에 있다. 기본 실행은 `dashboard`이며, 이전 키워드 탐색 CLI는 초안·로그를 만드는 읽기 전용 보조 경로다. 보조 CLI는 공개 댓글을 게시하지 않는다.
 
 대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다. 시작 시 파일이 없으면 예시를 읽어 실행하며, 설정을 저장할 때 `config.yaml`을 생성한다. 대시보드 **설정 → 댓글 생성 관리**에서 브랜드명·설명과 댓글 최소·최대 글자 수를 입력하면 다음 AI 초안에 반영된다. 글자 수가 없으면 40~120자를 사용한다. 선택 URL은 나중에 설명을 고칠 때 참고하도록 저장만 하며 앱에서 열거나 AI에 보내지 않는다. 프롬프트 원문은 `src/marketing_agent/prompt_policy.py`의 `build_draft_prompt`에서 관리한다. 제공사 호출은 `draft_generation.py`를 거친다.
 
-각 예시 필드의 필수성·파서·사용처는 [예시 설정 계약](CONFIG_EXAMPLE_CONTRACT.md)에 정리했다.
+각 예시 필드의 필수성·파서·사용처는 [예시 설정 계약](.ucompany/sdd/contracts/config-example.md)에 정리했다.
 
-비판 검토와 개선 계획의 항목별 적용·미완료 판정은 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다. 외부 요청 경계는 [외부 요청 정책](EXTERNAL_IO_POLICY.md), 보조 CLI와 과거 CDP 코드의 범위는 [레거시 코드 범위](LEGACY_SCOPE.md)에 기록한다.
+비판 검토와 개선 계획의 항목별 적용·미완료 판정은 [개선 재검토(2026-10-18)](.ucompany/sdd/improvements/2026-10-17/05-plan-validity-review.md)를 따른다. 외부 요청 경계는 [외부 요청 정책](.ucompany/sdd/contracts/external-io-policy.md), 보조 CLI와 과거 CDP 코드의 범위는 [레거시 코드 범위](.ucompany/sdd/contracts/legacy-scope.md)에 기록한다.
 
 ## 설치·실행
 
@@ -22,6 +22,8 @@ py -3 -m venv .venv
 ```
 
 macOS Terminal:
+
+macOS 기본 `python3`는 3.9일 수 있다. `python3 --version`이 3.11 미만이면 먼저 `brew install python@3.12`로 설치하고 아래 첫 명령의 `python3`를 `python3.12`로 바꾼다.
 
 ```sh
 cd /path/to/marketing_agent
@@ -56,16 +58,18 @@ Windows에서 기존 가상환경으로 실행할 때 `ZoneInfoNotFoundError: No
 | 우리 채널·본인 테스트 영상 페이지만 열기 | 댓글 게시의 watch 이동은 허용 영상으로 제한한다. 사용자가 요청한 계정 확인은 YouTube 홈을 열고, 계정 선택은 `accounts.google.com`과 `myaccount.google.com`을 연다. | 미충족 |
 | 댓글 외 구독·좋아요·설정 변경 금지 | 게시 자동화는 댓글 입력·게시·확인을 수행한다. 계정 선택 화면은 사람이 직접 조작한다. | 코드상 충족, 실제 브라우저 동작 검수 필요 |
 | YouTube·AI 서비스 외 외부 전송 금지 | RSS·YouTube Data API·AI 제공사 외에 Google 로그인 화면 접속이 있다. | Google 계정 서비스를 별도 외부 대상이라 보면 미충족 |
-| 대시보드 폴더 밖 파일 읽기 금지 | 여기서 대시보드 폴더를 배포 앱 루트 `marketing_agent/`로 해석한다. 기본 실행의 `.env`, `config.yaml`, `drafts/`, `data/dashboard/`는 모두 그 안에 있으며, 대시보드 CLI의 경로 인자는 앱 루트 밖을 거부한다. 다만 `--chrome-user-data-dir`로 외부 Chrome 프로필 경로를 지정하는 레거시 옵션은 별도 검토가 필요하다. | **기본 앱 파일 경로는 충족; 외부 프로필 옵션은 미확인** |
+| 대시보드 폴더 밖 파일 읽기 금지 | 여기서 대시보드 폴더를 배포 앱 루트 `marketing_agent/`로 해석한다. 기본 실행의 `.env`, `config.yaml`, `drafts/`, `data/dashboard/`는 모두 그 안에 있으며, 대시보드 CLI의 경로 인자는 앱 루트 밖을 거부한다. 외부 Chrome 프로필 경로를 받던 `--chrome-user-data-dir`·`--chrome-profile-directory` 옵션과 사용자 Chrome에 CDP로 붙던 레거시 게시 코드는 2026-10-18 삭제했다. | **충족(코드 기준)** |
 
-`marketing_agent/` 안의 `.env`·`config.yaml`·`drafts/`를 `data/dashboard/`로 옮길 필요는 없다. 남은 불일치는 Google 계정 선택 화면과 외부 프로필 옵션의 허용 범위, 지속 프로필과 AI 인증 방식의 해석이다. 이 기준을 확정하고 Windows·macOS 실제 실행을 검증하기 전에는 **안전 규칙 준수 완료**로 제출하지 않는다.
+`marketing_agent/` 안의 `.env`·`config.yaml`·`drafts/`를 `data/dashboard/`로 옮길 필요는 없다. 남은 불일치는 Google 계정 선택 화면·YouTube 홈 열기의 허용 범위(G-01), 지속 프로필과 AI 인증 방식의 해석이다. `python .ucompany/scripts/safety_scan.py --strict`가 허용 범위 밖 주소를 보고한다. 이 기준을 확정하고 Windows·macOS 실제 실행을 검증하기 전에는 **안전 규칙 준수 완료**로 제출하지 않는다.
 
 ## 검증과 SDD
 
 ```sh
-python -m pytest -q
+python .ucompany/scripts/check_sdd.py     # SDD 링크·그래프 일관성
+python .ucompany/scripts/safety_scan.py   # 안전 규칙 정적 검사
+python -m pytest -q                       # 자동 회귀
 ```
 
-2026-10-17 Windows 로컬 환경에서 자동 테스트 158개가 통과했다. 실제 `유튜브3`의 로그인 상태는 Windows에서 확인했다. 타인의 Windows PC와 macOS의 설치·Chrome 프로필·실제 댓글 게시까지 통과했다는 뜻은 아니다. 각 PC에서 위 설치, 대시보드 접속, 전용 프로필 로그인, 계정 확인, 허용된 테스트 영상의 게시 검수를 수행해야 한다.
+2026-10-18 Linux(Python 3.13)에서 자동 테스트 147개 통과·1개 건너뜀(Windows 전용)을 확인했다. GitHub Actions가 PR마다 macOS·Ubuntu에서 같은 검사를 실행한다. 2026-10-17 Windows 로컬 환경에서는 당시 기준 158개가 통과했다. 실제 `유튜브3`의 로그인 상태는 Windows에서 확인했다. 타인의 Windows PC와 macOS의 설치·Chrome 프로필·실제 댓글 게시까지 통과했다는 뜻은 아니다. 각 PC에서 위 설치, 대시보드 접속, 전용 프로필 로그인, 계정 확인, 허용된 테스트 영상의 게시 검수를 수행해야 한다.
 
-SDD 문서의 ID·관계 원본은 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 관리되는 요구사항은 [docs/track2-agent/spec.md](docs/track2-agent/spec.md)에 있다. 작업 지침은 [AGENTS.md](AGENTS.md)를 따른다.
+SDD 문서의 ID·관계 원본은 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 관리되는 요구사항은 [.ucompany/sdd/features/track2-dashboard/spec.md](.ucompany/sdd/features/track2-dashboard/spec.md)에 있다. 작업 지침은 [AGENTS.md](AGENTS.md), 작업 단계(Spec → 구현 → 검증 → GitHub)는 [workflow.md](.ucompany/sdd/workflow.md)를 따른다.

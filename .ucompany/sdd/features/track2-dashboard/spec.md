@@ -369,7 +369,7 @@ YouTube가 활성 채널의 Google 이메일을 숨기더라도, 계정 메뉴�
 
 현재 화면에 이메일이 노출되면 이메일 표시를 우선하고, 숨겨진 경우에만 채널명·핸들로 로그인 상태를 확인한다. 로그인된 프로필에는 작은 `계정 변경` 버튼을 두어 해당 앱 전용 프로필의 계정 선택 창을 연다. YouTube Data API가 400/401/403으로 키를 거부하면 초안 근거 안내 옆에 `키 설정하기`를 표시하고 AI API 관리 다이얼로그의 YouTube 키 입력으로 연결한다. 입력값은 응답·로그에 반환하지 않고 앱 루트 `.env`에 저장한다.
 
-SDD 원본은 `marketing_agent/.ucompany/sdd` 및 `marketing_agent/docs/track2-agent`에 둔다. AGENTS.md와 README는 제품 폴더를 기준으로 경로를 안내한다. Windows는 설치·테스트·localhost 실행을 검증하고 macOS는 별도 실제 기기 검수가 필요함을 명시한다.
+SDD 원본은 `marketing_agent/.ucompany/sdd`에 둔다(2026-10-18 `docs/track2-agent`를 `features/track2-dashboard/`로 통합, ADR-0001). AGENTS.md와 README는 제품 폴더를 기준으로 경로를 안내한다. Windows는 설치·테스트·localhost 실행을 검증하고 macOS는 별도 실제 기기 검수가 필요함을 명시한다.
 
 ### 2026-10-17 제출 문서 및 안전 규칙 감사
 
@@ -387,7 +387,7 @@ README는 설치·실행, 유튜브1~3 앱 전용 프로필 연결, AI 키 입�
 
 ## R-HARDEN-2026-10-17 — 문서·보안·교체성 개선
 
-사용자의 2026-10-17 개선 요청은 문서에서 구현으로 전환하는 승인이다. 근거는 루트 `REVIEW_CRITIQUE_2026-10-17.md`와 `IMPROVEMENT_PLAN_2026-10-17.md`다. 이 절은 기존 PDF 수락 관문의 완료 선언이 아니다.
+사용자의 2026-10-17 개선 요청은 문서에서 구현으로 전환하는 승인이다. 근거는 루트 `.ucompany/sdd/improvements/2026-10-17/01-review-critique.md`와 `.ucompany/sdd/improvements/2026-10-17/02-improvement-plan.md`다. 이 절은 기존 PDF 수락 관문의 완료 선언이 아니다.
 
 - H01: 영상·초안·캡처 GET은 세션 토큰 없이 내용을 반환하지 않는다. 루트 HTML은 토큰 배포 진입점이므로 같은 OS 사용자/로컬 프로세스 간 인증 한계는 문서에 공개한다.
 - H02: 레거시 CLI는 자동·주기 실행으로 공개 댓글을 게시하지 않는다. 게시 가능한 진입점은 대상·문안이 승인된 대시보드의 명시적 클릭 경로다.
@@ -412,3 +412,17 @@ README는 설치·실행, 유튜브1~3 앱 전용 프로필 연결, AI 키 입�
 - H21: 설정의 `브랜드 설정 관리`를 `댓글 생성 관리`로 확장한다. 브랜드 정보와 댓글 최소·최대 글자 수를 함께 편집한다. `comment.min_chars`·`max_chars`가 없으면 각각 40·120을 사용하고, 유효 범위는 1~1000자 및 최소≤최대로 제한한다. 프롬프트·사람 검토 화면·서버 품질 검사는 같은 설정을 사용한다. 생성 당시 범위는 승인 해시에 포함하며 범위 변경 후 기존 초안은 재생성·재승인한다. URL만 변경하면 승인에 영향이 없다. `config.yaml`이 없는 시작은 예시를 읽되 파일을 만들지 않고, 설정 저장 시 파일을 만든다.
 
 수용 기준: 각 항목의 거부·허용 시험과 문서/예시 스키마 검사를 기록한다. Windows 자동 시험은 macOS/실제 게시 수락의 대체 증거로 쓰지 않는다.
+
+## R-IMP-2026-10-18 — SDD 통합·워크플로우·개선 재검토 (2026-10-18, 사용자 요청)
+
+사용자의 2026-10-18 요청("SDD를 .ucompany로 통합, Spec→구현→검증→GitHub 워크플로우 정의, 개선 문서 타당성 검토와 미완료 개선")을 단계 전환 승인으로 기록한다. 판정 근거는 `../../improvements/2026-10-17/05-plan-validity-review.md`다.
+
+- IMP-00: SDD 문서는 `.ucompany/sdd/` 한 곳에 둔다(ADR-0001). 현행 문서에서 `docs/track2-agent` 경로를 쓰지 않으며, 모든 상대 링크와 `graph.json` 경로가 유효해야 한다.
+- IMP-01: 공개 댓글을 쓸 수 있는 코드 경로는 대시보드 버튼 → `posting_service` → `VisibleChromePoster` 하나다. 사용자가 띄운 Chrome에 CDP로 붙는 게시 API는 존재하지 않는다(SEC-02·ARCH-02 종결).
+- IMP-02: `dashboard` 명령은 Chrome 사용자 데이터 경로를 명령행으로 받지 않는다. 게시기는 앱 폴더 안의 미설정 상태로 시작하고 저장된 앱 전용 프로필만 적용한다(안전 규칙 "대시보드 폴더 밖 파일 읽기 금지").
+- IMP-03: 브랜드명은 업체·장소의 고유명사다(PDF 2쪽 "연애 사주 잘 봐주는 곳"). 초안이 브랜드를 소유격·"만나다/찾다"의 목적어·"언제/어디 나타나다"의 주어로 쓰면 `BRAND_MISUSED`, 이용·방문·결과를 지어내면 `FABRICATED_TESTIMONIAL`, 브랜드를 대신하지 말라는 식으로 깎아내리면 `BRAND_NEGATIVE_FRAMING`으로 승인·선택·게시를 막는다. 프롬프트는 `draft-v5-brand-proper-noun`이다.
+- IMP-04: V1 검증 도구(`check_sdd.py`, `safety_scan.py`)와 GitHub Actions(macOS·Ubuntu), PR 템플릿을 둔다. `safety_scan.py` FAIL은 쿠키·세션·Chrome 내부 파일 접근, CDP 연결, 추적된 비밀/설정이며 허용 호스트 밖 URL은 WARN이다.
+- IMP-05: `drafts/`는 Git 추적 대상이다(PDF 5쪽 제출물). 제출 커밋에는 5채널 최신 영상의 사람 승인 초안만 포함한다.
+- IMP-06: 플랫폼 전용 시험은 해당 플랫폼에서만 실행되거나 플랫폼별 경로를 쓴다(macOS CI 대비).
+
+수용 기준: `check_sdd.py` 오류 0, `safety_scan.py` FAIL 0, 전체 pytest 통과(Linux 147 passed·1 skipped, 2026-10-18). G-01(Google 로그인·YouTube 홈 열기) 해소와 V4 Mac 수락은 이 절의 범위 밖이며 미완료다.

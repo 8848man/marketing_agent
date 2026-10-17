@@ -62,11 +62,6 @@
     },
     {
       "from": "FEAT-TRACK2",
-      "to": "DOC-PRODUCT",
-      "type": "documented_by"
-    },
-    {
-      "from": "FEAT-TRACK2",
       "to": "DOC-ORIGIN",
       "type": "documented_by"
     },
@@ -99,6 +94,71 @@
       "from": "FEAT-TRACK2",
       "to": "DOC-CONFIG-EXAMPLES",
       "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "WF-1",
+      "type": "governed_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CHK-TRACK2",
+      "type": "validated_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "REV-TRACK2",
+      "type": "documented_by"
+    },
+    {
+      "from": "PLAN-TRACK2",
+      "to": "ADR-0001",
+      "type": "decided_by"
+    },
+    {
+      "from": "PLAN-TRACK2",
+      "to": "ADR-0002",
+      "type": "decided_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "IMP-2026-10-17",
+      "type": "improved_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-HANDOFF",
+      "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-AI-CONTRACT",
+      "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-EXTERNAL-IO",
+      "type": "documented_by"
+    },
+    {
+      "from": "FEAT-TRACK2",
+      "to": "DOC-LEGACY",
+      "type": "documented_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "TOOL-SDD",
+      "type": "validated_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "TOOL-SAFETY",
+      "type": "validated_by"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-POSTER",
+      "type": "touches"
     }
   ],
   "focus": "FEAT-TRACK2",
@@ -116,12 +176,12 @@
     },
     {
       "id": "REQ-TRACK2",
-      "path": "docs/track2-agent/spec.md",
+      "path": ".ucompany/sdd/features/track2-dashboard/spec.md",
       "type": "requirement"
     },
     {
       "id": "PLAN-TRACK2",
-      "path": "docs/track2-agent/plan.md",
+      "path": ".ucompany/sdd/features/track2-dashboard/plan.md",
       "type": "plan"
     },
     {
@@ -159,24 +219,19 @@
       "type": "code"
     },
     {
-      "id": "DOC-PRODUCT",
-      "path": "SDD.md",
-      "type": "document"
-    },
-    {
       "id": "VAL-TRACK2",
-      "path": "docs/track2-agent/validation-protocol.md",
+      "path": ".ucompany/sdd/features/track2-dashboard/validation-protocol.md",
       "type": "validation"
     },
     {
       "id": "DOC-TRACK2",
-      "path": "docs/track2-agent/tasks.md",
+      "path": ".ucompany/sdd/features/track2-dashboard/tasks.md",
       "type": "task",
       "status": "in_progress"
     },
     {
       "id": "DOC-ORIGIN",
-      "path": "SOURCE_OF_TRUTH.md",
+      "path": ".ucompany/sdd/source-of-truth.md",
       "type": "document"
     },
     {
@@ -206,9 +261,77 @@
     },
     {
       "id": "DOC-CONFIG-EXAMPLES",
-      "path": "CONFIG_EXAMPLE_CONTRACT.md",
+      "path": ".ucompany/sdd/contracts/config-example.md",
+      "type": "contract"
+    },
+    {
+      "id": "WF-1",
+      "path": ".ucompany/sdd/workflow.md",
+      "type": "workflow"
+    },
+    {
+      "id": "CHK-TRACK2",
+      "path": ".ucompany/sdd/features/track2-dashboard/checklist.md",
+      "type": "validation"
+    },
+    {
+      "id": "REV-TRACK2",
+      "path": ".ucompany/sdd/features/track2-dashboard/reviews/three-pass-review.md",
       "type": "document"
+    },
+    {
+      "id": "ADR-0001",
+      "path": ".ucompany/sdd/decisions/ADR-0001-sdd-consolidation.md",
+      "type": "decision",
+      "status": "accepted"
+    },
+    {
+      "id": "ADR-0002",
+      "path": ".ucompany/sdd/decisions/ADR-0002-local-threat-model.md",
+      "type": "decision",
+      "status": "proposed"
+    },
+    {
+      "id": "IMP-2026-10-17",
+      "path": ".ucompany/sdd/improvements/2026-10-17/README.md",
+      "type": "improvement",
+      "status": "in_progress"
+    },
+    {
+      "id": "DOC-HANDOFF",
+      "path": ".ucompany/sdd/handoff.md",
+      "type": "document"
+    },
+    {
+      "id": "DOC-AI-CONTRACT",
+      "path": ".ucompany/sdd/contracts/ai-provider.md",
+      "type": "contract"
+    },
+    {
+      "id": "DOC-EXTERNAL-IO",
+      "path": ".ucompany/sdd/contracts/external-io-policy.md",
+      "type": "contract"
+    },
+    {
+      "id": "DOC-LEGACY",
+      "path": ".ucompany/sdd/contracts/legacy-scope.md",
+      "type": "contract"
+    },
+    {
+      "id": "TOOL-SDD",
+      "path": ".ucompany/scripts/check_sdd.py",
+      "type": "tool"
+    },
+    {
+      "id": "TOOL-SAFETY",
+      "path": ".ucompany/scripts/safety_scan.py",
+      "type": "tool"
+    },
+    {
+      "id": "CODE-POSTER",
+      "path": "src/marketing_agent/poster.py",
+      "type": "code"
     }
   ],
-  "version": 45
+  "version": 46
 }

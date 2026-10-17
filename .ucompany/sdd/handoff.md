@@ -1,5 +1,7 @@
 # Handoff
 
+- IMP 2026-10-18 SDD 통합·워크플로우·개선 재검토: `docs/track2-agent`와 루트 SDD/개선 문서 15개를 `.ucompany/sdd`(features·contracts·improvements·decisions)로 `git mv`하고 링크를 재작성했다(ADR-0001). `workflow.md`(Spec→구현→검증→GitHub→마감), `.ucompany/scripts/check_sdd.py`·`safety_scan.py`, `.github/workflows/ci.yml`(macOS·Ubuntu), PR 템플릿을 추가했다. 개선 계획을 재검토해 `improvements/2026-10-17/05-plan-validity-review.md`에 현행 판정을 남겼고 IMP-01(CDP 게시 API 삭제)·IMP-02(외부 Chrome 경로 옵션 삭제)·IMP-03(브랜드 고유명사 프롬프트 v5와 `BRAND_MISUSED`·`BRAND_NEGATIVE_FRAMING`·확장 `FABRICATED_TESTIMONIAL`)·IMP-05(`drafts/` 추적)·IMP-06(플랫폼별 시험)을 적용했다. 검증: V1 check_sdd 0 오류, safety_scan FAIL 0·WARN 1(`accounts.google.com`), V2 Linux pytest 147 passed·1 skipped. V3·V4 미수행. 기존 승인 초안 10개 중 여러 건이 새 검사에 걸려 선택 시 차단된다(의도된 동작). 다음: G-00 우리 채널에 개발 중 게시된 댓글 7건 삭제(posts.db POSTED, 본인 테스트 영상 0건) → G-01 안전 규칙 해소 → G-02 초안 재생성·승인·커밋 → G-03 기록 패널 → G-05 Mac 수락 → 시연 영상. 과제 적합성 보고서는 `improvements/2026-10-17/06-track2-fit-report.html`.
+
 - H21 댓글 생성 관리 (2026-10-17): 설정 다이얼로그에서 브랜드 정보와 최소·최대 글자 수를 함께 저장한다. `comment` 범위가 없으면 40~120자를 쓰고, 프롬프트·검토 UI·서버 품질 검사와 게시 전 설정 스냅샷 비교에 적용한다. `config.yaml`은 시작 시 예시를 읽는 것만으로 생성되지 않으며 첫 설정 저장에서 생성된다. 기존 `/api/brand`는 유지하고 새 `/api/comment-settings`를 추가했다. 전체 자동 시험 163개 및 생성 JS 문법 통과; 실제 AI/YouTube 호출은 하지 않았다.
 
 - H19 설정 예시 구조 대조 (2026-10-17): 실제 두 `config.yaml`의 값은 출력하지 않고 키·자료형만 비교했다. 배포용 예시에 `channel_names`, `ai`, `chrome_profiles`, `selected_chrome_profile`, `profile_ids`를 안전한 기본값으로 추가하고 계약 문서를 갱신했다. 예시 로더 시험은 실제 사용자 설정 대신 임시 디렉터리만 읽도록 고쳤다. 전체 회귀 158개 통과.
@@ -10,7 +12,7 @@
 
 - H16 Windows 새 클론 실행 오류 (2026-10-17): `storage.py`와 `search_budget.py`가 import 시 `ZoneInfo("Asia/Seoul")`을 생성한다. `pyproject.toml`에 Windows 조건부 `tzdata` 런타임 의존성을 추가하고 README에 기존 venv 재설치·즉시 복구 명령을 기록했다. 사용자 Python 3.13 환경 재설치와 8770 포트 충돌 여부는 현장 확인이 남는다.
 
-- H15 예시 설정 계약 (2026-10-17): `CONFIG_EXAMPLE_CONTRACT.md`에 대시보드/보조 CLI YAML과 `.env`의 필수성·기본값·파서·소비 위치를 표로 대조했다. README의 당시 145개 시험 표기를 현행 157개로 고쳤다. 실제 사용자 설정 내용은 읽지 않았다.
+- H15 예시 설정 계약 (2026-10-17): `.ucompany/sdd/contracts/config-example.md`에 대시보드/보조 CLI YAML과 `.env`의 필수성·기본값·파서·소비 위치를 표로 대조했다. README의 당시 145개 시험 표기를 현행 157개로 고쳤다. 실제 사용자 설정 내용은 읽지 않았다.
 
 - H14 AI 생성 경계 (2026-10-17): `DraftGenerator`와 기본 `ProviderDraftGenerator`를 분리하고 `ConfiguredPostingService` 생성자에서 주입할 수 있게 했다. 근거 수집·프로필 확인·초안 저장·승인은 서비스에 유지했다. 가짜 생성기와 기본 공통 스키마 시험 포함, 전체 회귀 157개를 확인한다. 실계정 모델·정책 수락은 남아 있다.
 
@@ -20,11 +22,11 @@
 
 - H11 SDD 색인 정리 (2026-10-17): `00_index.md`의 날짜별 기록을 내용 손실 없이 `history.md`로 옮겼다. 색인은 문서 권위·ID·관계·탐색 순서와 이력 링크만 담는다. 그래프에 `DOC-HISTORY`를 연결했다. 현행 판정은 적용 상태/공백 감사 문서가 맡고 과거 시험 수는 이력으로 남긴다.
 
-- 문서 대조·H09~H10 보완 (2026-10-17): 비판 검토/개선 계획/적용 상태를 항목별로 재판정해 `REMEDIATION_GAP_AUDIT_2026-10-17.md`에 남겼다. 승인 화면은 저장된 원문 근거와 출처를 텍스트 노드로 표시하고, 생성·미리보기 응답도 근거를 전달한다. AI 응답의 무제한 읽기 대체 경로와 CLI 최상위 예외 원문 출력을 제거했다. 외부 요청 정책과 레거시 사용 범위를 별도 문서화했다. 로컬 pytest 156개와 생성 JS 문법 통과. ARCH-01/02, AI 계약 주입, 파일 경쟁·권한, 오래된 SDD 이력 정리와 H06 실환경 수락은 부분/미완료다.
+- 문서 대조·H09~H10 보완 (2026-10-17): 비판 검토/개선 계획/적용 상태를 항목별로 재판정해 `.ucompany/sdd/improvements/2026-10-17/04-remediation-gap-audit.md`에 남겼다. 승인 화면은 저장된 원문 근거와 출처를 텍스트 노드로 표시하고, 생성·미리보기 응답도 근거를 전달한다. AI 응답의 무제한 읽기 대체 경로와 CLI 최상위 예외 원문 출력을 제거했다. 외부 요청 정책과 레거시 사용 범위를 별도 문서화했다. 로컬 pytest 156개와 생성 JS 문법 통과. ARCH-01/02, AI 계약 주입, 파일 경쟁·권한, 오래된 SDD 이력 정리와 H06 실환경 수락은 부분/미완료다.
 
 - H07~H08 HTTP 경계 보완 (2026-10-17): YouTube 키 저장 요청의 누락된 스키마 검사를 추가해 비정상 본문이 400 JSON으로 끝나고 서비스 호출은 0회다. 캡처는 심볼릭 링크와 10 MiB 초과 파일을 거부하고, 크기 제한을 읽기에도 적용했다. 전체 로컬 pytest 153개 통과. H06 실환경 수락은 계속 미완료다.
 
-- H01~H05 비판 검토 기반 개선 (2026-10-17): 민감 GET 토큰 검사, CLI 게시 경로 폐쇄, YouTube API 리다이렉트·응답 크기·로그 경계, AI 근거 제한·공통 계약, SDD 원본·설정 예시 문서를 적용했다. 전체 로컬 pytest 151개 통과. [적용 상태](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 범위와 남은 H06을 기록했다. macOS·실제 제공사·Chrome 경로는 별도 수락이 필요하다.
+- H01~H05 비판 검토 기반 개선 (2026-10-17): 민감 GET 토큰 검사, CLI 게시 경로 폐쇄, YouTube API 리다이렉트·응답 크기·로그 경계, AI 근거 제한·공통 계약, SDD 원본·설정 예시 문서를 적용했다. 전체 로컬 pytest 151개 통과. [적용 상태](improvements/2026-10-17/03-implementation-status.md)에 범위와 남은 H06을 기록했다. macOS·실제 제공사·Chrome 경로는 별도 수락이 필요하다.
 
 - U13 만료 세션 안내 (2026-10-16): 서버 재시작 뒤 열린 Edge 탭의 이전 세션 토큰으로 전용 프로필 준비와 연결이 모두 403 FORBIDDEN으로 거부됐다. 탭 새로고침 후 앱 전용 Default 선택·연결 저장이 정상 완료됐다. UI는 이후 403에 새로고침 안내를 제공하고 선택 목록에 앱 전용 표기를 추가했다. 새 세션에서 준비 버튼의 성공 안내를 실제 대시보드에서 확인했다. 전체 pytest 122개와 JS 문법 검사 통과. 사용자 Google/YouTube 로그인과 게시 실증은 아직 남아 있다.
 
@@ -62,7 +64,7 @@
 
 - UI/UX 보완 (2026-10-15): 사용자 요청으로 Vencubator `SPEC-003`·`SPEC-005`·`SPEC-019`를 참고해 `dashboard_ui.py`의 현재 단계 강조, 빈/실패/미승인 상태 안내, 반응형·키보드 초점·모션 감소 스타일을 적용했다. PDF의 3칸과 게시 경계는 유지했다. 추후 체험형 튜토리얼은 `spec.md`에만 적고 앱에는 넣지 않았다. 로컬 8767 오프라인 데모에서 불러오기→가상 영상 선택→`실제 게시 없음`까지 확인했고 320/390/1440px 가로 넘침은 없었다. `tasks.md` U01의 키보드·스크린리더·모션 감소·실제 RSS 오류 화면 점검은 남았으며 U02는 기획 확정 전 구현 보류다. 샌드박스 localhost 차단으로 첫 pytest 실행은 HTTP 시험 6개가 실패했고, 로컬 연결 권한으로 재실행한 전체 103개는 통과했다. 생성 JS는 `node --check` 통과. Mac 및 실게시 관문은 변화 없다.
 
-- SDD 정리 (2026-10-15): 사용자 승인 범위에서 빈 `constitution.md`를 프로젝트 원칙으로 채우고 `FEAT-TRACK2` 기능 진입 문서, 제품 폴더의 `marketing_agent/SDD.md`, 연결된 `graph.json`/`00_index.md`를 만들었다. PDF 기반 `docs/track2-agent`는 원본으로 유지한다. `plan.md`의 오래된 CLI 전용·70개 시험 서술을 현재 일부 구현/Windows 103개 회귀 기준으로 고쳤다. `tasks.md`의 T01~T12를 모두 미완료 체크박스로 통일했다. 이번 작업은 문서 구조 정리이며 앱 실행 또는 새 수락 시험을 의미하지 않는다.
+- SDD 정리 (2026-10-15): 사용자 승인 범위에서 빈 `constitution.md`를 프로젝트 원칙으로 채우고 `FEAT-TRACK2` 기능 진입 문서, 제품 폴더의 `marketing_agent/SDD.md`, 연결된 `graph.json`/`00_index.md`를 만들었다. PDF 기반 `.ucompany/sdd/features/track2-dashboard`는 원본으로 유지한다. `plan.md`의 오래된 CLI 전용·70개 시험 서술을 현재 일부 구현/Windows 103개 회귀 기준으로 고쳤다. `tasks.md`의 T01~T12를 모두 미완료 체크박스로 통일했다. 이번 작업은 문서 구조 정리이며 앱 실행 또는 새 수락 시험을 의미하지 않는다.
 - 다음 작업: G1 실제 5채널 RSS와 게시 직전 재조회, 최신 영상별 사람 승인 초안, G2 Mac 프로필·한국어 댓글 화면, 본인 테스트 영상 실게시와 시연 증거를 순서대로 확보한다. 수락 증거가 없으면 체크박스와 관문을 완료로 표시하지 않는다.
 
 - 현재 상태 (2026-10-15): Track 2의 README·PROCESS·체크리스트를 실제 CLI 연결 상태와 대조해 갱신했다. 기본 `dashboard`는 3칸 UI와 `ConfiguredPostingService`·`VisibleChromePoster`를 연결한다. `drafts/latest.json`의 5개 항목은 모두 미승인이고 기본 CLI에는 본인 테스트 영상의 명시적 등록 옵션이 연결됐지만 실제 소유 자료와 승인 초안은 없다. T11·T12는 미완료다.

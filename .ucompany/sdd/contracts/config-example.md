@@ -49,4 +49,4 @@
 | `XAI_API_KEY` | Grok 어댑터 |
 | `YOUTUBE_API_KEY` | YouTube Data API 인기 댓글 근거 |
 
-실제 `.env`, `config.yaml`, `data/`, `drafts/`는 Git에 넣지 않는다. 예시의 로더 시험과 최신 수락 결과는 [적용 상태](IMPLEMENTATION_STATUS_2026-10-17.md)를 따른다.
+실제 `.env`, `config.yaml`, `data/`, `drafts/`는 Git에 넣지 않는다. 예시의 로더 시험과 최신 수락 결과는 [적용 상태](../improvements/2026-10-17/03-implementation-status.md)를 따른다.
