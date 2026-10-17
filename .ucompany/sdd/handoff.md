@@ -1,5 +1,9 @@
 # Handoff
 
+- H19 설정 예시 구조 대조 (2026-10-17): 실제 두 `config.yaml`의 값은 출력하지 않고 키·자료형만 비교했다. 배포용 예시에 `channel_names`, `ai`, `chrome_profiles`, `selected_chrome_profile`, `profile_ids`를 안전한 기본값으로 추가하고 계약 문서를 갱신했다. 예시 로더 시험은 실제 사용자 설정 대신 임시 디렉터리만 읽도록 고쳤다. 전체 회귀 158개 통과.
+
+- H18 RSS 전 프로필 확인 (2026-10-17): 계정 확인 API는 프로필 레이블만 받고, 서비스는 영상 목록·RSS·게시 기록을 조회하지 않는다. 앱 전용 Chrome은 `https://www.youtube.com/`으로 이동해 홈 URL을 확인한 뒤 현재 계정 메뉴만 읽는다. 외부 리다이렉트와 영상 ID/임의 URL 요청은 거부한다. 전체 모의 회귀 158개 및 생성 JS 문법 통과. 실제 한국어 YouTube 계정 메뉴 수락은 남아 있다.
+
 - H17 단일 설치 명령 (2026-10-17): `requirements.txt`가 `-e .[test]`와 Playwright를 한 명령으로 설치한다. README의 Windows/macOS 절차와 시간대 오류 복구 안내를 갱신했다. Windows pip dry-run이 프로젝트·PyYAML·pytest·Playwright 및 조건부 tzdata를 해석했다. 사용자 Python 3.13 실제 설치·실행은 남아 있다.
 
 - H16 Windows 새 클론 실행 오류 (2026-10-17): `storage.py`와 `search_budget.py`가 import 시 `ZoneInfo("Asia/Seoul")`을 생성한다. `pyproject.toml`에 Windows 조건부 `tzdata` 런타임 의존성을 추가하고 README에 기존 venv 재설치·즉시 복구 명령을 기록했다. 사용자 Python 3.13 환경 재설치와 8770 포트 충돌 여부는 현장 확인이 남는다.

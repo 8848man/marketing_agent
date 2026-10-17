@@ -7,12 +7,19 @@ channels:  # 영상 불러오기 · 게시 허용 범위
   - UC09L3JxGVcn7SKLa-pjTEmw  # 러브커넥트 유지연
   - UCVdtDW-HF4KluixGaBAcI4w  # 연애데이터 노노
   - UCkGl2jieOVhGiHPdXF77Yyw  # 심리조각
+channel_names: {}  # 채널 관리에서 저장하는 선택 이름: 채널 ID -> 표시 이름
 comment:
   min_chars: 40
   max_chars: 120
   brand: 운명원
 limits:
   daily_max_comments: 10
+ai:  # 선택 제공사/모델만 저장; API 키는 .env에 보관
+  provider: openai
+  model: gpt-5.4-mini
+chrome_profiles: {}  # 연결 시 이 PC의 앱 전용 절대 경로를 자동 저장
+selected_chrome_profile: 유튜브1
+profile_ids: {}  # 추가 프로필의 내부 ID를 자동 저장; 기본 3개는 내장 ID 사용
 # For your own test video, copy this file to ignored config.yaml and fill
 # dashboard_test_videos with its exact public video ID, channel ID and title.
 # Run dashboard --test-videos-config config.yaml --register-owned-test-video

@@ -20,8 +20,10 @@
 | 예시 설정 계약 | 세 `.example` 파일의 필드·필수성·현재 파서·소비 위치를 [계약 문서](CONFIG_EXAMPLE_CONTRACT.md)에 대조했다. | 예시 로더 회귀 및 문서 링크 검사 |
 | Windows 시간대 데이터 | `ZoneInfo("Asia/Seoul")`을 사용하는 Windows 설치에 `tzdata` 런타임 의존성을 추가했다. | 의존성 마커·전체 회귀; 사용자 Python 3.13 재설치 확인은 남음 |
 | 단일 설치 명령 | `requirements.txt`가 프로젝트·시험 도구·Playwright 설치를 한 번에 요청한다. | Windows pip dry-run 성공; 사용자 Python 3.13 실행은 남음 |
+| RSS 전 계정 확인 | 프로필 레이블만으로 앱 전용 Chrome의 YouTube 홈에서 로그인 상태를 확인한다. 영상 목록·RSS·게시 기록 탐색을 제거했다. | HTTP·브라우저 모의 회귀, 생성 JS 문법; 실제 YouTube 화면은 남음 |
+| 설정 예시 구조 | `config.example.yaml`에 채널 이름·AI 선택·전용 프로필·선택 프로필·동적 프로필 ID의 안전한 기본 구조를 추가했다. | 실제 설정 값 비출력 구조 대조, 예시만 사용하는 로더 회귀 |
 
-전체 자동 회귀: **157개 통과**. 이 숫자는 로컬 모의 시험 결과이며 실제 AI 제공사 호출, YouTube/Chrome 게시, macOS 수락을 뜻하지 않는다. 계획 대비 부분 완료·미완료는 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다.
+전체 자동 회귀: **158개 통과**. 이 숫자는 로컬 모의 시험 결과이며 실제 AI 제공사 호출, YouTube/Chrome 게시, macOS 수락을 뜻하지 않는다. 계획 대비 부분 완료·미완료는 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다.
 
 ## 남은 수락
 

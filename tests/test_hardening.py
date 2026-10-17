@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from marketing_agent.captions import CaptionResult, VideoEvidence
 from marketing_agent import ai_client
@@ -125,12 +126,21 @@ def test_registered_provider_uses_same_settings_and_ui_contract():
             mapping.update(snapshot)
 
 
-def test_examples_match_both_loaders_without_secret_values():
+def test_examples_match_both_loaders_without_secret_values(tmp_path):
     root = Path(__file__).resolve().parents[1]
     agent = load_config(root / "config.legacy.example.yaml")
-    settings = DashboardSettings(root / "config.yaml")
+    source = (root / "config.example.yaml").read_text(encoding="utf-8")
+    example = yaml.safe_load(source)
+    assert set(example) == set(DashboardSettings.DEFAULT) | {
+        "dashboard_test_videos", "channel_names", "ai", "chrome_profiles",
+        "selected_chrome_profile", "profile_ids"}
+    assert example["chrome_profiles"] == {} and example["profile_ids"] == {}
+    assert set(example["ai"]) == {"provider", "model"}
+    (tmp_path / "config.example.yaml").write_text(source, encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
     assert len(agent.keywords) > 0
     assert len(settings.channel_ids()) >= 5
+    assert settings.profile_public()["configured"] is False
     values = dict(line.split("=", 1) for line in (root / ".env.example").read_text(encoding="utf-8").splitlines()
                   if line and not line.startswith("#"))
     assert set(values) == {"YOUTUBE_API_KEY", *(details[1] for details in ai_client.PROVIDERS.values())}

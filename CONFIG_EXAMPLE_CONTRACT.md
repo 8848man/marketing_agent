@@ -4,7 +4,7 @@
 
 ## `config.example.yaml` — 대시보드
 
-`DashboardSettings`는 `config.yaml`이 없으면 이 예시를 읽는다. 화면에서 저장하는 YAML은 아래 네 최상위 필드가 정확히 있어야 한다. 시작 시 기존 파일에는 누락 필드의 기본값을 채우지만, 새 파일을 편집할 때는 예시를 유지한다.
+`DashboardSettings`는 `config.yaml`이 없으면 이 예시를 읽는다. 고급 설정 화면에서 직접 저장하는 YAML은 아래의 `profiles`, `channels`, `comment`, `limits` 네 필드가 정확히 있어야 한다. 별도 관리 화면은 나머지 선택 필드를 같은 `config.yaml`에 저장한다. 예시는 선택 필드도 구조만 보여주며, PC별 경로나 키 값을 담지 않는다.
 
 | 필드 | 필수/제약 | 소비 위치 |
 | --- | --- | --- |
@@ -13,6 +13,13 @@
 | `comment.min_chars`, `comment.max_chars`, `comment.brand` | 각각 `40`, `120`, `운명원`으로 고정. | `dashboard_settings.py`의 `_validate`, 초안 품질 검사 |
 | `limits.daily_max_comments` | `10`으로 고정. | `dashboard_settings.py`의 `_validate`, `posting_service.py` |
 | `dashboard_test_videos` | 기본 빈 목록. 소유 증거 등록 명령에만 사용하며 항목은 `video_id`, `channel_id`, `title`을 가진다. 목록 등록만으로 게시 권한이 생기지 않는다. | `__main__.py`의 `_load_test_videos`, `posting_service.py`의 `_test_cards` |
+| `channel_names` | 기본 빈 맵. 채널 관리에서 ID별 선택 이름을 저장한다. | `dashboard_settings.py`의 `channels`, `save_channel_entries` |
+| `ai.provider`, `ai.model` | 기본 OpenAI·기본 모델 예시. 비밀 키 필드는 넣지 않는다. | `dashboard_settings.py`의 `_ai_data`, `save_ai` |
+| `chrome_profiles` | 기본 빈 맵. 프로필 연결 시 해당 PC의 앱 전용 절대 경로와 `Default`를 자동 저장한다. 예시에 다른 PC의 경로를 복사하지 않는다. | `dashboard_settings.py`의 `profile_options_public`, `connect_profile` |
+| `selected_chrome_profile` | 기본 첫 프로필 이름. 현재 선택을 저장한다. | `dashboard_settings.py`의 `_selected_profile`, `save_profile` |
+| `profile_ids` | 기본 빈 맵. 추가 프로필의 내부 ID를 자동 저장하며 기본 3개는 내장 ID를 쓴다. | `dashboard_settings.py`의 `app_profile_root`, `add_profile` |
+
+이전 프로젝트의 `config.yaml`에는 `topic`, `keywords`, `trigger`, `chrome_debug_url` 등 보조 CLI 필드가 함께 남아 있을 수 있다. 대시보드가 사용하는 현재 예시에 이를 다시 합치지 않는다. 보조 CLI의 예시는 아래 별도 파일을 따른다.
 
 ## `config.legacy.example.yaml` — 읽기 중심 보조 CLI
 

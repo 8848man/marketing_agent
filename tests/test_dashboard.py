@@ -195,7 +195,7 @@ def test_profile_email_http_requires_local_token_and_valid_label(tmp_path):
         assert settings.profile_options_public()["options"][0]["email"] == "reviewer@example.com"
 
 
-def test_verified_email_requires_loaded_allowed_video_and_never_posts(tmp_path):
+def test_verified_email_needs_no_video_and_never_posts(tmp_path):
     import pytest
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
@@ -206,35 +206,27 @@ def test_verified_email_requires_loaded_allowed_video_and_never_posts(tmp_path):
     poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster)
-    with pytest.raises(ValueError, match="PROFILE_EMAIL_VIDEO_INVALID"):
-        service.verify_profile_email("유튜브1", VIDEO_ID)
-    channel = next(iter(settings.channels()))
-    service._videos[VIDEO_ID] = VideoCard(VIDEO_ID, channel, "채널", "제목", "now", "")
-    from datetime import datetime, timezone
-    with Store(tmp_path / "posts.db") as store:
-        store.assign_dashboard_videos(service._videos.values(), ["유튜브1"], datetime.now(timezone.utc))
     with patch.object(poster, "inspect_account_email", return_value="actual@example.com") as inspect:
-        result = service.verify_profile_email("유튜브1", VIDEO_ID)
-    inspect.assert_called_once_with(VIDEO_ID)
+        result = service.verify_profile_email("유튜브1")
+    inspect.assert_called_once_with()
     option = result["options"][0]
     assert option["verified_email"] == "actual@example.com"
     assert option["verified_at"]
-    with Store(tmp_path / "posts.db") as store:
-        assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+    assert not (tmp_path / "posts.db").exists()
     with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_EMAIL_NOT_VISIBLE")):
         with pytest.raises(ValueError, match="PROFILE_EMAIL_NOT_VISIBLE"):
-            service.verify_profile_email("유튜브1", VIDEO_ID)
+            service.verify_profile_email("유튜브1")
     assert service.profile_options_public()["options"][0]["verified_email"] == ""
     with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_SIGNED_OUT")):
         with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-            service.verify_profile_email("유튜브1", VIDEO_ID)
+            service.verify_profile_email("유튜브1")
     assert service.profile_options_public()["options"][0]["account_state"] == "SIGNED_OUT"
     restarted = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                          settings=settings, poster=poster)
     assert restarted.profile_options_public()["options"][0]["verified_email"] == ""
 
 
-def test_account_check_without_selected_video_uses_allowed_feed_and_requested_profile(tmp_path):
+def test_account_check_without_rss_uses_requested_profile(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
@@ -243,22 +235,19 @@ def test_account_check_without_selected_video_uses_allowed_feed_and_requested_pr
         settings.save_profile(label)
     poster = VisibleChromePoster(settings.app_profile_root("유튜브1"), "Default",
                                  screenshot_dir=tmp_path / "shots")
-    allowed = next(iter(settings.channels()))
-    cards = (VideoCard(VIDEO_ID, "untrusted", "타 채널", "제외", "now", ""),
-             VideoCard("QXmBHgPqEUE", allowed, "허용 채널", "허용 영상", "now", ""))
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster,
-                                       feed_loader=lambda: VideoList(cards))
+                                       feed_loader=lambda: (_ for _ in ()).throw(AssertionError("RSS called")))
     with patch.object(poster, "inspect_account_email", return_value="current@example.com") as inspect:
         result = service.verify_profile_email("유튜브2")
-    inspect.assert_called_once_with("QXmBHgPqEUE")
+    inspect.assert_called_once_with()
     assert poster.user_data_dir == settings.app_profile_root("유튜브2")
     assert result["options"][1]["verified_email"] == "current@example.com"
     assert service._videos == {}
     assert not (tmp_path / "posts.db").exists()
 
 
-def test_account_check_reuses_confirmed_allowed_video_when_rss_unavailable(tmp_path):
+def test_account_check_does_not_consult_existing_post_records(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
@@ -279,26 +268,33 @@ def test_account_check_reuses_confirmed_allowed_video_when_rss_unavailable(tmp_p
                                        feed_loader=lambda: (_ for _ in ()).throw(OSError("RSS down")))
     with patch.object(poster, "inspect_account_email", return_value="active@example.com") as inspect:
         assert service.verify_profile_email("유튜브1")["options"][0]["verified_email"] == "active@example.com"
-    inspect.assert_called_once_with(VIDEO_ID)
+    inspect.assert_called_once_with()
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 2
 
 
 def test_verify_email_http_rejects_untrusted_request_before_browser():
     class Service(FakeService):
-        def verify_profile_email(self, label, video_id):
+        def verify_profile_email(self, label):
             self.chrome_opens += 1
             return {"options": []}
     service = Service()
     with running_server(service) as port:
         page = request(port, "GET", "/")[1]
+        assert "localPost('/api/profile/verify-email',{label})" in page
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
         path = "/api/profile/verify-email"
-        body = json.dumps({"label": "유튜브1", "video_id": VIDEO_ID})
+        body = json.dumps({"label": "유튜브1"})
         assert request(port, "POST", path, body=body)[0] == 403
         assert request(port, "POST", path, token=token, body=body)[0] == 403
         assert request(port, "POST", path, token=token,
-                       origin=f"http://{HOST}:{port}", body='{"label":"x"}')[0] == 400
+                       origin=f"http://{HOST}:{port}", body='{}')[0] == 400
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}",
+                       body=json.dumps({"label": "유튜브1", "video_id": VIDEO_ID}))[0] == 400
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}",
+                       body=json.dumps({"label": "유튜브1", "url": "https://outside.example/"}))[0] == 400
         assert service.chrome_opens == 0
         assert request(port, "POST", path, token=token,
                        origin=f"http://{HOST}:{port}", body=body)[0] == 200

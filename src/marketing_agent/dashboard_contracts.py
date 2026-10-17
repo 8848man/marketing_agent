@@ -136,7 +136,7 @@ class ProfileEmailService(Protocol):
 
 @runtime_checkable
 class ProfileVerifyService(Protocol):
-    def verify_profile_email(self, label: str, video_id: str) -> dict[str, object]: ...
+    def verify_profile_email(self, label: str) -> dict[str, object]: ...
 
 
 @runtime_checkable

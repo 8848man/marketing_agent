@@ -213,10 +213,10 @@ class ConfiguredPostingService(PostingService):
                     self._login_window_root == self.settings.app_profile_root(option["label"]))
             return result
 
-    def verify_profile_email(self, label: str, video_id: str = "") -> dict[str, object]:
-        return self._posting_worker.submit(self._verify_profile_email_on_worker, label, video_id).result()
+    def verify_profile_email(self, label: str) -> dict[str, object]:
+        return self._posting_worker.submit(self._verify_profile_email_on_worker, label).result()
 
-    def _verify_profile_email_on_worker(self, label: str, video_id: str) -> dict[str, object]:
+    def _verify_profile_email_on_worker(self, label: str) -> dict[str, object]:
         with self._settings_lock:
             if self.settings is None or self.poster is None:
                 raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
@@ -227,29 +227,6 @@ class ConfiguredPostingService(PostingService):
                     self._login_window_root == root and
                     self._login_window_process.poll() is None):
                 raise ValueError("PROFILE_LOCKED")
-            if video_id:
-                if not VIDEO_ID.fullmatch(video_id) or video_id not in self._videos:
-                    raise ValueError("PROFILE_EMAIL_VIDEO_INVALID")
-                cards = (self._videos[video_id],)
-            else:
-                cards = tuple(self._videos.values())
-                if not cards:
-                    try:
-                        cards = tuple(self.feed_loader().videos)
-                    except Exception:
-                        cards = ()
-            card = next((item for item in cards if VIDEO_ID.fullmatch(item.video_id) and
-                        (item.channel_id in self.settings.channels() or
-                         (item.video_id in self.test_videos and self._test_ownership(item)))), None)
-            if card is None and not video_id and self.db_path.is_file():
-                with Store(self.db_path) as store:
-                    posted = store.latest_posted_video_for_channels(set(self.settings.channels()))
-                if posted and VIDEO_ID.fullmatch(posted["video_id"]):
-                    card = VideoCard(posted["video_id"], posted["channel_id"], "",
-                                     posted["title"], "", "")
-            if card is None:
-                raise ValueError("PROFILE_EMAIL_VIDEO_INVALID" if video_id else
-                                 "PROFILE_EMAIL_VIDEO_UNAVAILABLE")
             option = next(item for item in self.settings.profile_options_public()["options"]
                           if item["label"] == label)
             if not option["configured"] or not option["connected"]:
@@ -261,7 +238,7 @@ class ConfiguredPostingService(PostingService):
             if reason:
                 raise ValueError(reason)
             try:
-                email = self.poster.inspect_account_email(card.video_id)
+                email = self.poster.inspect_account_email()
             except ValueError as exc:
                 if str(exc) == "PROFILE_SIGNED_OUT":
                     self._account_states[label] = "SIGNED_OUT"
@@ -717,9 +694,8 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                             or not isinstance(data["label"], str) or not isinstance(data["email"], str)):
                         raise ValueError
                 elif self.path == "/api/profile/verify-email":
-                    if (not isinstance(data, dict) or set(data) != {"label", "video_id"}
-                            or not isinstance(data["label"], str)
-                            or not isinstance(data["video_id"], str)):
+                    if (not isinstance(data, dict) or set(data) != {"label"}
+                            or not isinstance(data["label"], str)):
                         raise ValueError
                 elif self.path == "/api/post":
                     if (not isinstance(data, dict) or set(data) not in ({"video_id"}, {"video_id", "keep_window_open"})
@@ -835,10 +811,10 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 if not isinstance(service, ProfileVerifyService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    return self._json(200, service.verify_profile_email(data["label"], data["video_id"]))
+                    return self._json(200, service.verify_profile_email(data["label"]))
                 except ValueError as exc:
                     reason = str(exc)
-                    return self._reject(400 if reason in {"PROFILE_EMAIL_VIDEO_INVALID", "PROFILE_SETTINGS_INVALID"}
+                    return self._reject(400 if reason == "PROFILE_SETTINGS_INVALID"
                                         else 409 if reason == "PROFILE_SIGNED_OUT" else 503,
                                         reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_")) else "PROFILE_EMAIL_CHECK_FAILED")
                 except Exception as exc:
