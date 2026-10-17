@@ -19,13 +19,16 @@ HASH = re.compile(r"^[0-9a-f]{64}$")
 HASHTAG = re.compile(r"(?<!\w)#[\w가-힣]+")
 APPROVED_FIELDS = ("video_id", "channel_id", "title", "worry_summary", "comment", "cited_detail", "source_text")
 GENERATED_FIELDS = ("worry_summary", "cited_detail", "comment")
-FAKE_TESTIMONIAL = re.compile(r"(?:운명원.{0,12}|(?:제가|저는).{0,30}운명원.{0,20})(?:써봤|이용해봤|상담받아봤|신청해봤|받아봤)")
+FAKE_TESTIMONIAL_END = re.compile(r"(?:써봤|이용해봤|상담받아봤|신청해봤|받아봤)")
 MAX_DRAFT_BYTES = 1_000_000
 
 
 def content_hash(draft: dict) -> str:
     """The exact fields a reviewer approves, with deterministic UTF-8 encoding."""
     payload = {key: draft.get(key, "") for key in APPROVED_FIELDS}
+    for key in ("brand_name", "brand_description"):
+        if key in draft:
+            payload[key] = draft[key]
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -38,9 +41,11 @@ def quality_failure(draft: dict) -> str:
         return "COMMENT_LINK"
     if HASHTAG.search(body):
         return "COMMENT_HASHTAG"
-    if "운명원" not in body or "사주" not in body:
+    brand_name = draft.get("brand_name", "운명원")
+    if not isinstance(brand_name, str) or not brand_name or brand_name not in body:
         return "BRAND_CONTEXT_MISSING"
-    if FAKE_TESTIMONIAL.search(body):
+    if re.search(r"(?:" + re.escape(brand_name) + r".{0,12}|(?:제가|저는).{0,30}" +
+                 re.escape(brand_name) + r".{0,20})" + FAKE_TESTIMONIAL_END.pattern, body):
         return "FABRICATED_TESTIMONIAL"
     summary = draft.get("worry_summary", "")
     detail = draft.get("cited_detail", "")
@@ -116,7 +121,8 @@ def _write_record(drafts_dir: Path, video_id: str, record: dict) -> None:
 
 def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
                    source_text: str | None = None, evidence_sources: tuple[str, ...] = (),
-                   profile: str = "") -> dict:
+                   profile: str = "", brand_name: str = "운명원",
+                   brand_description: str = "연애 고민을 사주 관점에서 살펴보는 서비스") -> dict:
     """Store an AI suggestion as unapproved; it can never enable posting itself."""
     if (not isinstance(result, dict) or set(result) != set(GENERATED_FIELDS)
             or any(not isinstance(result.get(key), str) or not result[key].strip() for key in GENERATED_FIELDS)):
@@ -126,6 +132,8 @@ def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
         "worry_summary": result["worry_summary"].strip(), "cited_detail": result["cited_detail"].strip(),
         "source_text": source_text if isinstance(source_text, str) and source_text.strip() else video.title,
         "evidence_sources": list(evidence_sources), "comment": result["comment"].strip(),
+        "brand_name": brand_name,
+        "brand_description": brand_description,
     }
     if profile:
         record["generated_profile"] = profile
@@ -151,6 +159,9 @@ def approve(video: VideoCard, values: dict, drafts_dir: str | Path) -> dict:
         "evidence_sources": previous.get("evidence_sources", []), "comment": values["comment"].strip(),
         "reviewer": values["reviewer"].strip(), "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }
+    for key in ("brand_name", "brand_description"):
+        if key in previous:
+            record[key] = previous[key]
     for key in ("generated_profile", "generated_at"):
         if key in previous:
             record[key] = previous[key]

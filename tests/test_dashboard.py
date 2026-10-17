@@ -780,6 +780,67 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
 
 
+def test_brand_settings_http_validation_and_reference_only(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert "브랜드 설정 관리" in page and "추후 브랜드 설명을 고칠 때" in page
+        assert request(port, "GET", "/api/brand")[0] == 403
+        assert request(port, "POST", "/api/brand", token=token,
+                       body=json.dumps({"name": "별빛", "description": "관계 상담", "reference_url": ""}))[0] == 403
+        origin = f"http://{HOST}:{port}"
+        invalid = {"name": "", "description": "관계 상담", "reference_url": ""}
+        status, body = request(port, "POST", "/api/brand", token=token, origin=origin,
+                               body=json.dumps(invalid))
+        assert status == 400 and json.loads(body)["reason_code"] == "BRAND_NAME_INVALID"
+        invalid["name"] = "별빛"
+        invalid["reference_url"] = "file:///private/data"
+        assert request(port, "POST", "/api/brand", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 400
+        invalid["reference_url"] = "https://brand.example/about"
+        assert request(port, "POST", "/api/brand", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 200
+        saved = json.loads(request(port, "GET", "/api/brand", token=token)[1])
+        assert saved == invalid
+    assert DashboardSettings(tmp_path / "config.yaml").brand_public() == invalid
+
+
+def test_brand_prompt_uses_description_but_never_reference_url(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/private-reference")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult("답장이 늦어질 때 자막", ("자막",))})()
+    response = {"worry_summary": "답장이 늦어 불안함", "cited_detail": "답장이 늦어질 때",
+                "comment": "답장이 늦어질 때 마음이 복잡하네요. 별빛과 함께 서로의 대화를 차분히 돌아보면 어떨지 궁금해져요."}
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append(prompt)
+            return response
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service._videos[VIDEO_ID] = card
+    service._assigned_profile = lambda _: "유튜브1"
+    generated = service.generate_draft(VIDEO_ID)
+    prompt = json.loads(calls[0].user)
+    assert prompt["brand"] == {"name": "별빛", "description": "연애 고민을 대화로 살펴보는 브랜드"}
+    assert "brand.example" not in calls[0].user + calls[0].system
+    assert service.approve_draft(VIDEO_ID, {key: generated[key] for key in
+                                           ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})["can_post"]
+    settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/updated-reference")
+    assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
+    settings.save_brand("별빛", "새로운 설명", "https://brand.example/private-reference")
+    assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
+
+
 def test_default_draft_generator_uses_shared_schema():
     calls = []
     class FakeAI:

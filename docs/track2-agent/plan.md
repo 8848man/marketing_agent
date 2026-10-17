@@ -313,3 +313,7 @@ HTTP가 제공 여부를 문자열 기반 `hasattr`로 추측하는 대신 읽�
 ## 2026-10-17 H19 대시보드 설정 예시 구조 맞춤
 
 실제 `config.yaml`에서 값은 출력하지 않고 키와 자료형만 비교한다. `DashboardSettings`가 저장하는 `channel_names`, `ai`, `chrome_profiles`, `selected_chrome_profile`, `profile_ids`를 예시 YAML에 안전한 기본값으로 명시한다. 앱 전용 Chrome 경로는 각 PC에서 생성되므로 빈 맵으로 두고, AI 키는 계속 `.env.example`에만 둔다. 레거시 CLI 키는 `config.legacy.example.yaml`로 유지한다. 예시 파싱, 대시보드 기본 로딩, 기존 설정 보존과 필드별 계약 문서를 확인한다.
+
+## 2026-10-17 H20 브랜드 설정과 AI 초안 맥락
+
+기존 `config.yaml`에 `brand_settings`가 없으면 기본 브랜드 정보를 사용하고, 관리 화면에서 새 값을 저장한다. 로컬 API는 기존 Host·Origin·세션 토큰 경계를 따르며 이름·설명·URL의 형식과 크기를 제한한다. 공통 프롬프트에 이름·설명만 JSON 데이터로 전달하고 URL은 제외한다. 생성 당시 브랜드 정보는 승인 해시에 포함하고 브랜드명·설명 변경 뒤 승인된 초안의 게시를 차단한다. URL만 바꾸면 승인 상태를 유지한다. 새 브랜드의 생성·승인, 잘못된 API 요청, URL 비전송, 기존 초안 호환을 시험한다.

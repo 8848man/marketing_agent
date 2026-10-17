@@ -12,6 +12,10 @@ comment:
   min_chars: 40
   max_chars: 120
   brand: 운명원
+brand_settings:
+  name: 운명원  # 댓글에 자연스럽게 포함할 브랜드명
+  description: 연애 고민을 사주 관점에서 살펴보는 서비스  # AI 초안의 브랜드 맥락
+  reference_url: ""  # 선택: 추후 설명 수정 시 참고만 함; URL은 열거나 AI에 전송하지 않음
 limits:
   daily_max_comments: 10
 ai:  # 선택 제공사/모델만 저장; API 키는 .env에 보관

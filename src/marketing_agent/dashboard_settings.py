@@ -9,6 +9,7 @@ import re
 import secrets
 import tempfile
 from threading import RLock
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -20,10 +21,13 @@ from .rss_feed import CHANNELS
 CHANNEL_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}\Z")
 PROFILE_LABEL = re.compile(r'[^\x00-\x1f\x7f\\/:*?"<>|]{1,30}\Z')
 PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
+BRAND_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
+BRAND_DESCRIPTION = re.compile(r"[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]{1,1000}\Z")
+DEFAULT_BRAND = {"name": "운명원", "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
 
 
 class DashboardSettings:
-    """Private YAML settings; only the four safe dashboard fields reach the UI."""
+    """Private YAML settings with explicit public views for dashboard dialogs."""
 
     DEFAULT = {
         "profiles": ["유튜브1", "유튜브2", "유튜브3"],
@@ -242,6 +246,39 @@ class DashboardSettings:
     def channel_ids(self) -> list[str]:
         with self._lock:
             return list(self._current["channels"])
+
+    @staticmethod
+    def _brand_data(full: dict) -> dict[str, str]:
+        saved = full.get("brand_settings", DEFAULT_BRAND)
+        if not isinstance(saved, dict) or set(saved) != {"name", "description", "reference_url"}:
+            raise ValueError("BRAND_SETTINGS_INVALID")
+        name, description, reference_url = (saved[key] for key in ("name", "description", "reference_url"))
+        if not isinstance(name, str) or name != name.strip() or not BRAND_NAME.fullmatch(name):
+            raise ValueError("BRAND_NAME_INVALID")
+        if (not isinstance(description, str) or description != description.strip()
+                or not BRAND_DESCRIPTION.fullmatch(description)):
+            raise ValueError("BRAND_DESCRIPTION_INVALID")
+        if not isinstance(reference_url, str) or reference_url != reference_url.strip() or len(reference_url) > 2048:
+            raise ValueError("BRAND_URL_INVALID")
+        if reference_url:
+            parsed = urlsplit(reference_url)
+            if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username
+                    or parsed.password or any(ord(char) <= 32 or ord(char) == 127 for char in reference_url)):
+                raise ValueError("BRAND_URL_INVALID")
+        return dict(saved)
+
+    def brand_public(self) -> dict[str, str]:
+        with self._lock:
+            return self._brand_data(self._read_full())
+
+    def save_brand(self, name: str, description: str, reference_url: str) -> dict[str, str]:
+        brand = self._brand_data({"brand_settings": {"name": name, "description": description,
+                                                       "reference_url": reference_url}})
+        with self._lock:
+            full = self._read_full()
+            full["brand_settings"] = brand
+            self._write_full(full)
+            return dict(brand)
 
     def channel_entries(self) -> list[dict[str, str]]:
         return [{"channel_name": name, "channel_id": channel_id}

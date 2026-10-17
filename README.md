@@ -4,7 +4,7 @@ Python 3.11 이상과 Google Chrome이 있는 Windows·macOS에서 실행하는 
 
 원요구사항 PDF의 판본·해시와 SDD 문서 권위는 [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md)에 있다. 기본 실행은 `dashboard`이며, 이전 키워드 탐색 CLI는 초안·로그를 만드는 읽기 전용 보조 경로다. 보조 CLI는 공개 댓글을 게시하지 않는다.
 
-대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다.
+대시보드 설정 예시는 [`config.example.yaml`](config.example.yaml), 보조 CLI 설정 예시는 [`config.legacy.example.yaml`](config.legacy.example.yaml)이다. 실제 설정 파일 `config.yaml`은 이 제품 폴더에만 두고 Git에서 제외한다. 대시보드 **설정 → 브랜드 설정 관리**에서 브랜드명과 설명을 입력하면 다음 AI 댓글 초안에 반영된다. 선택 URL은 나중에 설명을 고칠 때 참고하도록 저장만 하며 앱에서 열거나 AI에 보내지 않는다. 프롬프트 원문은 `src/marketing_agent/prompt_policy.py`의 `build_draft_prompt`에서 관리한다. 제공사 호출은 `draft_generation.py`를 거친다.
 
 각 예시 필드의 필수성·파서·사용처는 [예시 설정 계약](CONFIG_EXAMPLE_CONTRACT.md)에 정리했다.
 

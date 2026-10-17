@@ -1,6 +1,6 @@
 # marketing_agent — SDD 색인
 
-현재 H 개선 적용 결과와 미완료 실환경 수락은 [IMPLEMENTATION_STATUS_2026-10-17.md](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 기록한다. 비판·계획 대비 전체 공백은 [REMEDIATION_GAP_AUDIT_2026-10-17.md](../../REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다. H01~H05와 H07~H19는 로컬 자동·정적 확인을 통과했고 H06과 실제 YouTube 계정 화면 수락은 남아 있다.
+현재 H 개선 적용 결과와 미완료 실환경 수락은 [IMPLEMENTATION_STATUS_2026-10-17.md](../../IMPLEMENTATION_STATUS_2026-10-17.md)에 기록한다. 비판·계획 대비 전체 공백은 [REMEDIATION_GAP_AUDIT_2026-10-17.md](../../REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다. H01~H05와 H07~H20은 로컬 자동·정적 확인을 통과했고 H06과 실제 YouTube 계정 화면 수락은 남아 있다. H20의 현행 브랜드 요구는 `spec.md`에 기록한다.
 
 현재 요구사항 출처와 권위는 [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md)에 고정한다. 2026-10-17 H 개선은 [비판 검토](../../REVIEW_CRITIQUE_2026-10-17.md) → [개선 계획](../../IMPROVEMENT_PLAN_2026-10-17.md) → `docs/track2-agent`의 H 작업 순서로 추적한다. 날짜별 기록은 [history.md](history.md)의 당시 이력이며 현행 수락 판정이 아니다.
 
@@ -31,6 +31,8 @@
 | CODE-SETTINGS | code | [dashboard_settings.py](../../src/marketing_agent/dashboard_settings.py) | 대시보드 설정·키 파일 경계 |
 | CODE-CONTRACTS | code | [dashboard_contracts.py](../../src/marketing_agent/dashboard_contracts.py) | 대시보드 기본·선택 기능 계약 |
 | CODE-GENERATOR | code | [draft_generation.py](../../src/marketing_agent/draft_generation.py) | 주입 가능한 AI 초안 생성 계약과 기본 제공사 구현 |
+| CODE-PROMPT | code | [prompt_policy.py](../../src/marketing_agent/prompt_policy.py) | H20 브랜드 기반 공통 프롬프트 원본 |
+| CODE-PAGE | code | [dashboard_page.py](../../src/marketing_agent/dashboard_page.py) | H20 브랜드 관리 다이얼로그 |
 | DOC-PRODUCT | document | [SDD.md](../../SDD.md) | 제품 폴더의 SDD 안내 |
 | DOC-ORIGIN | document | [SOURCE_OF_TRUTH.md](../../SOURCE_OF_TRUTH.md) | 외부 PDF 판본과 내부 문서 권위 |
 | DOC-HISTORY | document | [history.md](history.md) | 날짜별 작업 이력과 당시 시험 기록 |

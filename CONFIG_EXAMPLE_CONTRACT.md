@@ -10,7 +10,8 @@
 | --- | --- | --- |
 | `profiles` | 1~20개 고유 표시 이름. 기본 3개 이름은 전용 Chrome 프로필에 대응하며 경로가 아니다. | `dashboard_settings.py`의 `_validate`, 프로필 목록·선택 |
 | `channels` | 중복 없는 `UC` 채널 ID 5~20개. RSS와 게시 대상 범위를 제한한다. | `dashboard_settings.py`의 `_validate`, `rss_feed.py`, `posting_service.py` |
-| `comment.min_chars`, `comment.max_chars`, `comment.brand` | 각각 `40`, `120`, `운명원`으로 고정. | `dashboard_settings.py`의 `_validate`, 초안 품질 검사 |
+| `comment.min_chars`, `comment.max_chars`, `comment.brand` | 기존 YAML 편집 계약에서 각각 `40`, `120`, `운명원`으로 유지한다. 실제 신규 브랜드는 아래 `brand_settings`를 사용한다. | `dashboard_settings.py`의 `_validate` |
+| `brand_settings.name`, `description`, `reference_url` | 이름·설명은 필수, URL은 선택이다. 기존 설정에 없으면 안전한 기본값을 사용한다. URL은 설명 수정용 참고로만 저장한다. | `dashboard_settings.py`의 `brand_public`, `save_brand`; `prompt_policy.py`는 이름·설명만 사용 |
 | `limits.daily_max_comments` | `10`으로 고정. | `dashboard_settings.py`의 `_validate`, `posting_service.py` |
 | `dashboard_test_videos` | 기본 빈 목록. 소유 증거 등록 명령에만 사용하며 항목은 `video_id`, `channel_id`, `title`을 가진다. 목록 등록만으로 게시 권한이 생기지 않는다. | `__main__.py`의 `_load_test_videos`, `posting_service.py`의 `_test_cards` |
 | `channel_names` | 기본 빈 맵. 채널 관리에서 ID별 선택 이름을 저장한다. | `dashboard_settings.py`의 `channels`, `save_channel_entries` |

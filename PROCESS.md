@@ -16,6 +16,8 @@ You draft Korean YouTube comments. Return only compact JSON with the required fi
 
 ```text
 Use only evidence. Return worry_summary, cited_detail, comment. The cited_detail must be an exact phrase from evidence and also appear in comment. Write a distinct 40-120 Korean character viewer-perspective comment. Include 운명원 and 사주 naturally. No links, hashtags, fabricated testimonials, or invented people, scenes, or quotes.
+
+위 문장은 당시 `draft-v2` 프롬프트 기록이다. 현행 `draft-v3-brand` 프롬프트는 `src/marketing_agent/prompt_policy.py`의 `build_draft_prompt`에서 관리하며, 설정의 브랜드명·설명을 입력 데이터로 받는다. 참고 URL은 프롬프트에 포함하지 않는다.
 ```
 
 기존 CLI의 댓글 작성 및 적합성 재검사 경로는 대시보드와 별개로 남아 있다. 댓글 작성 시스템 프롬프트 원문:

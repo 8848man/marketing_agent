@@ -89,7 +89,8 @@ def test_evidence_is_bounded_and_prompt_marks_it_untrusted():
     card = VideoCard("AbCdEfGhI12", "channel", "name", "title", "", "")
     evidence = VideoEvidence(Captions(), Comments()).collect(card)
     assert len(evidence.text) <= 12_000 + 2 + len("[인기 댓글]") + 1 + 10 * 500 + 10
-    prompt = build_draft_prompt(evidence)
+    prompt = build_draft_prompt(evidence, brand_name="운명원",
+                                brand_description="연애 고민을 사주 관점에서 살펴보는 서비스")
     assert "untrusted third-party text" in prompt.system
     assert json.loads(prompt.user)["evidence"] == evidence.text
 
@@ -133,7 +134,8 @@ def test_examples_match_both_loaders_without_secret_values(tmp_path):
     example = yaml.safe_load(source)
     assert set(example) == set(DashboardSettings.DEFAULT) | {
         "dashboard_test_videos", "channel_names", "ai", "chrome_profiles",
-        "selected_chrome_profile", "profile_ids"}
+        "selected_chrome_profile", "profile_ids", "brand_settings"}
+    assert set(example["brand_settings"]) == {"name", "description", "reference_url"}
     assert example["chrome_profiles"] == {} and example["profile_ids"] == {}
     assert set(example["ai"]) == {"provider", "model"}
     (tmp_path / "config.example.yaml").write_text(source, encoding="utf-8")

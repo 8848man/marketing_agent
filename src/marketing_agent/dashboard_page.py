@@ -37,6 +37,7 @@ const reasonText={
   PROFILE_NAME_DUPLICATE:'이미 사용 중인 프로필 이름입니다.',
   PROFILE_NAME_INVALID:'프로필 이름은 1~30자로 입력하고 경로 문자는 제외하세요.',
   PROFILE_LIMIT_REACHED:'프로필은 최대 20개까지 등록할 수 있습니다.',
+  BRAND_CHANGED_REGENERATE:'브랜드명이나 설명이 바뀌었습니다. AI 초안을 다시 만들고 검토·승인하세요.',
   BROWSER_LAUNCH_FAILED:'Chrome을 열지 못했습니다. 앱 전용 Chrome 창을 모두 정상 종료한 뒤 영상을 다시 선택해 시도하세요. 계속 실패하면 Chrome 실행 상태를 확인하세요.',
   DEMO_NO_POST:'실제 게시 없음'
 };
@@ -67,8 +68,8 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 """
     page = page.replace("</style>", dialog_style + "</style>", 1)
     page = page.replace("</header>",
-                        '''<button id="options-open" type="button" aria-haspopup="menu" aria-controls="options-menu" aria-expanded="false">옵션</button>
-<div id="options-menu" class="options-menu" role="menu" hidden><button id="channel-menu-open" type="button" role="menuitem">채널 관리</button><button id="profile-menu-open" type="button" role="menuitem">Chrome 프로필 관리</button><button id="ai-menu-open" type="button" role="menuitem">AI API 관리</button></div></header>''', 1)
+                        '''<button id="options-open" type="button" aria-haspopup="menu" aria-controls="options-menu" aria-expanded="false">설정</button>
+<div id="options-menu" class="options-menu" role="menu" hidden><button id="channel-menu-open" type="button" role="menuitem">채널 관리</button><button id="profile-menu-open" type="button" role="menuitem">Chrome 프로필 관리</button><button id="brand-menu-open" type="button" role="menuitem">브랜드 설정 관리</button><button id="ai-menu-open" type="button" role="menuitem">AI API 관리</button></div></header>''', 1)
     dialog_html = '''<dialog id="channel-dialog" class="channel-dialog" aria-labelledby="channel-title">
 <div class="dialog-head"><h2 id="channel-title" tabindex="-1">채널 관리</h2><button id="channel-close" type="button" class="secondary" aria-label="채널 관리 닫기">닫기</button></div>
 <div class="dialog-scroll"><p>채널 ID는 필수입니다. 채널명은 선택 사항이며, 비워 두면 연결 테스트에서 RSS의 채널명을 확인해 채웁니다. 연결 테스트는 채널 소유권을 증명하지 않습니다.</p>
@@ -93,6 +94,18 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 <div class="dialog-actions"><button id="ai-test" type="button" class="secondary">AI 연결 테스트</button><button id="ai-cancel" type="button" class="secondary">취소</button><button id="ai-save" type="button">AI 설정 저장</button></div>
 </dialog>'''
     page = page.replace('<ol class="workflow"', ai_dialog.replace('__PROVIDER_OPTIONS__', provider_options) + '<ol class="workflow"', 1)
+    brand_dialog = '''<dialog id="brand-dialog" class="channel-dialog" aria-labelledby="brand-title">
+<div class="dialog-head"><h2 id="brand-title" tabindex="-1">브랜드 설정 관리</h2><button id="brand-close" type="button" class="secondary" aria-label="브랜드 설정 관리 닫기">닫기</button></div>
+<div class="dialog-scroll"><p>AI 초안은 브랜드명과 설명을 참고해 댓글을 만듭니다.</p>
+<label class="ai-field" for="brand-name">브랜드명 · 필수<input id="brand-name" type="text" required maxlength="80" autocomplete="off"></label>
+<label class="ai-field" for="brand-description">설명 · 필수<textarea id="brand-description" required maxlength="1000" rows="5"></textarea></label>
+<label class="ai-field" for="brand-url">URL · 선택<input id="brand-url" type="url" maxlength="2048" autocomplete="off" placeholder="https://example.com"></label>
+<p class="ai-help">URL은 저장해 두는 참고용입니다. 추후 브랜드 설명을 고칠 때 확인할 수 있으며, 앱은 URL을 열거나 AI 프롬프트에 보내지 않습니다.</p>
+<p id="brand-state" class="status" role="status" aria-live="polite"></p></div>
+<div class="dialog-actions"><button id="brand-cancel" type="button" class="secondary">취소</button><button id="brand-save" type="button">브랜드 설정 저장</button></div>
+</dialog>'''
+    page = page.replace('<ol class="workflow"', brand_dialog + '<ol class="workflow"', 1)
+    page = page.replace("</style>", ".ai-field textarea{display:block;width:100%;margin-top:6px;padding:9px;border:1px solid #8b9bb0;border-radius:8px;font:inherit;resize:vertical}</style>", 1)
     channel_script = """
 const demoChannels=__DEMO_CHANNELS__;
 const demoMode=__DEMO_MODE__;
@@ -104,7 +117,7 @@ const optionsMenu=$('options-menu');
 function closeOptions(){optionsMenu.hidden=true;$('options-open').setAttribute('aria-expanded','false');}
 $('options-open').addEventListener('click',()=>{const opening=optionsMenu.hidden;optionsMenu.hidden=!opening;$('options-open').setAttribute('aria-expanded',String(opening));if(opening)$('channel-menu-open').focus();});
 document.addEventListener('click',event=>{if(!optionsMenu.hidden&&!optionsMenu.contains(event.target)&&event.target!==$('options-open'))closeOptions();});
-document.addEventListener('keydown',event=>{if(optionsMenu.hidden)return;if(event.key==='Escape'){event.preventDefault();closeOptions();$('options-open').focus();}if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const items=[$('channel-menu-open'),$('profile-menu-open'),$('ai-menu-open')];const offset=event.key==='ArrowDown'?1:-1;items[(items.indexOf(document.activeElement)+offset+items.length)%items.length].focus();}});
+document.addEventListener('keydown',event=>{if(optionsMenu.hidden)return;if(event.key==='Escape'){event.preventDefault();closeOptions();$('options-open').focus();}if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const items=[$('channel-menu-open'),$('profile-menu-open'),$('brand-menu-open'),$('ai-menu-open')];const offset=event.key==='ArrowDown'?1:-1;items[(items.indexOf(document.activeElement)+offset+items.length)%items.length].focus();}});
 function channelMessage(message,bad=false){const state=$('channel-state');state.textContent=message;state.classList.toggle('error',bad);}
 function rowValid(item){return channelPattern.test(item.channel_id?.trim()||'');}
 function updateChannelSaveGuide(){const ids=draftChannels.map(item=>item.channel_id.trim());const valid=draftChannels.length>=5&&draftChannels.length<=20&&draftChannels.every(rowValid)&&new Set(ids).size===ids.length;guideButton($('channel-save'),demoMode?'연습 모드에서는 채널 설정을 저장할 수 없습니다.':valid?'':'채널 ID 5~20개를 중복 없이 입력해주세요.');}
@@ -213,6 +226,34 @@ $('ai-test').addEventListener('click',async()=>{
 """.replace("__AI_DEMO__", "true" if demo else "false").replace(
         "__AI_PRESETS__", json.dumps(provider_presets, ensure_ascii=False))
     page = page.replace("</script>", ai_script + "</script>")
+    brand_script = """
+const brandDialog=$('brand-dialog');
+let brandPreviousOverflow='';
+function brandMessage(message,bad=false){const state=$('brand-state');state.textContent=message;state.classList.toggle('error',bad);}
+function brandClose(){brandDialog.close();}
+$('brand-menu-open').addEventListener('click',async()=>{
+  closeOptions();brandPreviousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
+  brandDialog.showModal();$('brand-title').focus();brandMessage('브랜드 설정을 불러오는 중입니다…');
+  guideButton($('brand-save'),'설정을 불러오는 중입니다.');
+  if(__BRAND_DEMO__){brandMessage('연습 모드에서는 브랜드 설정을 저장할 수 없습니다.');return;}
+  try{const brand=await json(await fetch('/api/brand',{headers:{'X-Session-Token':token}}));
+    $('brand-name').value=brand.name;$('brand-description').value=brand.description;$('brand-url').value=brand.reference_url;
+    guideButton($('brand-save'),'');brandMessage('브랜드명과 설명을 확인한 뒤 저장하세요.');
+  }catch(_){brandMessage('브랜드 설정을 불러오지 못했습니다.',true);guideButton($('brand-save'),'설정을 불러오지 못했습니다.');}
+});
+$('brand-close').addEventListener('click',brandClose);$('brand-cancel').addEventListener('click',brandClose);
+brandDialog.addEventListener('close',()=>{document.body.style.overflow=brandPreviousOverflow;$('options-open').focus();});
+$('brand-save').addEventListener('click',async()=>{
+  const name=$('brand-name').value.trim(),description=$('brand-description').value.trim(),reference_url=$('brand-url').value.trim();
+  if(!name||!description){brandMessage('브랜드명과 설명을 모두 입력하세요.',true);return;}
+  if(reference_url&&!$('brand-url').checkValidity()){brandMessage('URL은 http 또는 https 주소로 입력하세요.',true);return;}
+  guideButton($('brand-save'),'저장하는 중입니다.');brandMessage('브랜드 설정을 저장하는 중입니다…');
+  try{await localPost('/api/brand',{name,description,reference_url});brandMessage('저장했습니다. 다음 AI 초안 생성부터 적용됩니다. 기존 승인 초안은 새 브랜드로 다시 생성하고 승인해야 합니다.');}
+  catch(error){const messages={BRAND_NAME_INVALID:'브랜드명은 1~80자로 입력하세요.',BRAND_DESCRIPTION_INVALID:'설명은 1~1000자로 입력하세요.',BRAND_URL_INVALID:'URL은 http 또는 https 주소로 입력하세요.'};brandMessage(messages[error.message]||'저장 실패: '+error.message,true);}
+  finally{guideButton($('brand-save'),'');}
+});
+""".replace("__BRAND_DEMO__", "true" if demo else "false")
+    page = page.replace("</script>", brand_script + "</script>")
     page = page.replace("async function loadVideos(){", "async function loadVideos(){progressActive=false;")
     page = page.replace("if(!data.videos.length)line($('videos')", "videoStates=data.states||{};if(!data.videos.length)line($('videos')", 1)
     page = page.replace("async function selectVideo(id){", "async function selectVideo(id){progressActive=false;")
