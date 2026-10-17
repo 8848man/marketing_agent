@@ -94,11 +94,12 @@ function showEvidence(panel,draft){{
 }}
 function editor(panel,draft){{
  showEvidence(panel,draft);
+ const minChars=draft.min_chars??40,maxChars=draft.max_chars??120;
  const fields=[['worry_summary','고민 한 줄',draft.worry_summary||''],['cited_detail','근거 원문에서 확인한 표현',draft.cited_detail||''],['comment','댓글 초안',draft.comment||''],['reviewer','검토자 이름','']];
  line(panel,'h3','사람 검토 및 승인');line(panel,'p','AI 제안은 승인 전에는 게시할 수 없습니다. 위 근거 원문과 인용 표현을 대조하고 수정하세요.').className='draft-note';
- for(const [name,label,value] of fields){{const labelEl=document.createElement('label');labelEl.htmlFor='draft-'+name;labelEl.textContent=label;panel.append(labelEl);const input=name==='comment'?document.createElement('textarea'):document.createElement('input');input.id='draft-'+name;input.value=value;input.maxLength=name==='comment'?120:1000;panel.append(input);}}
+ for(const [name,label,value] of fields){{const labelEl=document.createElement('label');labelEl.htmlFor='draft-'+name;labelEl.textContent=label;panel.append(labelEl);const input=name==='comment'?document.createElement('textarea'):document.createElement('input');input.id='draft-'+name;input.value=value;input.maxLength=name==='comment'?maxChars:1000;panel.append(input);}}
  const lengthState=line(panel,'p','');lengthState.className='draft-note';const actions=document.createElement('div');actions.className='draft-actions';const approve=document.createElement('button');approve.type='button';approve.textContent='승인하고 저장';
- function updateCommentLength(){{const length=$('draft-comment').value.trim().length;const valid=length>=40&&length<=120;lengthState.textContent=length+'자 / 40~120자'+(valid?'':' · 범위에 맞게 댓글을 수정하세요.');lengthState.classList.toggle('error',!valid);guideButton(approve,valid?'':'댓글을 40~120자로 수정한 뒤 승인해주세요.');}}
+ function updateCommentLength(){{const length=$('draft-comment').value.trim().length;const valid=length>=minChars&&length<=maxChars;const range=minChars+'~'+maxChars+'자';lengthState.textContent=length+'자 / '+range+(valid?'':' · 범위에 맞게 댓글을 수정하세요.');lengthState.classList.toggle('error',!valid);guideButton(approve,valid?'':'댓글을 '+range+'로 수정한 뒤 승인해주세요.');}}
  $('draft-comment').addEventListener('input',updateCommentLength);updateCommentLength();
  approve.addEventListener('click',async()=>{{guideButton(approve,'초안을 저장하는 중입니다. 잠시 기다려주세요.');try{{const values=Object.fromEntries(fields.map(([name])=>[name,$('draft-'+name).value]));const saved=await localPost('/api/drafts/approve',{{video_id:selected,draft:values}});await selectVideo(saved.video_id);line($('selection'),'p','승인된 초안을 저장했습니다.').className='ready';}}catch(error){{line(panel,'p','승인하지 못했습니다: '+error.message).className='status error';showToast('초안 승인에 실패했습니다. 내용을 확인한 뒤 다시 시도해주세요.');}}finally{{if(document.body.contains(approve))updateCommentLength();}}}});actions.append(approve);panel.append(actions);
 }}

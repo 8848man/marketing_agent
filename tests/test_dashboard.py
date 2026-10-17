@@ -788,7 +788,7 @@ def test_brand_settings_http_validation_and_reference_only(tmp_path):
     with running_server(service) as port:
         page = request(port, "GET", "/")[1]
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
-        assert "브랜드 설정 관리" in page and "추후 브랜드 설명을 고칠 때" in page
+        assert "댓글 생성 관리" in page and "추후 브랜드 설명을 고칠 때" in page
         assert request(port, "GET", "/api/brand")[0] == 403
         assert request(port, "POST", "/api/brand", token=token,
                        body=json.dumps({"name": "별빛", "description": "관계 상담", "reference_url": ""}))[0] == 403
@@ -838,6 +838,87 @@ def test_brand_prompt_uses_description_but_never_reference_url(tmp_path):
     settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/updated-reference")
     assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
     settings.save_brand("별빛", "새로운 설명", "https://brand.example/private-reference")
+    assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
+
+
+def test_comment_generation_defaults_save_and_validation(tmp_path):
+    source = dict(DashboardSettings.DEFAULT)
+    source.pop("comment")
+    (tmp_path / "config.example.yaml").write_text(yaml.safe_dump(source, allow_unicode=True), encoding="utf-8")
+    path = tmp_path / "config.yaml"
+    settings = DashboardSettings(path)
+    assert not path.exists()
+    assert settings.comment_limits() == {"min_chars": 40, "max_chars": 120}
+    with pytest.raises(ValueError, match="COMMENT_LENGTH_SETTINGS_INVALID"):
+        settings.save_comment_generation("별빛", "연애 대화", "", 121, 120)
+    with pytest.raises(ValueError, match="COMMENT_LENGTH_SETTINGS_INVALID"):
+        settings.save_comment_generation("별빛", "연애 대화", "", True, 120)
+    assert not path.exists()
+    saved = settings.save_comment_generation("별빛", "연애 대화", "", 30, 150)
+    assert saved == {"name": "별빛", "description": "연애 대화", "reference_url": "",
+                     "min_chars": 30, "max_chars": 150}
+    assert path.exists()
+    assert DashboardSettings(path).comment_limits() == {"min_chars": 30, "max_chars": 150}
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["comment"] == {
+        "brand": "운명원", "min_chars": 30, "max_chars": 150}
+    assert "min_chars: 30, max_chars: 150" in settings.yaml_text()
+
+
+def test_comment_generation_api_requires_token_and_exact_numbers(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert "댓글 생성 관리" in page and 'id="comment-min-chars"' in page
+        assert 'id="comment-max-chars"' in page and "draft.min_chars??40" in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        origin = f"http://{HOST}:{port}"
+        assert request(port, "GET", "/api/comment-settings")[0] == 403
+        assert request(port, "POST", "/api/comment-settings", token=token,
+                       body=json.dumps({"name": "별빛"}))[0] == 403
+        data = {"name": "별빛", "description": "연애 대화", "reference_url": "",
+                "min_chars": 30, "max_chars": 150}
+        invalid = {**data, "min_chars": True}
+        assert request(port, "POST", "/api/comment-settings", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 400
+        invalid = {**data, "min_chars": 151}
+        status, response = request(port, "POST", "/api/comment-settings", token=token,
+                                   origin=origin, body=json.dumps(invalid))
+        assert status == 400 and json.loads(response)["reason_code"] == "COMMENT_LENGTH_SETTINGS_INVALID"
+        assert request(port, "POST", "/api/comment-settings", token=token, origin=origin,
+                       body=json.dumps(data))[0] == 200
+        assert json.loads(request(port, "GET", "/api/comment-settings", token=token)[1]) == data
+
+
+def test_comment_length_setting_reaches_prompt_quality_and_approval(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_comment_generation("별빛", "연애 대화", "", 20, 150)
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult("답장이 늦어질 때 자막", ("자막",))})()
+    response = {"worry_summary": "답장을 기다리는 마음", "cited_detail": "답장이 늦어질 때",
+                "comment": "답장이 늦어질 때 별빛의 대화가 궁금해요."}
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append(prompt)
+            return response
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service._videos[VIDEO_ID] = card
+    service._assigned_profile = lambda _: "유튜브1"
+    generated = service.generate_draft(VIDEO_ID)
+    assert (generated["min_chars"], generated["max_chars"]) == (20, 150)
+    assert "20-150 Korean character" in json.loads(calls[0].user)["instruction"]
+    assert service.approve_draft(VIDEO_ID, {key: generated[key] for key in
+                                           ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})["can_post"]
+    assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
+    settings.save_comment_generation("별빛", "연애 대화", "", 45, 150)
     assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
 
 

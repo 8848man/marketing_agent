@@ -26,7 +26,7 @@ MAX_DRAFT_BYTES = 1_000_000
 def content_hash(draft: dict) -> str:
     """The exact fields a reviewer approves, with deterministic UTF-8 encoding."""
     payload = {key: draft.get(key, "") for key in APPROVED_FIELDS}
-    for key in ("brand_name", "brand_description"):
+    for key in ("brand_name", "brand_description", "min_chars", "max_chars"):
         if key in draft:
             payload[key] = draft[key]
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -35,7 +35,11 @@ def content_hash(draft: dict) -> str:
 
 def quality_failure(draft: dict) -> str:
     body = draft.get("comment", "")
-    if not isinstance(body, str) or not 40 <= len(body) <= 120:
+    min_chars, max_chars = draft.get("min_chars", 40), draft.get("max_chars", 120)
+    if (type(min_chars) is not int or type(max_chars) is not int
+            or not 1 <= min_chars <= max_chars <= 1000):
+        return "COMMENT_LENGTH_SETTINGS_INVALID"
+    if not isinstance(body, str) or not min_chars <= len(body) <= max_chars:
         return "COMMENT_LENGTH"
     if LINK.search(body):
         return "COMMENT_LINK"
@@ -122,7 +126,8 @@ def _write_record(drafts_dir: Path, video_id: str, record: dict) -> None:
 def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
                    source_text: str | None = None, evidence_sources: tuple[str, ...] = (),
                    profile: str = "", brand_name: str = "운명원",
-                   brand_description: str = "연애 고민을 사주 관점에서 살펴보는 서비스") -> dict:
+                   brand_description: str = "연애 고민을 사주 관점에서 살펴보는 서비스",
+                   min_chars: int = 40, max_chars: int = 120) -> dict:
     """Store an AI suggestion as unapproved; it can never enable posting itself."""
     if (not isinstance(result, dict) or set(result) != set(GENERATED_FIELDS)
             or any(not isinstance(result.get(key), str) or not result[key].strip() for key in GENERATED_FIELDS)):
@@ -134,6 +139,7 @@ def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
         "evidence_sources": list(evidence_sources), "comment": result["comment"].strip(),
         "brand_name": brand_name,
         "brand_description": brand_description,
+        "min_chars": min_chars, "max_chars": max_chars,
     }
     if profile:
         record["generated_profile"] = profile
@@ -159,7 +165,7 @@ def approve(video: VideoCard, values: dict, drafts_dir: str | Path) -> dict:
         "evidence_sources": previous.get("evidence_sources", []), "comment": values["comment"].strip(),
         "reviewer": values["reviewer"].strip(), "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }
-    for key in ("brand_name", "brand_description"):
+    for key in ("brand_name", "brand_description", "min_chars", "max_chars"):
         if key in previous:
             record[key] = previous[key]
     for key in ("generated_profile", "generated_at"):
@@ -193,8 +199,12 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
     sources = tuple(item for item in sources if isinstance(item, str)) if isinstance(sources, list) else ()
     source_text = draft.get("source_text", "")
     source_text = source_text if isinstance(source_text, str) else ""
+    min_chars, max_chars = draft.get("min_chars", 40), draft.get("max_chars", 120)
+    min_chars = min_chars if type(min_chars) is int else 40
+    max_chars = max_chars if type(max_chars) is int else 120
     def blocked(reason: str) -> DraftPreview:
-        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources, source_text)
+        return DraftPreview(video.video_id, summary, comment, False, reason, cited_detail, sources, source_text,
+                            min_chars, max_chars)
 
     if draft.get("video_id") != video.video_id:
         return blocked("DRAFT_VIDEO_MISMATCH")
@@ -220,4 +230,5 @@ def preview(video: VideoCard, drafts_dir: str | Path = "drafts") -> DraftPreview
         return blocked("APPROVAL_HASH_MISMATCH")
     if not all(isinstance(draft.get(key), str) and draft[key].strip() for key in ("reviewer", "reviewed_at")):
         return blocked("HUMAN_REVIEW_MISSING")
-    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources, source_text)
+    return DraftPreview(video.video_id, summary, comment, True, "", cited_detail, sources, source_text,
+                        min_chars, max_chars)

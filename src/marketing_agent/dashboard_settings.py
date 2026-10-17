@@ -24,6 +24,14 @@ PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
 BRAND_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
 BRAND_DESCRIPTION = re.compile(r"[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]{1,1000}\Z")
 DEFAULT_BRAND = {"name": "운명원", "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
+DEFAULT_COMMENT_LIMITS = {"min_chars": 40, "max_chars": 120}
+
+
+def validate_comment_limits(min_chars: object, max_chars: object) -> dict[str, int]:
+    if (type(min_chars) is not int or type(max_chars) is not int
+            or not 1 <= min_chars <= max_chars <= 1000):
+        raise ValueError("COMMENT_LENGTH_SETTINGS_INVALID")
+    return {"min_chars": min_chars, "max_chars": max_chars}
 
 
 class DashboardSettings:
@@ -224,13 +232,14 @@ class DashboardSettings:
                 or any(not isinstance(item, str) or not CHANNEL_ID.fullmatch(item) for item in channels)
                 or len(set(channels)) != len(channels)):
             raise ValueError("SETTINGS_CHANNELS_INVALID")
-        if (not isinstance(comment, dict) or comment.get("min_chars") != 40
-                or comment.get("max_chars") != 120 or comment.get("brand", "운명원") != "운명원"):
-            raise ValueError("SETTINGS_COMMENT_PDF_LOCKED")
+        if not isinstance(comment, dict) or comment.get("brand", "운명원") != "운명원":
+            raise ValueError("SETTINGS_COMMENT_INVALID")
+        limits_for_comment = validate_comment_limits(
+            comment.get("min_chars", 40), comment.get("max_chars", 120))
         if (not isinstance(limits, dict) or limits.get("daily_max_comments") != 10):
             raise ValueError("SETTINGS_LIMIT_PDF_LOCKED")
         return {"profiles": list(profiles), "channels": list(channels),
-                "comment": {"min_chars": 40, "max_chars": 120, "brand": "운명원"},
+                "comment": {**limits_for_comment, "brand": "운명원"},
                 "limits": {"daily_max_comments": 10}}
 
     def channels(self) -> dict[str, str]:
@@ -270,6 +279,32 @@ class DashboardSettings:
     def brand_public(self) -> dict[str, str]:
         with self._lock:
             return self._brand_data(self._read_full())
+
+    def comment_limits(self) -> dict[str, int]:
+        with self._lock:
+            full = self._read_full()
+            saved = full.get("comment", {})
+            if not isinstance(saved, dict):
+                raise ValueError("COMMENT_LENGTH_SETTINGS_INVALID")
+            return validate_comment_limits(saved.get("min_chars", 40), saved.get("max_chars", 120))
+
+    def comment_generation_public(self) -> dict[str, str | int]:
+        with self._lock:
+            return {**self.brand_public(), **self.comment_limits()}
+
+    def save_comment_generation(self, name: str, description: str, reference_url: str,
+                                min_chars: int, max_chars: int) -> dict[str, str | int]:
+        brand = self._brand_data({"brand_settings": {"name": name, "description": description,
+                                                       "reference_url": reference_url}})
+        lengths = validate_comment_limits(min_chars, max_chars)
+        with self._lock:
+            full = self._read_full()
+            full["brand_settings"] = brand
+            full["comment"] = {**full.get("comment", {}), "brand": "운명원", **lengths}
+            normalized = self._validate(full)
+            self._write_full(full)
+            self._current = normalized
+            return {**brand, **lengths}
 
     def save_brand(self, name: str, description: str, reference_url: str) -> dict[str, str]:
         brand = self._brand_data({"brand_settings": {"name": name, "description": description,
@@ -516,7 +551,8 @@ class DashboardSettings:
             for channel_id in current["channels"]:
                 label = CHANNELS.get(channel_id, "")
                 rows.append(f"  - {channel_id}" + (f"  # {label}" if label else ""))
-            rows.extend(["comment: { min_chars: 40, max_chars: 120, brand: 운명원 }",
+            comment = current["comment"]
+            rows.extend([f"comment: {{ min_chars: {comment['min_chars']}, max_chars: {comment['max_chars']}, brand: 운명원 }}",
                          "limits: { daily_max_comments: 10 }", ""])
             return "\n".join(rows)
 

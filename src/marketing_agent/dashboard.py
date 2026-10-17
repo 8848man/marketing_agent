@@ -23,6 +23,7 @@ from .captions import VideoEvidence
 from .dashboard_contracts import (
     AIReadService, AITestService, AIWriteService, BAD_REQUEST, ChannelEntryReadService,
     BrandReadService, BrandWriteService,
+    CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
     DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
@@ -208,14 +209,35 @@ class ConfiguredPostingService(PostingService):
                 self._selected.clear()
             return result
 
+    def comment_generation_public(self) -> dict[str, str | int]:
+        if self.settings is None:
+            raise ValueError("COMMENT_SETTINGS_UNAVAILABLE")
+        return self.settings.comment_generation_public()
+
+    def save_comment_generation(self, name: str, description: str, reference_url: str,
+                                min_chars: int, max_chars: int) -> dict[str, str | int]:
+        if self.settings is None:
+            raise ValueError("COMMENT_SETTINGS_UNAVAILABLE")
+        with self._settings_lock:
+            previous = self.settings.comment_generation_public()
+            result = self.settings.save_comment_generation(
+                name, description, reference_url, min_chars, max_chars)
+            relevant = ("name", "description", "min_chars", "max_chars")
+            if any(result[key] != previous[key] for key in relevant):
+                self._selected.clear()
+            return result
+
     def _draft_brand_matches(self, video_id: str) -> bool:
         if self.settings is None:
             return True
         record = _load_record(self.drafts_dir, video_id) or {}
         brand = self.settings.brand_public()
+        limits = self.settings.comment_limits()
         return (record.get("brand_name", "운명원") == brand["name"]
                 and record.get("brand_description", "연애 고민을 사주 관점에서 살펴보는 서비스")
-                == brand["description"])
+                == brand["description"]
+                and record.get("min_chars", 40) == limits["min_chars"]
+                and record.get("max_chars", 120) == limits["max_chars"])
 
     def profile_public(self) -> dict[str, object]:
         if self.settings is None:
@@ -364,13 +386,15 @@ class ConfiguredPostingService(PostingService):
                 raise ValueError("AI_KEY_MISSING")
             evidence = self.evidence_provider.collect(card)
             brand = self.settings.brand_public()
+            limits = self.settings.comment_limits()
             prompt = build_draft_prompt(evidence, brand_name=brand["name"],
-                                        brand_description=brand["description"])
+                                        brand_description=brand["description"], **limits)
             result = self.draft_generator.generate(provider, model, key, prompt)
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile,
-                                    brand_name=brand["name"], brand_description=brand["description"])
-            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text")} | {"evidence_notice": evidence.notice}
+                                    brand_name=brand["name"], brand_description=brand["description"],
+                                    **limits)
+            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text", "min_chars", "max_chars")} | {"evidence_notice": evidence.notice}
 
     def approve_draft(self, video_id: str, values: dict) -> dict[str, object]:
         with self._settings_lock:
@@ -498,6 +522,8 @@ class ConfiguredPostingService(PostingService):
     def select_video(self, video_id: str) -> DraftPreview:
         with self._settings_lock:
             result = super().select_video(video_id)
+            if self.settings is not None:
+                result = replace(result, **self.settings.comment_limits())
             if result.can_post and self.settings is not None:
                 if not self._draft_brand_matches(video_id):
                     return replace(result, can_post=False, reason_code="BRAND_CHANGED_REGENERATE")
@@ -651,6 +677,13 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._json(200, service.brand_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
+            if self.path == "/api/comment-settings" and isinstance(service, CommentGenerationReadService):
+                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                    return self._reject(403, FORBIDDEN)
+                try:
+                    return self._json(200, service.comment_generation_public())
+                except Exception:
+                    return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/profile" and isinstance(service, ProfileReadService):
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
@@ -705,7 +738,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             if not self._host_ok():
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
-                                 "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/youtube-key",
+                                 "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/comment-settings", "/api/youtube-key",
                                  "/api/profile", "/api/profile/add", "/api/profile/email", "/api/profile/verify-email", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve"}:
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
@@ -716,7 +749,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject_early_post(400, BAD_REQUEST)
             try:
                 size = int(self.headers.get("Content-Length", ""))
-                if not 0 < size <= (8192 if self.path in {"/api/settings", "/api/channels", "/api/ai", "/api/brand"} else 4096):
+                if not 0 < size <= (8192 if self.path in {"/api/settings", "/api/channels", "/api/ai", "/api/brand", "/api/comment-settings"} else 4096):
                     raise ValueError
                 data = json.loads(self.rfile.read(size))
                 if self.path == "/api/ai":
@@ -729,6 +762,12 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 elif self.path == "/api/brand":
                     if (not isinstance(data, dict) or set(data) != {"name", "description", "reference_url"}
                             or any(not isinstance(data[key], str) for key in data)):
+                        raise ValueError
+                elif self.path == "/api/comment-settings":
+                    if (not isinstance(data, dict)
+                            or set(data) != {"name", "description", "reference_url", "min_chars", "max_chars"}
+                            or any(not isinstance(data[key], str) for key in ("name", "description", "reference_url"))
+                            or any(type(data[key]) is not int for key in ("min_chars", "max_chars"))):
                         raise ValueError
                 elif self.path == "/api/profile":
                     if not isinstance(data, dict) or set(data) != {"label"} or not isinstance(data["label"], str):
@@ -898,6 +937,18 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except ValueError as exc:
                     reason = str(exc)
                     return self._reject(400, reason if reason.startswith("BRAND_") else BAD_REQUEST)
+                except OSError:
+                    return self._reject(503, "SETTINGS_WRITE_FAILED")
+            if self.path == "/api/comment-settings":
+                if not isinstance(service, CommentGenerationWriteService):
+                    return self._reject(404, BAD_REQUEST)
+                try:
+                    return self._json(200, service.save_comment_generation(
+                        data["name"], data["description"], data["reference_url"],
+                        data["min_chars"], data["max_chars"]))
+                except ValueError as exc:
+                    reason = str(exc)
+                    return self._reject(400, reason if reason.startswith(("BRAND_", "COMMENT_")) else BAD_REQUEST)
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
             if self.path == "/api/youtube-key":

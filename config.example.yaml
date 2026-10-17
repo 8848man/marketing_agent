@@ -9,9 +9,9 @@ channels:  # 영상 불러오기 · 게시 허용 범위
   - UCkGl2jieOVhGiHPdXF77Yyw  # 심리조각
 channel_names: {}  # 채널 관리에서 저장하는 선택 이름: 채널 ID -> 표시 이름
 comment:
-  min_chars: 40
-  max_chars: 120
-  brand: 운명원
+  min_chars: 40  # 댓글 생성 관리에서 변경 가능; 없으면 40
+  max_chars: 120  # 댓글 생성 관리에서 변경 가능; 없으면 120
+  brand: 운명원  # 이전 YAML 편집 호환 필드; 실제 댓글 브랜드는 brand_settings.name
 brand_settings:
   name: 운명원  # 댓글에 자연스럽게 포함할 브랜드명
   description: 연애 고민을 사주 관점에서 살펴보는 서비스  # AI 초안의 브랜드 맥락

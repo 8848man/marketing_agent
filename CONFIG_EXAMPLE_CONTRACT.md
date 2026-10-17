@@ -4,13 +4,13 @@
 
 ## `config.example.yaml` — 대시보드
 
-`DashboardSettings`는 `config.yaml`이 없으면 이 예시를 읽는다. 고급 설정 화면에서 직접 저장하는 YAML은 아래의 `profiles`, `channels`, `comment`, `limits` 네 필드가 정확히 있어야 한다. 별도 관리 화면은 나머지 선택 필드를 같은 `config.yaml`에 저장한다. 예시는 선택 필드도 구조만 보여주며, PC별 경로나 키 값을 담지 않는다.
+`DashboardSettings`는 `config.yaml`이 없으면 이 예시를 읽는다. 시작 시 파일을 자동 생성하지 않고, 설정을 저장할 때 `config.yaml`을 생성한다. YAML 저장 API는 `profiles`, `channels`, `comment`, `limits` 네 필드를 받고, 댓글 생성 관리 화면은 `brand_settings`와 `comment`의 길이 범위를 같은 파일에 저장한다. 예시는 선택 필드도 구조만 보여주며, PC별 경로나 키 값을 담지 않는다.
 
 | 필드 | 필수/제약 | 소비 위치 |
 | --- | --- | --- |
 | `profiles` | 1~20개 고유 표시 이름. 기본 3개 이름은 전용 Chrome 프로필에 대응하며 경로가 아니다. | `dashboard_settings.py`의 `_validate`, 프로필 목록·선택 |
 | `channels` | 중복 없는 `UC` 채널 ID 5~20개. RSS와 게시 대상 범위를 제한한다. | `dashboard_settings.py`의 `_validate`, `rss_feed.py`, `posting_service.py` |
-| `comment.min_chars`, `comment.max_chars`, `comment.brand` | 기존 YAML 편집 계약에서 각각 `40`, `120`, `운명원`으로 유지한다. 실제 신규 브랜드는 아래 `brand_settings`를 사용한다. | `dashboard_settings.py`의 `_validate` |
+| `comment.min_chars`, `comment.max_chars`, `comment.brand` | 글자 수 범위가 없으면 `40`, `120`; 관리 화면에서 1~1000자, 최소≤최대로 변경한다. `brand`는 기존 YAML 편집 호환값 `운명원`을 유지하며 실제 댓글 브랜드는 아래 필드를 사용한다. | `dashboard_settings.py`의 `_validate`·`comment_limits`, `prompt_policy.py`, `drafts.py`, 검토 UI |
 | `brand_settings.name`, `description`, `reference_url` | 이름·설명은 필수, URL은 선택이다. 기존 설정에 없으면 안전한 기본값을 사용한다. URL은 설명 수정용 참고로만 저장한다. | `dashboard_settings.py`의 `brand_public`, `save_brand`; `prompt_policy.py`는 이름·설명만 사용 |
 | `limits.daily_max_comments` | `10`으로 고정. | `dashboard_settings.py`의 `_validate`, `posting_service.py` |
 | `dashboard_test_videos` | 기본 빈 목록. 소유 증거 등록 명령에만 사용하며 항목은 `video_id`, `channel_id`, `title`을 가진다. 목록 등록만으로 게시 권한이 생기지 않는다. | `__main__.py`의 `_load_test_videos`, `posting_service.py`의 `_test_cards` |

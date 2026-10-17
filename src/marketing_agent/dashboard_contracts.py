@@ -32,6 +32,8 @@ class DraftPreview:
     cited_detail: str = ""
     evidence_sources: tuple[str, ...] = ()
     source_text: str = ""
+    min_chars: int = 40
+    max_chars: int = 120
 
 
 @dataclass(frozen=True)
@@ -107,6 +109,17 @@ class BrandReadService(Protocol):
 @runtime_checkable
 class BrandWriteService(Protocol):
     def save_brand(self, name: str, description: str, reference_url: str) -> dict[str, str]: ...
+
+
+@runtime_checkable
+class CommentGenerationReadService(Protocol):
+    def comment_generation_public(self) -> dict[str, str | int]: ...
+
+
+@runtime_checkable
+class CommentGenerationWriteService(Protocol):
+    def save_comment_generation(self, name: str, description: str, reference_url: str,
+                                min_chars: int, max_chars: int) -> dict[str, str | int]: ...
 
 
 @runtime_checkable
