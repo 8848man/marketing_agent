@@ -34,6 +34,8 @@ python3 -m venv .venv
 
 브라우저에서 `http://127.0.0.1:8770/`을 연다. Chrome이 설치되어 있지 않으면 프로필 창을 열 수 없다. 앱은 앱 폴더의 `data/dashboard/chrome-profile-*`만 사용한다. Windows의 `.venv/Scripts`와 macOS의 `.venv/bin` 차이 외에 설정 파일 형식은 같다. Chrome 실제 실행과 한국어 YouTube 선택자는 macOS 실기기에서 별도 확인이 필요하다.
 
+Windows에서 기존 가상환경으로 실행할 때 `ZoneInfoNotFoundError: No time zone found with key Asia/Seoul`이 나오면, 업데이트된 프로젝트 폴더에서 `.\.venv\Scripts\python.exe -m pip install -e ".[test]"`를 다시 실행한다. 새 의존성에 `tzdata`가 포함된다. 재설치 전 즉시 복구하려면 `.\.venv\Scripts\python.exe -m pip install tzdata`를 실행할 수 있다. 8770 포트를 다른 대시보드가 사용 중이면 다른 포트를 지정하거나 기존 서버를 종료한다.
+
 ## 설정과 사용
 
 1. `.env.example`을 참고해 루트 `.env`를 만든다. AI 키는 선택 사항이며 **옵션 → AI API 관리**에서도 입력할 수 있다. AI 키가 없으면 AI 초안 생성은 실행되지 않는다. `YOUTUBE_API_KEY`는 인기 댓글 근거에만 필요하며, 유효하지 않으면 초안 안내 옆 **키 설정하기**에서 같은 다이얼로그를 열어 새 키를 저장한다. 키 값은 화면에 다시 표시하지 않는다.
