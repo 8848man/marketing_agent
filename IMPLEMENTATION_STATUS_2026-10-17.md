@@ -19,6 +19,7 @@
 | AI 호출 주입 | `DraftGenerator` 계약을 도입하고 대시보드는 근거·저장·승인 흐름만 조정한다. | 가짜 생성기·공통 스키마 및 전체 회귀 |
 | 예시 설정 계약 | 세 `.example` 파일의 필드·필수성·현재 파서·소비 위치를 [계약 문서](CONFIG_EXAMPLE_CONTRACT.md)에 대조했다. | 예시 로더 회귀 및 문서 링크 검사 |
 | Windows 시간대 데이터 | `ZoneInfo("Asia/Seoul")`을 사용하는 Windows 설치에 `tzdata` 런타임 의존성을 추가했다. | 의존성 마커·전체 회귀; 사용자 Python 3.13 재설치 확인은 남음 |
+| 단일 설치 명령 | `requirements.txt`가 프로젝트·시험 도구·Playwright 설치를 한 번에 요청한다. | Windows pip dry-run 성공; 사용자 Python 3.13 실행은 남음 |
 
 전체 자동 회귀: **157개 통과**. 이 숫자는 로컬 모의 시험 결과이며 실제 AI 제공사 호출, YouTube/Chrome 게시, macOS 수락을 뜻하지 않는다. 계획 대비 부분 완료·미완료는 [개선 공백 감사](REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다.
 

@@ -301,3 +301,7 @@ HTTP가 제공 여부를 문자열 기반 `hasattr`로 추측하는 대신 읽�
 ## 2026-10-17 H16 Windows 시간대 데이터 의존성
 
 `storage.py`와 `search_budget.py`가 import 시 `ZoneInfo("Asia/Seoul")`을 생성한다. 시스템 IANA 시간대 DB를 제공하지 않는 Windows에서는 프로젝트 설치 시 `tzdata`를 자동으로 설치하도록 플랫폼 조건부 런타임 의존성을 추가한다. 기존 클론은 `pip install -e ".[test]"`로 재설치할 수 있음을 README에 적고, 의존성 메타데이터와 전체 회귀를 확인한다.
+
+## 2026-10-17 H17 단일 설치 명령
+
+루트 `requirements.txt`는 `-e .[test]`로 `pyproject.toml`의 런타임·시험 의존성을 사용하고 현재 README에서 별도 설치하던 `playwright`를 함께 지정한다. Windows/macOS 설치 절차를 `pip install -r requirements.txt` 한 번으로 바꾼다. `tzdata`는 플랫폼 조건부 런타임 메타데이터에 그대로 둬 중복 선언을 피한다.
