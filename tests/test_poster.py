@@ -250,111 +250,29 @@ def test_visible_poster_uses_account_menu_when_composer_has_no_author_link():
     page.keyboard.press.assert_called_once_with("Escape")
 
 
-def test_account_email_inspection_reads_only_active_header_on_youtube_home(tmp_path):
-    from contextlib import contextmanager
+PROBE = "akn-AvCeHBI"
+PROBE_URL = "https://www.youtube.com/watch?v=akn-AvCeHBI&hl=ko"
+LOGIN_SELECTOR = ("a[href*='accounts.google.com/ServiceLogin'], "
+                  "a[href*='accounts.google.com/v3/signin'], a[href*='youtube.com/signin']")
+
+
+def _inspection(tmp_path, *, avatar_visible, login_visible, redirect=None):
     profile = tmp_path / "chrome-profile-youtube1"
     (profile / "Default").mkdir(parents=True)
     page = MagicMock()
     page.url = "about:blank"
-    page.goto.side_effect = lambda url, **_: setattr(page, "url", url)
-    header = MagicMock()
-    header.count.return_value = 1
-    header.first.is_visible.return_value = True
-    header.first.inner_text.return_value = "signed@example.com"
-    active = MagicMock()
-    active.count.return_value = 0
-    active_header = MagicMock(); active_header.count.return_value = 0
-    account_name = MagicMock(); account_name.count.return_value = 0
-    channel_handle = MagicMock(); channel_handle.count.return_value = 0
+    page.goto.side_effect = lambda url, **_: setattr(page, "url", redirect or url)
     avatar = MagicMock()
-    avatar.count.return_value = 1
-    avatar.first.is_visible.return_value = True
-    # Account controls arrive after the initial document response.
-    avatar.count.side_effect = lambda: 1 if page.wait_for_function.called else 0
+    avatar.count.return_value = 1 if avatar_visible else 0
+    avatar.first.is_visible.return_value = avatar_visible
     login = MagicMock()
-    login.count.return_value = 0
-    switch = MagicMock()
-    switch.count.return_value = 1
-    page.get_by_text.return_value = switch
-    page.locator.side_effect = lambda selector: {
-        "button#avatar-btn": avatar,
-        "ytd-active-account-header-renderer #email": active,
-        "ytd-active-account-header-renderer": active_header,
-        "ytd-active-account-header-renderer #account-name": account_name,
-        "ytd-active-account-header-renderer #channel-handle": channel_handle,
-        "ytd-google-account-header-renderer #email": header,
-        "a[href*='accounts.google.com/ServiceLogin'], a[href*='accounts.google.com/v3/signin'], a[href*='youtube.com/signin']": login,
-    }[selector]
+    login.count.return_value = 1 if login_visible else 0
+    login.nth.return_value.is_visible.return_value = login_visible
+    page.locator.side_effect = lambda selector: {"button#avatar-btn": avatar,
+                                                 LOGIN_SELECTOR: login}[selector]
     context = MagicMock()
     context.pages = [page]
-    @contextmanager
-    def opened_context(**kwargs):
-        yield context
-    chromium = MagicMock()
-    chromium.launch_persistent_context.side_effect = opened_context
-    playwright = MagicMock()
-    playwright.chromium = chromium
-    @contextmanager
-    def factory():
-        yield playwright
-    poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
-                                 playwright_factory=factory)
-    assert poster.inspect_account_email() == "signed@example.com"
-    page.wait_for_function.assert_called_once()
-    switch.click.assert_called_once()
-    page.goto.assert_called_once_with("https://www.youtube.com/",
-                                      wait_until="domcontentloaded", timeout=30000)
-    assert not page.screenshot.called
-    active_header.count.return_value = 1
-    active_header.first.is_visible.return_value = True
-    account_name.count.return_value = 1
-    account_name.first.is_visible.return_value = True
-    account_name.first.inner_text.return_value = "channel name"
-    channel_handle.count.return_value = 1
-    channel_handle.first.is_visible.return_value = True
-    channel_handle.first.inner_text.return_value = "@channel"
-    switch.count.return_value = 0
-    page.url = "about:blank"
-    assert poster.inspect_account_email() == ""
-    active_header.count.return_value = 0
-    switch.count.return_value = 1
-    header.first.inner_text.return_value = "not an email"
-    page.url = "about:blank"
-    with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
-        poster.inspect_account_email()
 
-
-def test_account_email_inspection_distinguishes_visible_signed_out_page(tmp_path):
-    from contextlib import contextmanager
-    profile = tmp_path / "chrome-profile-youtube1"
-    (profile / "Default").mkdir(parents=True)
-    page = MagicMock()
-    page.url = "about:blank"
-    page.goto.side_effect = lambda url, **_: setattr(page, "url", url)
-    avatar = MagicMock(); avatar.count.return_value = 0
-    login = MagicMock(); login.count.return_value = 1; login.nth.return_value.is_visible.return_value = True
-    page.locator.side_effect = lambda selector: avatar if selector == "button#avatar-btn" else login
-    context = MagicMock(); context.pages = [page]
-    @contextmanager
-    def opened_context(**_kwargs): yield context
-    chromium = MagicMock(); chromium.launch_persistent_context.side_effect = opened_context
-    playwright = MagicMock(); playwright.chromium = chromium
-    @contextmanager
-    def factory(): yield playwright
-    poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
-                                 playwright_factory=factory)
-    with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-        poster.inspect_account_email()
-
-
-def test_account_inspection_rejects_redirect_before_reading_account_ui(tmp_path):
-    profile = tmp_path / "chrome-profile-youtube1"
-    (profile / "Default").mkdir(parents=True)
-    page = MagicMock()
-    page.url = "about:blank"
-    page.goto.side_effect = lambda *_args, **_kwargs: setattr(page, "url", "https://outside.example/")
-    context = MagicMock()
-    context.pages = [page]
     @contextmanager
     def opened_context(**_kwargs):
         yield context
@@ -362,13 +280,40 @@ def test_account_inspection_rejects_redirect_before_reading_account_ui(tmp_path)
     chromium.launch_persistent_context.side_effect = opened_context
     playwright = MagicMock()
     playwright.chromium = chromium
+
     @contextmanager
     def factory():
         yield playwright
     poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
                                  playwright_factory=factory)
+    return poster, page, avatar
+
+
+def test_account_check_uses_allowed_watch_page_and_never_clicks(tmp_path):
+    poster, page, avatar = _inspection(tmp_path, avatar_visible=True, login_visible=False)
+    assert poster.inspect_account_email(PROBE) == ""
+    page.goto.assert_called_once_with(PROBE_URL, wait_until="domcontentloaded", timeout=30000)
+    avatar.first.click.assert_not_called()
+    assert not page.get_by_text.called and not page.screenshot.called
+
+
+def test_account_check_distinguishes_visible_signed_out_page(tmp_path):
+    poster, page, _ = _inspection(tmp_path, avatar_visible=False, login_visible=True)
+    with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
+        poster.inspect_account_email(PROBE)
+
+
+def test_account_check_unknown_when_neither_control_visible(tmp_path):
+    poster, page, _ = _inspection(tmp_path, avatar_visible=False, login_visible=False)
     with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
-        poster.inspect_account_email()
-    page.goto.assert_called_once_with("https://www.youtube.com/",
-                                      wait_until="domcontentloaded", timeout=30000)
+        poster.inspect_account_email(PROBE)
+
+
+def test_account_check_rejects_redirect_and_bad_video_id(tmp_path):
+    poster, page, _ = _inspection(tmp_path, avatar_visible=True, login_visible=False,
+                                  redirect="https://www.youtube.com/")
+    with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
+        poster.inspect_account_email(PROBE)
     page.locator.assert_not_called()
+    with pytest.raises(ValueError, match="INVALID_VIDEO_ID"):
+        poster.inspect_account_email("https://myaccount.google.com/")

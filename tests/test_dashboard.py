@@ -211,7 +211,7 @@ def test_verified_email_needs_no_video_and_never_posts(tmp_path):
                                        settings=settings, poster=poster)
     with patch.object(poster, "inspect_account_email", return_value="actual@example.com") as inspect:
         result = service.verify_profile_email("유튜브1")
-    inspect.assert_called_once_with()
+    inspect.assert_called_once_with("akn-AvCeHBI")
     option = result["options"][0]
     assert option["verified_email"] == "actual@example.com"
     assert option["verified_at"]
@@ -243,7 +243,7 @@ def test_account_check_without_rss_uses_requested_profile(tmp_path):
                                        feed_loader=lambda: (_ for _ in ()).throw(AssertionError("RSS called")))
     with patch.object(poster, "inspect_account_email", return_value="current@example.com") as inspect:
         result = service.verify_profile_email("유튜브2")
-    inspect.assert_called_once_with()
+    inspect.assert_called_once_with("akn-AvCeHBI")
     assert poster.user_data_dir == settings.app_profile_root("유튜브2")
     assert result["options"][1]["verified_email"] == "current@example.com"
     assert service._videos == {}
@@ -271,7 +271,7 @@ def test_account_check_does_not_consult_existing_post_records(tmp_path):
                                        feed_loader=lambda: (_ for _ in ()).throw(OSError("RSS down")))
     with patch.object(poster, "inspect_account_email", return_value="active@example.com") as inspect:
         assert service.verify_profile_email("유튜브1")["options"][0]["verified_email"] == "active@example.com"
-    inspect.assert_called_once_with()
+    inspect.assert_called_once_with("akn-AvCeHBI")
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 2
 
@@ -1216,7 +1216,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube1"
     with patch("marketing_agent.dashboard._open_login_window") as launch:
         saved = service.open_app_profile("유튜브1")
-    launch.assert_called_once_with(root)
+    launch.assert_called_once_with(root, "akn-AvCeHBI")
     assert saved["profile_directory"] == "Default"
     assert saved["login_window_opened"] is True
     assert (root / "Default").is_dir()
@@ -1226,7 +1226,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     assert not (tmp_path / "posts.db").exists()
 
 
-def test_login_window_opens_google_login_without_video(tmp_path):
+def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
@@ -1235,21 +1235,25 @@ def test_login_window_opens_google_login_without_video(tmp_path):
                                        settings=settings, poster=poster)
     with patch("marketing_agent.dashboard._open_login_window") as launch:
         service.open_app_profile("유튜브2")
-        launch.assert_called_once_with(settings.app_profile_root("유튜브2"))
+        launch.assert_called_once_with(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
     assert settings.profile_public()["label"] == "유튜브1"
     assert settings.profile_options_public()["options"][1]["connected"] is True
     assert poster.user_data_dir == tmp_path
     assert not (tmp_path / "posts.db").exists()
     with patch("marketing_agent.dashboard._installed_chrome", return_value=Path("chrome.exe")), \
          patch("marketing_agent.dashboard.subprocess.Popen") as start:
-        from marketing_agent.dashboard import GOOGLE_LOGIN_URL, _open_login_window
-        _open_login_window(settings.app_profile_root("유튜브2"))
+        from marketing_agent import dashboard as dashboard_module
+        from marketing_agent.dashboard import _open_login_window
+        _open_login_window(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
         second = start.call_args.args[0]
-        _open_login_window(settings.app_profile_root("유튜브1"))
+        _open_login_window(settings.app_profile_root("유튜브1"), "akn-AvCeHBI")
         first = start.call_args.args[0]
-    assert second[-1] == first[-1] == GOOGLE_LOGIN_URL
-    assert "accounts.google.com/AccountChooser" in GOOGLE_LOGIN_URL
-    assert "youtube.com" not in GOOGLE_LOGIN_URL
+        with pytest.raises(ValueError, match="INVALID_VIDEO_ID"):
+            _open_login_window(settings.app_profile_root("유튜브1"), "https://accounts.google.com/")
+    assert second[-1] == first[-1] == "https://www.youtube.com/watch?v=akn-AvCeHBI&hl=ko"
+    assert not hasattr(dashboard_module, "GOOGLE_LOGIN_URL")
+    source = Path(dashboard_module.__file__).read_text(encoding="utf-8")
+    assert "accounts.google.com" not in source and "myaccount.google.com" not in source
     assert f"--user-data-dir={settings.app_profile_root('유튜브2')}" in second
     assert f"--user-data-dir={settings.app_profile_root('유튜브1')}" in first
     assert first != second

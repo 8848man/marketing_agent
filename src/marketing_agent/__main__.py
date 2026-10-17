@@ -62,9 +62,72 @@ def _register_owned_test_video(db_path: Path, work_dir: Path, entries: list[dict
                                    str(evidence.relative_to(work_dir)))
 
 
+def _draft_service(work_dir: Path, drafts_dir: Path):
+    """Same service the dashboard uses, without a poster: it cannot open Chrome."""
+    from .dashboard import ConfiguredPostingService, DashboardSettings
+    from .rss_feed import list_videos, recheck_video
+    settings = DashboardSettings(_app_path("config.yaml"))
+    return ConfiguredPostingService(
+        work_dir / "posts.db", drafts_dir, poster=None, settings=settings,
+        feed_loader=lambda: list_videos(channels=settings.channels()),
+        recheck=lambda video_id, channel_id: recheck_video(
+            video_id, channel_id, channels=settings.channels()))
+
+
+def _approved(card, drafts_dir: Path) -> bool:
+    from .drafts import preview
+    try:
+        return bool(preview(card, drafts_dir).can_post)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _drafts_command(argv: list[str]) -> int:
+    """IMP-11: batch-generate UNAPPROVED drafts for the newest videos; never posts."""
+    parser = argparse.ArgumentParser(prog="marketing_agent drafts",
+                                     description="Generate unapproved AI drafts for the latest videos")
+    parser.add_argument("--latest", type=int, default=3, help="videos per channel (1-15)")
+    parser.add_argument("--drafts-dir", default="drafts")
+    parser.add_argument("--work-dir", default="data/dashboard")
+    args = parser.parse_args(argv)
+    if not 1 <= args.latest <= 15:
+        print("drafts error: --latest must be 1..15", file=sys.stderr)
+        return 2
+    try:
+        drafts_dir = _app_path(args.drafts_dir)
+        service = _draft_service(_app_path(args.work_dir), drafts_dir)
+        result = service.list_videos()
+    except (OSError, ValueError) as exc:
+        print(f"drafts error: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    by_channel: dict[str, list] = {}
+    for card in result.videos:
+        by_channel.setdefault(card.channel_id, []).append(card)
+    counts = {"GENERATED": 0, "SKIP_APPROVED": 0, "FAILED": 0}
+    for channel_id, cards in by_channel.items():
+        for card in sorted(cards, key=lambda c: c.published_at, reverse=True)[:args.latest]:
+            if _approved(card, drafts_dir):
+                status = "SKIP_APPROVED"
+            else:
+                try:
+                    service.generate_draft(card.video_id)
+                    status = "GENERATED"
+                except ValueError as exc:
+                    status = f"FAILED {exc}" if str(exc).isupper() else "FAILED"
+            counts[status.split()[0]] += 1
+            print(f"{card.video_id} {status} [{card.channel}]")
+    for channel, error in getattr(result, "errors", {}).items():
+        print(f"RSS {channel}: {error}")
+    print("summary " + " ".join(f"{key}={value}" for key, value in counts.items())
+          + " (approve in the dashboard before posting)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+    if argv and argv[0] == "drafts":
+        return _drafts_command(argv[1:])
     if argv and argv[0] == "dashboard":
         dashboard_parser = argparse.ArgumentParser(description="Run the local dashboard")
         dashboard_parser.add_argument("--port", type=int, default=8765)

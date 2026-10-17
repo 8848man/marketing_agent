@@ -114,6 +114,11 @@ class Store:
             CREATE TABLE IF NOT EXISTS dashboard_assignment_cursor (
                 id INTEGER PRIMARY KEY CHECK(id=1), profile TEXT NOT NULL
             );
+            -- Comment text shown in the history panel (R-LOG-01). Kept beside the
+            -- reservation table so older databases need no column migration.
+            CREATE TABLE IF NOT EXISTS dashboard_post_bodies (
+                attempt_id TEXT PRIMARY KEY, body TEXT NOT NULL
+            );
         """)
 
     def assign_dashboard_videos(self, cards, candidates: list[str], when: datetime) -> None:
@@ -251,7 +256,8 @@ class Store:
 
     def reserve_reviewed_post(self, *, video_id: str, channel_id: str, title: str,
                               body_hash: str, approval_hash: str, profile: str,
-                              when: datetime, daily_limit: int = 10, local_tz=KST) -> str:
+                              when: datetime, daily_limit: int = 10, local_tz=KST,
+                              body: str = "") -> str:
         """Reserve across processes before any Chrome work; include legacy posts."""
         utc = _aware(when)
         if not all(isinstance(x, str) and x for x in (video_id, channel_id, title, body_hash, approval_hash, profile)):
@@ -270,6 +276,8 @@ class Store:
                 (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,reserved_at,status)
                 VALUES(?,?,?,?,?,?,?,?,?,'RESERVED')""",
                 (attempt_id, video_id, channel_id, title, body_hash, approval_hash, profile, day, _stamp(utc)))
+            if body:
+                self.db.execute("INSERT INTO dashboard_post_bodies VALUES(?,?)", (attempt_id, body))
             self.db.execute("COMMIT")
             return attempt_id
         except BaseException:
@@ -291,6 +299,19 @@ class Store:
         except BaseException:
             self.db.execute("ROLLBACK")
             raise
+
+    def dashboard_history(self, limit: int = 50) -> list[dict]:
+        """Newest-first posting attempts for the dashboard history panel."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be 1..500")
+        rows = self.db.execute(
+            "SELECT r.*, b.body FROM dashboard_post_reservations r "
+            "LEFT JOIN dashboard_post_bodies b ON b.attempt_id = r.attempt_id "
+            "ORDER BY r.reserved_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def dashboard_posts_on(self, day: str) -> int:
+        return self._dashboard_count(day)
 
     def finish_dashboard_post(self, attempt_id: str, status: str, *, reason_code: str | None = None,
                               screenshot_path: str | None = None, verified_at: datetime | None = None) -> None:

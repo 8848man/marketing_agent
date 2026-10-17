@@ -10,10 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .post_events import PostEvent, event
-from .profile_emails import EMAIL
+
+VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
 
 
 @dataclass(frozen=True)
@@ -128,13 +129,20 @@ class VisibleChromePoster:
             return ""
 
     @staticmethod
-    def _on_youtube_home(url: str) -> bool:
+    def _on_watch_page(url: str, video_id: str) -> bool:
         location = urlparse(url)
         return (location.scheme == "https" and location.netloc == "www.youtube.com"
-                and location.path in {"", "/"})
+                and location.path == "/watch" and parse_qs(location.query).get("v") == [video_id])
 
-    def inspect_account_email(self) -> str:
-        """Read only the active account header on the fixed YouTube home page."""
+    def inspect_account_email(self, video_id: str) -> str:
+        """Classify sign-in state on an allowed watch page only (ADR-0003).
+
+        The page is never clicked and no account menu or email is read: a visible
+        avatar means signed in (returns ""), a visible sign-in link raises
+        PROFILE_SIGNED_OUT, anything else raises PROFILE_ACCOUNT_UNKNOWN.
+        """
+        if not VIDEO_ID_PATTERN.fullmatch(video_id or ""):
+            raise ValueError("INVALID_VIDEO_ID")
         if self.held_window_open():
             raise ProfileLocked("PROFILE_LOCKED")
         if (not self.PROFILE_NAME.fullmatch(self.profile_directory or "")
@@ -145,6 +153,7 @@ class VisibleChromePoster:
         if factory is None:
             from playwright.sync_api import sync_playwright
             factory = sync_playwright
+        url = f"https://www.youtube.com/watch?v={video_id}&hl=ko"
         try:
             with factory() as playwright:
                 with playwright.chromium.launch_persistent_context(
@@ -156,12 +165,10 @@ class VisibleChromePoster:
                     page = next((p for p in context.pages if p.url == "about:blank"), None)
                     if page is None:
                         page = context.new_page()
-                    page.goto("https://www.youtube.com/",
-                              wait_until="domcontentloaded", timeout=30000)
-                    if not self._on_youtube_home(page.url):
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    if not self._on_watch_page(page.url, video_id):
                         raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                     # YouTube renders its account controls after DOMContentLoaded.
-                    # Wait for either outcome before classifying the session.
                     try:
                         page.wait_for_function("""() => {
                           const avatar = document.querySelector('button#avatar-btn');
@@ -173,61 +180,16 @@ class VisibleChromePoster:
                     except Exception:
                         pass
                     avatar = page.locator("button#avatar-btn")
-                    if avatar.count() != 1 or not avatar.first.is_visible():
-                        login = page.locator(
-                            "a[href*='accounts.google.com/ServiceLogin'], "
-                            "a[href*='accounts.google.com/v3/signin'], "
-                            "a[href*='youtube.com/signin']"
-                        )
-                        visible_login = any(login.nth(index).is_visible()
-                                            for index in range(min(login.count(), 5)))
-                        if visible_login:
-                            raise ValueError("PROFILE_SIGNED_OUT")
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    avatar.first.click(timeout=15000)
-                    active = page.locator("ytd-active-account-header-renderer #email")
-                    try:
-                        active.first.wait_for(state="visible", timeout=5000)
-                    except Exception:
-                        pass
-                    if active.count() == 1 and active.first.is_visible():
-                        email = active.first.inner_text(timeout=5000).strip()
-                    else:
-                        active_header = page.locator("ytd-active-account-header-renderer")
-                        account_name = page.locator("ytd-active-account-header-renderer #account-name")
-                        channel_handle = page.locator("ytd-active-account-header-renderer #channel-handle")
-                        if (active_header.count() == 1 and active_header.first.is_visible()
-                                and account_name.count() == 1 and account_name.first.is_visible()
-                                and account_name.first.inner_text(timeout=5000).strip()
-                                and channel_handle.count() == 1 and channel_handle.first.is_visible()
-                                and channel_handle.first.inner_text(timeout=5000).strip()):
-                            email = ""  # A signed-in channel can hide its Google email.
-                        else:
-                            email = None
-                    switch = page.get_by_text("계정 전환", exact=True)
-                    if (not email and switch.count() == 1 and switch.first.is_visible()):
-                        email = None
-                    if email is None:
-                        try:
-                            switch.first.wait_for(state="visible", timeout=5000)
-                        except Exception as exc:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN") from exc
-                        if switch.count() != 1:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                        switch.click(timeout=5000)
-                        current = page.locator("ytd-google-account-header-renderer #email")
-                        try:
-                            current.first.wait_for(state="visible", timeout=5000)
-                        except Exception as exc:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN") from exc
-                        if current.count() != 1 or not current.first.is_visible():
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                        email = current.first.inner_text(timeout=5000).strip()
-                    if not self._on_youtube_home(page.url):
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    if email and not EMAIL.fullmatch(email):
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    return email
+                    if avatar.count() == 1 and avatar.first.is_visible():
+                        return ""
+                    login = page.locator(
+                        "a[href*='accounts.google.com/ServiceLogin'], "
+                        "a[href*='accounts.google.com/v3/signin'], "
+                        "a[href*='youtube.com/signin']"
+                    )
+                    if any(login.nth(index).is_visible() for index in range(min(login.count(), 5))):
+                        raise ValueError("PROFILE_SIGNED_OUT")
+                    raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
         except (ValueError, ProfileLocked, ProfilePathError):
             raise
         except Exception as exc:
@@ -235,6 +197,7 @@ class VisibleChromePoster:
             if any(word in detail for word in ("singletonlock", "processsingleton", "profile in use", "already running")):
                 raise ProfileLocked("PROFILE_LOCKED") from exc
             raise ValueError("PROFILE_EMAIL_CHECK_FAILED") from exc
+
     @staticmethod
     def _author_href(page) -> str:
         avatar = page.locator("ytd-comment-simplebox-renderer #avatar a").first

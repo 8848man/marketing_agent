@@ -55,6 +55,7 @@ button{{font:inherit;cursor:pointer;min-height:44px;padding:10px 16px;margin:4px
 .card.state-posted{{background:#e7f0ff;border-color:#2563ad}}.card.state-ai_generated{{background:#e6f6eb;border-color:#27834b}}.card.state-review{{background:#fff4df;border-color:#b87912}}.card .card-state{{font-weight:700}}
 .muted{{color:var(--muted)}}.error{{color:var(--danger)}}.status{{border-radius:10px;padding:10px 12px;background:#edf4ff;color:#163e78}}.status:empty{{display:none}}.status.error{{background:#fff0f0;color:var(--danger)}}.ready{{color:#176442;font-weight:700}}pre{{white-space:pre-wrap;word-break:break-word;font:inherit;background:#f7f9fc;border-radius:10px;padding:12px}}#capture img{{max-width:100%;border-radius:8px}}
 label{{display:block;font-weight:650;margin:12px 0 4px}}textarea,input{{font:inherit;width:100%;padding:9px;border:1px solid var(--line);border-radius:8px}}textarea{{min-height:72px;resize:vertical}}.draft-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.draft-actions button{{margin:0}}.draft-note{{font-size:.86rem;color:var(--muted)}}
+.history{{margin:0 clamp(16px,3vw,40px) 40px;min-height:0}}.history-head{{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}}.history-head h2{{margin:0}}button.secondary{{background:white;color:var(--blue)}}button.secondary:hover:not(:disabled){{background:#edf4ff}}.hist-row{{display:grid;grid-template-columns:150px minmax(0,1fr) 90px 150px;gap:6px 14px;padding:12px 0;border-top:1px solid var(--line);align-items:start}}.hist-row .when{{color:var(--muted);font-size:.86rem;font-variant-numeric:tabular-nums}}.hist-row .comment{{color:var(--ink);font-size:.92rem;margin:4px 0 0;white-space:pre-wrap;word-break:break-word}}.hist-row a{{color:var(--blue)}}.pill{{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.82rem;font-weight:700}}.pill.ok{{background:#e6f6eb;color:#176442}}.pill.fail{{background:#fff0f0;color:var(--danger)}}.pill.warn{{background:#fff4df;color:#8a5a00}}.hist-row .reason{{display:block;color:var(--muted);font-size:.84rem;margin-top:4px}}.hist-row button{{min-height:32px;padding:4px 10px;font-size:.84rem;margin-top:6px}}
 @media(max-width:1000px){{main{{grid-template-columns:1fr 1fr}}section:last-child{{grid-column:1/-1;min-height:0}}#videos{{max-height:420px}}}}@media(max-width:680px){{main{{grid-template-columns:1fr}}section,section:last-child{{grid-column:auto;min-height:0}}.workflow{{display:grid;grid-template-columns:1fr}}#videos{{max-height:55dvh}}}}@media(prefers-reduced-motion:reduce){{*,*::before,*::after{{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}}}
 </style></head>
 <body><header><p class="eyebrow">LOCAL WORKSPACE · 3 STEPS</p><h1>유튜브 댓글 대시보드</h1><p class="intro">최신 영상을 확인하고 승인된 초안을 검토한 뒤, 직접 클릭해 댓글을 게시합니다.</p></header>
@@ -62,7 +63,9 @@ label{{display:block;font-weight:650;margin:12px 0 4px}}textarea,input{{font:inh
 <section id="step-load" class="current" aria-labelledby="heading-load"><h2 id="heading-load">① 영상 불러오기</h2><p class="step-note">설정된 채널의 최신 영상을 확인합니다.</p><button id="load" type="button">영상 불러오기</button><p id="feed-state" class="status" role="status" aria-live="polite"></p><div id="videos" aria-label="영상 목록"><p class="empty">아직 불러온 영상이 없습니다. 위 버튼을 눌러 시작하세요.</p></div></section>
 <section id="step-select" aria-labelledby="heading-select"><h2 id="heading-select">② 영상 선택</h2><p class="step-note">목록에서 영상을 고르면 고민과 댓글 초안을 확인할 수 있습니다.</p><div id="selection" class="empty" aria-live="polite">먼저 영상을 불러오세요.</div></section>
 <section id="step-post" aria-labelledby="heading-post"><h2 id="heading-post">③ 댓글 달기</h2><p class="step-note">사람이 승인한 초안만 게시할 수 있습니다. 선택만으로 게시되지 않습니다.</p><button id="post" type="button" aria-describedby="post-state">댓글 달기</button><label for="keep-window" style="display:flex;align-items:center;gap:8px;font-weight:500"><input id="keep-window" type="checkbox" style="width:auto">게시 후 Chrome 창 유지 · 댓글 직접 확인</label><p id="post-state" class="status" role="status" aria-live="polite">승인된 초안을 선택하면 게시할 수 있습니다.</p><div id="capture"></div></section>
-</main><div id="action-toast" role="status" aria-live="polite" hidden></div><script>
+</main>
+<section id="history" class="history" aria-labelledby="heading-history"><div class="history-head"><h2 id="heading-history">④ 실행 기록</h2><span id="history-meter" class="muted"></span><button id="history-refresh" type="button" class="secondary">새로고침</button></div><p class="step-note">어느 영상에 · 어느 프로필로 · 무슨 댓글을 · 성공/실패했는지 최신순으로 보여줍니다.</p><div id="history-list" aria-live="polite"><p class="empty">아직 게시 기록이 없습니다.</p></div></section>
+<div id="action-toast" role="status" aria-live="polite" hidden></div><script>
 const token=document.querySelector('meta[name="session-token"]').content;
 let selected=null,ready=false,profileRequired=false;
 const $=id=>document.getElementById(id);
@@ -125,7 +128,23 @@ const result=await response.json();
 $('post-state').textContent=[result.state,result.reason_code,result.message].filter(Boolean).join(' · ');$('post-state').classList.toggle('error',result.state!=='posted'&&result.state!=='simulated');
 if(result.screenshot_url)await loadCapture(result.screenshot_url);if(result.reason_code==='LOGIN_REQUIRED'&&typeof openLoginAfterPost==='function')await openLoginAfterPost();
 }}catch(error){{$('post-state').classList.add('error');$('post-state').textContent='게시 결과를 확인하지 못했습니다: '+error.message+' · 자동 재시도하지 않습니다.';}}}}
-$('load').addEventListener('click',loadVideos);$('post').addEventListener('click',postComment);
+const HIST_STATUS={{POSTED:['게시 완료','ok'],PRECHECK_FAILED:['게시 전 중단','fail'],OUTCOME_UNKNOWN:['결과 확인 필요','warn'],RESERVED:['진행 중','warn'],SUBMITTING:['진행 중','warn']}};
+const REASON_KO={{LOGIN_REQUIRED:'로그인 필요',PROFILE_LOCKED:'프로필 창이 열려 있음',BROWSER_LAUNCH_FAILED:'Chrome 실행 실패',ChromeLaunchFailed:'Chrome 실행 실패',YOUTUBE_NAVIGATION_FAILED:'YouTube 화면 이동 실패',COMMENT_EDITOR_MISSING:'댓글 입력창 없음',COMMENT_NOT_CONFIRMED:'게시 후 내 댓글 확인 실패',SERVER_RESTART_BEFORE_SUBMIT:'게시 전 서버 재시작',DAILY_LIMIT:'하루 상한 도달',ALREADY_ATTEMPTED:'이미 시도한 영상'}};
+async function loadHistory(){{const list=$('history-list');try{{const data=await json(await fetch('/api/history',{{headers:{{'X-Session-Token':token}}}}));
+ $('history-meter').textContent=data.unavailable?'연습 모드에는 기록이 없습니다.':'오늘 게시 '+data.posted_today+' / '+data.daily_limit;
+ if(!data.items.length){{list.replaceChildren();line(list,'p','아직 게시 기록이 없습니다.').className='empty';return;}}
+ list.replaceChildren();for(const item of data.items){{const row=document.createElement('div');row.className='hist-row';
+  const when=new Date(item.reserved_at);line(row,'span',isNaN(when)?item.reserved_at:when.toLocaleString('ko-KR',{{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}})).className='when';
+  const main=document.createElement('div');line(main,'strong',item.title);const link=document.createElement('a');link.href='https://www.youtube.com/watch?v='+encodeURIComponent(item.video_id);link.target='_blank';link.rel='noopener';link.textContent=' 영상 열기';main.append(link);
+  line(main,'p',item.comment||'(댓글 본문 기록 없음)').className='comment';row.append(main);
+  line(row,'span',item.profile).className='profile';
+  const state=document.createElement('div');const [label,tone]=HIST_STATUS[item.status]||[item.status,'warn'];line(state,'span',label).className='pill '+tone;
+  if(item.reason_code)line(state,'span',REASON_KO[item.reason_code]||item.reason_code).className='reason';
+  if(item.screenshot_url){{const shot=document.createElement('button');shot.type='button';shot.className='secondary';shot.textContent='실패 캡처 보기';shot.addEventListener('click',()=>loadCapture(item.screenshot_url));state.append(shot);}}
+  row.append(state);list.append(row);}}
+}}catch(error){{list.replaceChildren();line(list,'p','실행 기록을 불러오지 못했습니다: '+error.message).className='status error';}}}}
+$('load').addEventListener('click',loadVideos);$('post').addEventListener('click',async()=>{{await postComment();loadHistory();}});
+$('history-refresh').addEventListener('click',loadHistory);loadHistory();
 </script></body></html>'''.encode("utf-8")
 
 

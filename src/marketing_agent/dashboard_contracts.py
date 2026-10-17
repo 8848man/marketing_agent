@@ -178,6 +178,11 @@ class DraftGenerationService(Protocol):
 
 
 @runtime_checkable
+class HistoryService(Protocol):
+    def history(self, limit: int = 50) -> dict[str, object]: ...
+
+
+@runtime_checkable
 class DraftApprovalService(Protocol):
     def approve_draft(self, video_id: str, values: dict[str, str]) -> dict[str, object]: ...
 

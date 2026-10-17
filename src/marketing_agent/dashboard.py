@@ -25,7 +25,7 @@ from .dashboard_contracts import (
     BrandReadService, BrandWriteService,
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
-    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview,
+    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, HistoryService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
     PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
     ProfileOptionsService, ProfileReadService, ProfileVerifyService,
@@ -82,18 +82,34 @@ def _installed_chrome() -> Path | None:
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
-GOOGLE_LOGIN_URL = ("https://accounts.google.com/AccountChooser?"
-                    "continue=https%3A%2F%2Fmyaccount.google.com%2F&hl=ko")
+# PDF p.2 example videos, one per "our channel". Used only as the watch page for
+# account checks and the manual login window when no RSS video is loaded yet
+# (ADR-0003). The program never opens YouTube home or Google account pages.
+PDF_EXAMPLE_VIDEOS = {
+    "UCxlc0Ky0aWoD8uI09ad44Tg": "akn-AvCeHBI",
+    "UC-ee_ziASM251TMXe3P3VZA": "JjY09DSdzx0",
+    "UC09L3JxGVcn7SKLa-pjTEmw": "DvxMfC_KjX0",
+    "UCVdtDW-HF4KluixGaBAcI4w": "3K82-PjUeP0",
+    "UCkGl2jieOVhGiHPdXF77Yyw": "WxXINTXQSd4",
+}
 
 
-def _open_login_window(root: Path) -> subprocess.Popen:
+def watch_url(video_id: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+        raise ValueError("INVALID_VIDEO_ID")
+    return f"https://www.youtube.com/watch?v={video_id}&hl=ko"
+
+
+def _open_login_window(root: Path, video_id: str) -> subprocess.Popen:
+    """Plain (non-automated) Chrome on an allowed watch page; the person signs in."""
+    url = watch_url(video_id)
     chrome = _installed_chrome()
     if chrome is None:
         raise ValueError("CHROME_NOT_FOUND")
     try:
         return subprocess.Popen([str(chrome), f"--user-data-dir={root}",
                           "--profile-directory=Default", "--no-first-run",
-                          "--no-default-browser-check", "--new-window", GOOGLE_LOGIN_URL],
+                          "--no-default-browser-check", "--new-window", url],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, close_fds=True)
     except OSError as exc:
@@ -244,6 +260,27 @@ class ConfiguredPostingService(PostingService):
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         return self.settings.profile_public()
 
+    def _probe_video_id(self) -> str:
+        """An allowed watch page for account checks (ADR-0003): loaded RSS first."""
+        allowed = set(self.settings.channels()) if self.settings is not None else set()
+        for card in self._videos.values():
+            if card.channel_id in allowed:
+                return card.video_id
+        for channel_id in (self.settings.channels() if self.settings is not None else []):
+            if channel_id in PDF_EXAMPLE_VIDEOS:
+                return PDF_EXAMPLE_VIDEOS[channel_id]
+        raise ValueError("PROBE_VIDEO_UNAVAILABLE")
+
+    def _assignment_candidates(self) -> list[str]:
+        """IMP-09: rotate only through profiles confirmed signed in during this run."""
+        options = [item for item in self.settings.profile_options_public()["options"]
+                   if item["configured"] and item["connected"]]
+        signed_in = [item["label"] for item in options
+                     if self._account_states.get(item["label"]) == "SIGNED_IN"]
+        if signed_in:
+            return signed_in
+        return [options[0]["label"]] if options else []
+
     def profile_options_public(self) -> dict[str, object]:
         if self.settings is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
@@ -285,7 +322,7 @@ class ConfiguredPostingService(PostingService):
             if reason:
                 raise ValueError(reason)
             try:
-                email = self.poster.inspect_account_email()
+                email = self.poster.inspect_account_email(self._probe_video_id())
             except ValueError as exc:
                 if str(exc) == "PROFILE_SIGNED_OUT":
                     self._account_states[label] = "SIGNED_OUT"
@@ -339,14 +376,9 @@ class ConfiguredPostingService(PostingService):
             if not profile.resolve(strict=False).is_relative_to(root.resolve()):
                 raise ValueError("PROFILE_PATH_UNSAFE")
             profile.mkdir(exist_ok=True)
-            process = _open_login_window(root)
+            process = _open_login_window(root, self._probe_video_id())
             saved = self.settings.connect_profile(label)
             self._selected.clear()
-            if self._videos:
-                candidates = [item["label"] for item in self.settings.profile_options_public()["options"]
-                              if item["configured"] and item["connected"]]
-                with Store(self.db_path) as store:
-                    store.assign_dashboard_videos(self._videos.values(), candidates, datetime.now(timezone.utc))
             self._login_window_process = process
             self._login_window_root = root
             return {**saved, "login_window_opened": True,
@@ -442,8 +474,7 @@ class ConfiguredPostingService(PostingService):
         with self._settings_lock:
             result = super().list_videos()
             if self.settings is not None:
-                candidates = [item["label"] for item in self.settings.profile_options_public()["options"]
-                              if item["configured"] and item["connected"]]
+                candidates = self._assignment_candidates()
                 with Store(self.db_path) as store:
                     store.assign_dashboard_videos(result.videos, candidates, datetime.now(timezone.utc))
             return result
@@ -706,6 +737,19 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._json(200, asdict(service.select_video(match.group(1))))
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
+            if self.path == "/api/history":
+                if not self._session_ok():
+                    return self._reject(403, FORBIDDEN)
+                if not isinstance(service, HistoryService):
+                    return self._json(200, {"items": [], "posted_today": 0, "daily_limit": 0,
+                                            "unavailable": True})
+                try:
+                    result = service.history()
+                except Exception:
+                    return self._reject(503, INTERNAL_ERROR)
+                for item in result["items"]:
+                    item["screenshot_url"] = _capture_url(item.pop("screenshot_path", ""), captures)
+                return self._json(200, result)
             if self.path == "/api/progress":
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
@@ -861,7 +905,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = str(exc)
                     if reason == "PROFILE_SETTINGS_INVALID":
                         return self._reject(400, reason)
-                    return self._reject(503, reason if reason in {"CHROME_NOT_FOUND", "BROWSER_LAUNCH_FAILED", "PROFILE_PATH_UNSAFE", "PROFILE_LOCKED"} else "PROFILE_SETUP_FAILED")
+                    return self._reject(503, reason if reason in {"CHROME_NOT_FOUND", "BROWSER_LAUNCH_FAILED", "PROFILE_PATH_UNSAFE", "PROFILE_LOCKED", "PROBE_VIDEO_UNAVAILABLE"} else "PROFILE_SETUP_FAILED")
                 except OSError:
                     return self._reject(503, "PROFILE_SETUP_FAILED")
             if self.path == "/api/profile/add":
@@ -902,7 +946,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = str(exc)
                     return self._reject(400 if reason == "PROFILE_SETTINGS_INVALID"
                                         else 409 if reason == "PROFILE_SIGNED_OUT" else 503,
-                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_")) else "PROFILE_EMAIL_CHECK_FAILED")
+                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_", "PROBE_")) else "PROFILE_EMAIL_CHECK_FAILED")
                 except Exception as exc:
                     reason = getattr(exc, "code", "PROFILE_EMAIL_CHECK_FAILED")
                     return self._reject(503, reason)
