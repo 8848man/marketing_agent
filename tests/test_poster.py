@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -427,7 +428,7 @@ def test_visible_poster_uses_account_menu_when_composer_has_no_author_link():
     page.keyboard.press.assert_called_once_with("Escape")
 
 
-def test_account_email_inspection_reads_only_active_header_on_watch_page(tmp_path):
+def test_account_email_inspection_reads_only_active_header_on_youtube_home(tmp_path):
     from contextlib import contextmanager
     profile = tmp_path / "chrome-profile-youtube1"
     (profile / "Default").mkdir(parents=True)
@@ -476,10 +477,10 @@ def test_account_email_inspection_reads_only_active_header_on_watch_page(tmp_pat
         yield playwright
     poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
                                  playwright_factory=factory)
-    assert poster.inspect_account_email(VIDEO) == "signed@example.com"
+    assert poster.inspect_account_email() == "signed@example.com"
     page.wait_for_function.assert_called_once()
     switch.click.assert_called_once()
-    page.goto.assert_called_once_with(f"https://www.youtube.com/watch?v={VIDEO}",
+    page.goto.assert_called_once_with("https://www.youtube.com/",
                                       wait_until="domcontentloaded", timeout=30000)
     assert not page.screenshot.called
     active_header.count.return_value = 1
@@ -492,13 +493,13 @@ def test_account_email_inspection_reads_only_active_header_on_watch_page(tmp_pat
     channel_handle.first.inner_text.return_value = "@channel"
     switch.count.return_value = 0
     page.url = "about:blank"
-    assert poster.inspect_account_email(VIDEO) == ""
+    assert poster.inspect_account_email() == ""
     active_header.count.return_value = 0
     switch.count.return_value = 1
     header.first.inner_text.return_value = "not an email"
     page.url = "about:blank"
     with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
-        poster.inspect_account_email(VIDEO)
+        poster.inspect_account_email()
 
 
 def test_account_email_inspection_distinguishes_visible_signed_out_page(tmp_path):
@@ -521,4 +522,31 @@ def test_account_email_inspection_distinguishes_visible_signed_out_page(tmp_path
     poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
                                  playwright_factory=factory)
     with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-        poster.inspect_account_email(VIDEO)
+        poster.inspect_account_email()
+
+
+def test_account_inspection_rejects_redirect_before_reading_account_ui(tmp_path):
+    profile = tmp_path / "chrome-profile-youtube1"
+    (profile / "Default").mkdir(parents=True)
+    page = MagicMock()
+    page.url = "about:blank"
+    page.goto.side_effect = lambda *_args, **_kwargs: setattr(page, "url", "https://outside.example/")
+    context = MagicMock()
+    context.pages = [page]
+    @contextmanager
+    def opened_context(**_kwargs):
+        yield context
+    chromium = MagicMock()
+    chromium.launch_persistent_context.side_effect = opened_context
+    playwright = MagicMock()
+    playwright.chromium = chromium
+    @contextmanager
+    def factory():
+        yield playwright
+    poster = VisibleChromePoster(profile, "Default", screenshot_dir=tmp_path / "shots",
+                                 playwright_factory=factory)
+    with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
+        poster.inspect_account_email()
+    page.goto.assert_called_once_with("https://www.youtube.com/",
+                                      wait_until="domcontentloaded", timeout=30000)
+    page.locator.assert_not_called()

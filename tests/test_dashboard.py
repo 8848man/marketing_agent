@@ -195,7 +195,7 @@ def test_profile_email_http_requires_local_token_and_valid_label(tmp_path):
         assert settings.profile_options_public()["options"][0]["email"] == "reviewer@example.com"
 
 
-def test_verified_email_requires_loaded_allowed_video_and_never_posts(tmp_path):
+def test_verified_email_needs_no_video_and_never_posts(tmp_path):
     import pytest
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
@@ -206,35 +206,27 @@ def test_verified_email_requires_loaded_allowed_video_and_never_posts(tmp_path):
     poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster)
-    with pytest.raises(ValueError, match="PROFILE_EMAIL_VIDEO_INVALID"):
-        service.verify_profile_email("유튜브1", VIDEO_ID)
-    channel = next(iter(settings.channels()))
-    service._videos[VIDEO_ID] = VideoCard(VIDEO_ID, channel, "채널", "제목", "now", "")
-    from datetime import datetime, timezone
-    with Store(tmp_path / "posts.db") as store:
-        store.assign_dashboard_videos(service._videos.values(), ["유튜브1"], datetime.now(timezone.utc))
     with patch.object(poster, "inspect_account_email", return_value="actual@example.com") as inspect:
-        result = service.verify_profile_email("유튜브1", VIDEO_ID)
-    inspect.assert_called_once_with(VIDEO_ID)
+        result = service.verify_profile_email("유튜브1")
+    inspect.assert_called_once_with()
     option = result["options"][0]
     assert option["verified_email"] == "actual@example.com"
     assert option["verified_at"]
-    with Store(tmp_path / "posts.db") as store:
-        assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+    assert not (tmp_path / "posts.db").exists()
     with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_EMAIL_NOT_VISIBLE")):
         with pytest.raises(ValueError, match="PROFILE_EMAIL_NOT_VISIBLE"):
-            service.verify_profile_email("유튜브1", VIDEO_ID)
+            service.verify_profile_email("유튜브1")
     assert service.profile_options_public()["options"][0]["verified_email"] == ""
     with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_SIGNED_OUT")):
         with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-            service.verify_profile_email("유튜브1", VIDEO_ID)
+            service.verify_profile_email("유튜브1")
     assert service.profile_options_public()["options"][0]["account_state"] == "SIGNED_OUT"
     restarted = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                          settings=settings, poster=poster)
     assert restarted.profile_options_public()["options"][0]["verified_email"] == ""
 
 
-def test_account_check_without_selected_video_uses_allowed_feed_and_requested_profile(tmp_path):
+def test_account_check_without_rss_uses_requested_profile(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
@@ -243,22 +235,19 @@ def test_account_check_without_selected_video_uses_allowed_feed_and_requested_pr
         settings.save_profile(label)
     poster = VisibleChromePoster(settings.app_profile_root("유튜브1"), "Default",
                                  screenshot_dir=tmp_path / "shots")
-    allowed = next(iter(settings.channels()))
-    cards = (VideoCard(VIDEO_ID, "untrusted", "타 채널", "제외", "now", ""),
-             VideoCard("QXmBHgPqEUE", allowed, "허용 채널", "허용 영상", "now", ""))
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster,
-                                       feed_loader=lambda: VideoList(cards))
+                                       feed_loader=lambda: (_ for _ in ()).throw(AssertionError("RSS called")))
     with patch.object(poster, "inspect_account_email", return_value="current@example.com") as inspect:
         result = service.verify_profile_email("유튜브2")
-    inspect.assert_called_once_with("QXmBHgPqEUE")
+    inspect.assert_called_once_with()
     assert poster.user_data_dir == settings.app_profile_root("유튜브2")
     assert result["options"][1]["verified_email"] == "current@example.com"
     assert service._videos == {}
     assert not (tmp_path / "posts.db").exists()
 
 
-def test_account_check_reuses_confirmed_allowed_video_when_rss_unavailable(tmp_path):
+def test_account_check_does_not_consult_existing_post_records(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
@@ -279,26 +268,33 @@ def test_account_check_reuses_confirmed_allowed_video_when_rss_unavailable(tmp_p
                                        feed_loader=lambda: (_ for _ in ()).throw(OSError("RSS down")))
     with patch.object(poster, "inspect_account_email", return_value="active@example.com") as inspect:
         assert service.verify_profile_email("유튜브1")["options"][0]["verified_email"] == "active@example.com"
-    inspect.assert_called_once_with(VIDEO_ID)
+    inspect.assert_called_once_with()
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 2
 
 
 def test_verify_email_http_rejects_untrusted_request_before_browser():
     class Service(FakeService):
-        def verify_profile_email(self, label, video_id):
+        def verify_profile_email(self, label):
             self.chrome_opens += 1
             return {"options": []}
     service = Service()
     with running_server(service) as port:
         page = request(port, "GET", "/")[1]
+        assert "localPost('/api/profile/verify-email',{label})" in page
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
         path = "/api/profile/verify-email"
-        body = json.dumps({"label": "유튜브1", "video_id": VIDEO_ID})
+        body = json.dumps({"label": "유튜브1"})
         assert request(port, "POST", path, body=body)[0] == 403
         assert request(port, "POST", path, token=token, body=body)[0] == 403
         assert request(port, "POST", path, token=token,
-                       origin=f"http://{HOST}:{port}", body='{"label":"x"}')[0] == 400
+                       origin=f"http://{HOST}:{port}", body='{}')[0] == 400
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}",
+                       body=json.dumps({"label": "유튜브1", "video_id": VIDEO_ID}))[0] == 400
+        assert request(port, "POST", path, token=token,
+                       origin=f"http://{HOST}:{port}",
+                       body=json.dumps({"label": "유튜브1", "url": "https://outside.example/"}))[0] == 400
         assert service.chrome_opens == 0
         assert request(port, "POST", path, token=token,
                        origin=f"http://{HOST}:{port}", body=body)[0] == 200
@@ -782,6 +778,148 @@ def test_explicit_ai_generation_and_human_approval_do_not_post(tmp_path):
     assert service.post_video(VIDEO_ID).reason_code == "PROFILE_NOT_CONFIGURED"
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 0
+
+
+def test_brand_settings_http_validation_and_reference_only(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert "댓글 생성 관리" in page and "추후 브랜드 설명을 고칠 때" in page
+        assert request(port, "GET", "/api/brand")[0] == 403
+        assert request(port, "POST", "/api/brand", token=token,
+                       body=json.dumps({"name": "별빛", "description": "관계 상담", "reference_url": ""}))[0] == 403
+        origin = f"http://{HOST}:{port}"
+        invalid = {"name": "", "description": "관계 상담", "reference_url": ""}
+        status, body = request(port, "POST", "/api/brand", token=token, origin=origin,
+                               body=json.dumps(invalid))
+        assert status == 400 and json.loads(body)["reason_code"] == "BRAND_NAME_INVALID"
+        invalid["name"] = "별빛"
+        invalid["reference_url"] = "file:///private/data"
+        assert request(port, "POST", "/api/brand", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 400
+        invalid["reference_url"] = "https://brand.example/about"
+        assert request(port, "POST", "/api/brand", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 200
+        saved = json.loads(request(port, "GET", "/api/brand", token=token)[1])
+        assert saved == invalid
+    assert DashboardSettings(tmp_path / "config.yaml").brand_public() == invalid
+
+
+def test_brand_prompt_uses_description_but_never_reference_url(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/private-reference")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult("답장이 늦어질 때 자막", ("자막",))})()
+    response = {"worry_summary": "답장이 늦어 불안함", "cited_detail": "답장이 늦어질 때",
+                "comment": "답장이 늦어질 때 마음이 복잡하네요. 별빛과 함께 서로의 대화를 차분히 돌아보면 어떨지 궁금해져요."}
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append(prompt)
+            return response
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service._videos[VIDEO_ID] = card
+    service._assigned_profile = lambda _: "유튜브1"
+    generated = service.generate_draft(VIDEO_ID)
+    prompt = json.loads(calls[0].user)
+    assert prompt["brand"] == {"name": "별빛", "description": "연애 고민을 대화로 살펴보는 브랜드"}
+    assert "brand.example" not in calls[0].user + calls[0].system
+    assert service.approve_draft(VIDEO_ID, {key: generated[key] for key in
+                                           ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})["can_post"]
+    settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/updated-reference")
+    assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
+    settings.save_brand("별빛", "새로운 설명", "https://brand.example/private-reference")
+    assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
+
+
+def test_comment_generation_defaults_save_and_validation(tmp_path):
+    source = dict(DashboardSettings.DEFAULT)
+    source.pop("comment")
+    (tmp_path / "config.example.yaml").write_text(yaml.safe_dump(source, allow_unicode=True), encoding="utf-8")
+    path = tmp_path / "config.yaml"
+    settings = DashboardSettings(path)
+    assert not path.exists()
+    assert settings.comment_limits() == {"min_chars": 40, "max_chars": 120}
+    with pytest.raises(ValueError, match="COMMENT_LENGTH_SETTINGS_INVALID"):
+        settings.save_comment_generation("별빛", "연애 대화", "", 121, 120)
+    with pytest.raises(ValueError, match="COMMENT_LENGTH_SETTINGS_INVALID"):
+        settings.save_comment_generation("별빛", "연애 대화", "", True, 120)
+    assert not path.exists()
+    saved = settings.save_comment_generation("별빛", "연애 대화", "", 30, 150)
+    assert saved == {"name": "별빛", "description": "연애 대화", "reference_url": "",
+                     "min_chars": 30, "max_chars": 150}
+    assert path.exists()
+    assert DashboardSettings(path).comment_limits() == {"min_chars": 30, "max_chars": 150}
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["comment"] == {
+        "brand": "운명원", "min_chars": 30, "max_chars": 150}
+    assert "min_chars: 30, max_chars: 150" in settings.yaml_text()
+
+
+def test_comment_generation_api_requires_token_and_exact_numbers(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        assert "댓글 생성 관리" in page and 'id="comment-min-chars"' in page
+        assert 'id="comment-max-chars"' in page and "draft.min_chars??40" in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        origin = f"http://{HOST}:{port}"
+        assert request(port, "GET", "/api/comment-settings")[0] == 403
+        assert request(port, "POST", "/api/comment-settings", token=token,
+                       body=json.dumps({"name": "별빛"}))[0] == 403
+        data = {"name": "별빛", "description": "연애 대화", "reference_url": "",
+                "min_chars": 30, "max_chars": 150}
+        invalid = {**data, "min_chars": True}
+        assert request(port, "POST", "/api/comment-settings", token=token, origin=origin,
+                       body=json.dumps(invalid))[0] == 400
+        invalid = {**data, "min_chars": 151}
+        status, response = request(port, "POST", "/api/comment-settings", token=token,
+                                   origin=origin, body=json.dumps(invalid))
+        assert status == 400 and json.loads(response)["reason_code"] == "COMMENT_LENGTH_SETTINGS_INVALID"
+        assert request(port, "POST", "/api/comment-settings", token=token, origin=origin,
+                       body=json.dumps(data))[0] == 200
+        assert json.loads(request(port, "GET", "/api/comment-settings", token=token)[1]) == data
+
+
+def test_comment_length_setting_reaches_prompt_quality_and_approval(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_comment_generation("별빛", "연애 대화", "", 20, 150)
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult("답장이 늦어질 때 자막", ("자막",))})()
+    response = {"worry_summary": "답장을 기다리는 마음", "cited_detail": "답장이 늦어질 때",
+                "comment": "답장이 늦어질 때 별빛의 대화가 궁금해요."}
+    calls = []
+    class FakeGenerator:
+        def generate(self, provider, model, key, prompt):
+            calls.append(prompt)
+            return response
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=FakeGenerator(),
+                                       feed_loader=lambda: VideoList((card,)))
+    service._videos[VIDEO_ID] = card
+    service._assigned_profile = lambda _: "유튜브1"
+    generated = service.generate_draft(VIDEO_ID)
+    assert (generated["min_chars"], generated["max_chars"]) == (20, 150)
+    assert "20-150 Korean character" in json.loads(calls[0].user)["instruction"]
+    assert service.approve_draft(VIDEO_ID, {key: generated[key] for key in
+                                           ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})["can_post"]
+    assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
+    settings.save_comment_generation("별빛", "연애 대화", "", 45, 150)
+    assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
 
 
 def test_default_draft_generator_uses_shared_schema():

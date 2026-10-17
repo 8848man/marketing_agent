@@ -8,7 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 import re
 import time
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from .post_events import PostEvent, event
 
@@ -129,10 +129,14 @@ class VisibleChromePoster:
         except Exception:
             return ""
 
-    def inspect_account_email(self, video_id: str) -> str:
-        """Read only the active account header on an approved YouTube watch page."""
-        if not self.VIDEO_ID.fullmatch(video_id or ""):
-            raise ValueError("INVALID_VIDEO_ID")
+    @staticmethod
+    def _on_youtube_home(url: str) -> bool:
+        location = urlparse(url)
+        return (location.scheme == "https" and location.netloc == "www.youtube.com"
+                and location.path in {"", "/"})
+
+    def inspect_account_email(self) -> str:
+        """Read only the active account header on the fixed YouTube home page."""
         if self.held_window_open():
             raise ProfileLocked("PROFILE_LOCKED")
         if (not self.PROFILE_NAME.fullmatch(self.profile_directory or "")
@@ -154,8 +158,10 @@ class VisibleChromePoster:
                     page = next((p for p in context.pages if p.url == "about:blank"), None)
                     if page is None:
                         page = context.new_page()
-                    page.goto(f"https://www.youtube.com/watch?v={video_id}",
+                    page.goto("https://www.youtube.com/",
                               wait_until="domcontentloaded", timeout=30000)
+                    if not self._on_youtube_home(page.url):
+                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                     # YouTube renders its account controls after DOMContentLoaded.
                     # Wait for either outcome before classifying the session.
                     try:
@@ -219,11 +225,8 @@ class VisibleChromePoster:
                         if current.count() != 1 or not current.first.is_visible():
                             raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                         email = current.first.inner_text(timeout=5000).strip()
-                    location = urlparse(page.url)
-                    if (location.scheme != "https" or location.netloc != "www.youtube.com"
-                            or location.path != "/watch"
-                            or parse_qs(location.query).get("v") != [video_id]):
-                        raise ValueError("PROFILE_EMAIL_VIDEO_INVALID")
+                    if not self._on_youtube_home(page.url):
+                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                     if email and not EMAIL.fullmatch(email):
                         raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                     return email

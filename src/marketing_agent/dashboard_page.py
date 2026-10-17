@@ -31,13 +31,13 @@ const reasonText={
   AI_EMPTY_RESPONSE:'AI가 빈 응답을 반환했습니다. 잠시 후 다시 시도하거나 모델 설정을 확인하세요.',
   AI_RESPONSE_INVALID:'AI 응답이 초안 JSON 형식이 아닙니다. 모델 설정을 확인하고 다시 시도하세요.',
   PROFILE_LOCKED:'앱 전용 Chrome 창이 열려 있습니다. 창을 닫은 뒤 다시 확인하세요.',
-  PROFILE_EMAIL_VIDEO_UNAVAILABLE:'계정을 확인할 허용 영상이 없습니다. 허용 채널과 네트워크를 확인한 뒤 다시 시도하세요.',
   PROFILE_EMAIL_NOT_VISIBLE:'YouTube 계정 메뉴에서 현재 계정 이메일을 확인하지 못했습니다. 로그인 상태를 확인하세요.',
   PROFILE_SIGNED_OUT:'YouTube 로그아웃 상태가 확인됐습니다.',
   PROFILE_ACCOUNT_UNKNOWN:'현재 YouTube 로그인 상태를 정확히 확인하지 못했습니다.',
   PROFILE_NAME_DUPLICATE:'이미 사용 중인 프로필 이름입니다.',
   PROFILE_NAME_INVALID:'프로필 이름은 1~30자로 입력하고 경로 문자는 제외하세요.',
   PROFILE_LIMIT_REACHED:'프로필은 최대 20개까지 등록할 수 있습니다.',
+  BRAND_CHANGED_REGENERATE:'브랜드명·설명 또는 글자 수 범위가 바뀌었습니다. AI 초안을 다시 만들고 검토·승인하세요.',
   BROWSER_LAUNCH_FAILED:'Chrome을 열지 못했습니다. 앱 전용 Chrome 창을 모두 정상 종료한 뒤 영상을 다시 선택해 시도하세요. 계속 실패하면 Chrome 실행 상태를 확인하세요.',
   DEMO_NO_POST:'실제 게시 없음'
 };
@@ -68,8 +68,8 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 """
     page = page.replace("</style>", dialog_style + "</style>", 1)
     page = page.replace("</header>",
-                        '''<button id="options-open" type="button" aria-haspopup="menu" aria-controls="options-menu" aria-expanded="false">옵션</button>
-<div id="options-menu" class="options-menu" role="menu" hidden><button id="channel-menu-open" type="button" role="menuitem">채널 관리</button><button id="profile-menu-open" type="button" role="menuitem">Chrome 프로필 관리</button><button id="ai-menu-open" type="button" role="menuitem">AI API 관리</button></div></header>''', 1)
+                        '''<button id="options-open" type="button" aria-haspopup="menu" aria-controls="options-menu" aria-expanded="false">설정</button>
+<div id="options-menu" class="options-menu" role="menu" hidden><button id="channel-menu-open" type="button" role="menuitem">채널 관리</button><button id="profile-menu-open" type="button" role="menuitem">Chrome 프로필 관리</button><button id="brand-menu-open" type="button" role="menuitem">댓글 생성 관리</button><button id="ai-menu-open" type="button" role="menuitem">AI API 관리</button></div></header>''', 1)
     dialog_html = '''<dialog id="channel-dialog" class="channel-dialog" aria-labelledby="channel-title">
 <div class="dialog-head"><h2 id="channel-title" tabindex="-1">채널 관리</h2><button id="channel-close" type="button" class="secondary" aria-label="채널 관리 닫기">닫기</button></div>
 <div class="dialog-scroll"><p>채널 ID는 필수입니다. 채널명은 선택 사항이며, 비워 두면 연결 테스트에서 RSS의 채널명을 확인해 채웁니다. 연결 테스트는 채널 소유권을 증명하지 않습니다.</p>
@@ -94,6 +94,21 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 <div class="dialog-actions"><button id="ai-test" type="button" class="secondary">AI 연결 테스트</button><button id="ai-cancel" type="button" class="secondary">취소</button><button id="ai-save" type="button">AI 설정 저장</button></div>
 </dialog>'''
     page = page.replace('<ol class="workflow"', ai_dialog.replace('__PROVIDER_OPTIONS__', provider_options) + '<ol class="workflow"', 1)
+    brand_dialog = '''<dialog id="brand-dialog" class="channel-dialog" aria-labelledby="brand-title">
+<div class="dialog-head"><h2 id="brand-title" tabindex="-1">댓글 생성 관리</h2><button id="brand-close" type="button" class="secondary" aria-label="댓글 생성 관리 닫기">닫기</button></div>
+<div class="dialog-scroll"><p>AI 초안은 브랜드명·설명과 글자 수 범위를 참고해 댓글을 만듭니다.</p>
+<label class="ai-field" for="brand-name">브랜드명 · 필수<input id="brand-name" type="text" required maxlength="80" autocomplete="off"></label>
+<label class="ai-field" for="brand-description">설명 · 필수<textarea id="brand-description" required maxlength="1000" rows="5"></textarea></label>
+<label class="ai-field" for="brand-url">URL · 선택<input id="brand-url" type="url" maxlength="2048" autocomplete="off" placeholder="https://example.com"></label>
+<p class="ai-help">URL은 저장해 두는 참고용입니다. 추후 브랜드 설명을 고칠 때 확인할 수 있으며, 앱은 URL을 열거나 AI 프롬프트에 보내지 않습니다.</p>
+<label class="ai-field" for="comment-min-chars">최소 글자 수 · 필수<input id="comment-min-chars" type="number" required min="1" max="1000" step="1" inputmode="numeric"></label>
+<label class="ai-field" for="comment-max-chars">최대 글자 수 · 필수<input id="comment-max-chars" type="number" required min="1" max="1000" step="1" inputmode="numeric"></label>
+<p class="ai-help">글자 수 설정이 없으면 기본 40~120자를 사용합니다. 1~1000자에서 최소값은 최대값보다 클 수 없습니다.</p>
+<p id="brand-state" class="status" role="status" aria-live="polite"></p></div>
+<div class="dialog-actions"><button id="brand-cancel" type="button" class="secondary">취소</button><button id="brand-save" type="button">댓글 생성 설정 저장</button></div>
+</dialog>'''
+    page = page.replace('<ol class="workflow"', brand_dialog + '<ol class="workflow"', 1)
+    page = page.replace("</style>", ".ai-field textarea{display:block;width:100%;margin-top:6px;padding:9px;border:1px solid #8b9bb0;border-radius:8px;font:inherit;resize:vertical}</style>", 1)
     channel_script = """
 const demoChannels=__DEMO_CHANNELS__;
 const demoMode=__DEMO_MODE__;
@@ -105,7 +120,7 @@ const optionsMenu=$('options-menu');
 function closeOptions(){optionsMenu.hidden=true;$('options-open').setAttribute('aria-expanded','false');}
 $('options-open').addEventListener('click',()=>{const opening=optionsMenu.hidden;optionsMenu.hidden=!opening;$('options-open').setAttribute('aria-expanded',String(opening));if(opening)$('channel-menu-open').focus();});
 document.addEventListener('click',event=>{if(!optionsMenu.hidden&&!optionsMenu.contains(event.target)&&event.target!==$('options-open'))closeOptions();});
-document.addEventListener('keydown',event=>{if(optionsMenu.hidden)return;if(event.key==='Escape'){event.preventDefault();closeOptions();$('options-open').focus();}if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const items=[$('channel-menu-open'),$('profile-menu-open'),$('ai-menu-open')];const offset=event.key==='ArrowDown'?1:-1;items[(items.indexOf(document.activeElement)+offset+items.length)%items.length].focus();}});
+document.addEventListener('keydown',event=>{if(optionsMenu.hidden)return;if(event.key==='Escape'){event.preventDefault();closeOptions();$('options-open').focus();}if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();const items=[$('channel-menu-open'),$('profile-menu-open'),$('brand-menu-open'),$('ai-menu-open')];const offset=event.key==='ArrowDown'?1:-1;items[(items.indexOf(document.activeElement)+offset+items.length)%items.length].focus();}});
 function channelMessage(message,bad=false){const state=$('channel-state');state.textContent=message;state.classList.toggle('error',bad);}
 function rowValid(item){return channelPattern.test(item.channel_id?.trim()||'');}
 function updateChannelSaveGuide(){const ids=draftChannels.map(item=>item.channel_id.trim());const valid=draftChannels.length>=5&&draftChannels.length<=20&&draftChannels.every(rowValid)&&new Set(ids).size===ids.length;guideButton($('channel-save'),demoMode?'연습 모드에서는 채널 설정을 저장할 수 없습니다.':valid?'':'채널 ID 5~20개를 중복 없이 입력해주세요.');}
@@ -214,6 +229,37 @@ $('ai-test').addEventListener('click',async()=>{
 """.replace("__AI_DEMO__", "true" if demo else "false").replace(
         "__AI_PRESETS__", json.dumps(provider_presets, ensure_ascii=False))
     page = page.replace("</script>", ai_script + "</script>")
+    brand_script = """
+const brandDialog=$('brand-dialog');
+let brandPreviousOverflow='';
+function brandMessage(message,bad=false){const state=$('brand-state');state.textContent=message;state.classList.toggle('error',bad);}
+function brandClose(){brandDialog.close();}
+$('brand-menu-open').addEventListener('click',async()=>{
+  closeOptions();brandPreviousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
+  brandDialog.showModal();$('brand-title').focus();brandMessage('브랜드 설정을 불러오는 중입니다…');
+  guideButton($('brand-save'),'설정을 불러오는 중입니다.');
+  if(__BRAND_DEMO__){brandMessage('연습 모드에서는 브랜드 설정을 저장할 수 없습니다.');return;}
+  try{const brand=await json(await fetch('/api/comment-settings',{headers:{'X-Session-Token':token}}));
+    $('brand-name').value=brand.name;$('brand-description').value=brand.description;$('brand-url').value=brand.reference_url;
+    $('comment-min-chars').value=brand.min_chars;$('comment-max-chars').value=brand.max_chars;
+    guideButton($('brand-save'),'');brandMessage('브랜드 정보와 글자 수 범위를 확인한 뒤 저장하세요.');
+  }catch(_){brandMessage('브랜드 설정을 불러오지 못했습니다.',true);guideButton($('brand-save'),'설정을 불러오지 못했습니다.');}
+});
+$('brand-close').addEventListener('click',brandClose);$('brand-cancel').addEventListener('click',brandClose);
+brandDialog.addEventListener('close',()=>{document.body.style.overflow=brandPreviousOverflow;$('options-open').focus();});
+$('brand-save').addEventListener('click',async()=>{
+  const name=$('brand-name').value.trim(),description=$('brand-description').value.trim(),reference_url=$('brand-url').value.trim();
+  const min_chars=Number($('comment-min-chars').value),max_chars=Number($('comment-max-chars').value);
+  if(!name||!description){brandMessage('브랜드명과 설명을 모두 입력하세요.',true);return;}
+  if(!Number.isInteger(min_chars)||!Number.isInteger(max_chars)||min_chars<1||max_chars>1000||min_chars>max_chars){brandMessage('글자 수는 1~1000자이고 최소값은 최대값 이하로 입력하세요.',true);return;}
+  if(reference_url&&!$('brand-url').checkValidity()){brandMessage('URL은 http 또는 https 주소로 입력하세요.',true);return;}
+  guideButton($('brand-save'),'저장하는 중입니다.');brandMessage('댓글 생성 설정을 저장하는 중입니다…');
+  try{await localPost('/api/comment-settings',{name,description,reference_url,min_chars,max_chars});if(selected)await selectVideo(selected);brandMessage('저장했습니다. 다음 AI 초안 생성부터 적용됩니다. 브랜드명·설명·글자 수 변경 후 기존 초안은 다시 생성하고 승인해야 합니다.');}
+  catch(error){const messages={BRAND_NAME_INVALID:'브랜드명은 1~80자로 입력하세요.',BRAND_DESCRIPTION_INVALID:'설명은 1~1000자로 입력하세요.',BRAND_URL_INVALID:'URL은 http 또는 https 주소로 입력하세요.',COMMENT_LENGTH_SETTINGS_INVALID:'글자 수는 1~1000자이고 최소값은 최대값 이하로 입력하세요.'};brandMessage(messages[error.message]||'저장 실패: '+error.message,true);}
+  finally{guideButton($('brand-save'),'');}
+});
+""".replace("__BRAND_DEMO__", "true" if demo else "false")
+    page = page.replace("</script>", brand_script + "</script>")
     page = page.replace("async function loadVideos(){", "async function loadVideos(){progressActive=false;")
     page = page.replace("if(!data.videos.length)line($('videos')", "videoStates=data.states||{};if(!data.videos.length)line($('videos')", 1)
     page = page.replace("async function selectVideo(id){", "async function selectVideo(id){progressActive=false;")
@@ -226,7 +272,7 @@ let loginWatch=null,loginWatchBusy=false;
 function watchLoginWindow(label){if(loginWatch)clearInterval(loginWatch);loginWatch=setInterval(async()=>{if(loginWatchBusy)return;loginWatchBusy=true;try{const data=await refreshProfiles();const entry=data.options.find(item=>item.label===label);if(entry&&!entry.login_window_open){clearInterval(loginWatch);loginWatch=null;if(!$('post-continue').hidden)guideButton($('post-continue'));profileMessage(label+' 로그인 창을 닫았습니다. 현재 계정 확인을 눌러 로그인 결과를 확인하세요.');}}catch(error){profileMessage('로그인 창 상태 확인 실패: '+explainReason(error.message),true);}finally{loginWatchBusy=false;}},2000);}
 function renderProfileChoices(){const list=$('profile-list');list.replaceChildren();const activeWindow=profileOptions.find(item=>item.login_window_open);for(const entry of profileOptions){const row=document.createElement('div');row.className='profile-row';row.setAttribute('role','listitem');const info=document.createElement('div');info.className='profile-info';const heading=document.createElement('div');heading.className='profile-heading';const name=document.createElement('strong');name.textContent=entry.label;const email=document.createElement('span');email.className='profile-email';email.textContent=entry.account_state==='SIGNED_IN'?(entry.verified_email||'로그인 확인 · 이메일 비공개'):'계정 확인 필요';heading.append(name,email);const status=document.createElement('span');status.textContent=entry.login_window_open?'계정 선택 창 열림':entry.account_state==='SIGNED_IN'?'로그인됨 · '+new Date(entry.verified_at).toLocaleString('ko-KR'):entry.account_state==='SIGNED_OUT'?'로그아웃 확인됨':entry.configured?'로그인 상태 미확인':'전용 프로필 준비 필요';info.append(heading,status);const busyReason=activeWindow?activeWindow.label+' Chrome 창이 열려 있습니다. 그 창을 닫은 뒤 다시 눌러주세요.':'';const verify=document.createElement('button');verify.type='button';verify.textContent=entry.account_state==='SIGNED_OUT'?'로그인하기':'현재 계정 확인';guideButton(verify,busyReason);verify.addEventListener('click',()=>entry.account_state==='SIGNED_OUT'?openAppProfile(entry.label):checkProfileAccount(entry.label));row.append(info,verify);if(entry.account_state==='SIGNED_IN'){const change=document.createElement('button');change.type='button';change.className='secondary profile-change';change.textContent='계정 변경';guideButton(change,busyReason);change.addEventListener('click',()=>openAppProfile(entry.label));heading.append(change);}list.append(row);}guideButton($('profile-setup'),activeWindow?activeWindow.label+' Chrome 창을 닫은 뒤 새 프로필을 추가해주세요.':profileOptions.length>=20?'프로필은 최대 20개까지 등록할 수 있습니다.':'');}
 async function openAppProfile(label){profileMessage(label+'의 Google 계정 선택 창을 여는 중입니다…');try{const result=await localPost('/api/profile/setup',{label});videoStates=result.states||videoStates;await refreshProfiles();watchLoginWindow(label);profileMessage(label+' 전용 Chrome에서 계정을 선택하거나 추가하세요. 창을 닫은 뒤 현재 계정 확인을 눌러주세요.');}catch(error){const message='계정 선택 창을 열지 못했습니다: '+explainReason(error.message);profileMessage(message,true);showToast(message);}}
-async function checkProfileAccount(label){profileMessage(label+'의 실제 YouTube 로그인 상태를 확인하는 중입니다…');try{const data=await localPost('/api/profile/verify-email',{label,video_id:''});profileOptions=data.options||profileOptions;renderProfileChoices();const entry=profileOptions.find(item=>item.label===label);profileMessage(label+' 로그인 확인 완료 · '+(entry?.verified_email||'계정'));}catch(error){if(['PROFILE_SIGNED_OUT','PROFILE_NOT_CONFIGURED','PROFILE_DIRECTORY_MISSING'].includes(error.message)){profileMessage(label+'은 로그인이 필요합니다. 계정 선택 창을 엽니다.');await openAppProfile(label);return;}const message=error.message==='PROFILE_ACCOUNT_UNKNOWN'?'로그인 여부를 정확히 확인하지 못했습니다. 네트워크와 YouTube 화면을 확인한 뒤 다시 시도하세요.':'계정 확인 실패: '+explainReason(error.message);profileMessage(message,true);showToast(message);}}
+async function checkProfileAccount(label){profileMessage(label+'의 YouTube 홈에서 로그인 상태를 확인하는 중입니다…');try{const data=await localPost('/api/profile/verify-email',{label});profileOptions=data.options||profileOptions;renderProfileChoices();const entry=profileOptions.find(item=>item.label===label);profileMessage(label+' 로그인 확인 완료 · '+(entry?.verified_email||'계정'));}catch(error){if(['PROFILE_SIGNED_OUT','PROFILE_NOT_CONFIGURED','PROFILE_DIRECTORY_MISSING'].includes(error.message)){profileMessage(label+'은 로그인이 필요합니다. 계정 선택 창을 엽니다.');await openAppProfile(label);return;}const message=error.message==='PROFILE_ACCOUNT_UNKNOWN'?'로그인 여부를 정확히 확인하지 못했습니다. 네트워크와 YouTube 홈 화면을 확인한 뒤 다시 시도하세요.':'계정 확인 실패: '+explainReason(error.message);profileMessage(message,true);showToast(message);}}
 async function openProfileDialog(){
   profileDialog.showModal();$('profile-title').focus();profileMessage('현재 연결을 불러오는 중입니다…');
   try{await refreshProfiles();profileMessage('프로필별 현재 계정을 확인할 수 있습니다.');}

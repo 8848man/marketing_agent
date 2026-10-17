@@ -32,6 +32,8 @@ class DraftPreview:
     cited_detail: str = ""
     evidence_sources: tuple[str, ...] = ()
     source_text: str = ""
+    min_chars: int = 40
+    max_chars: int = 120
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,27 @@ class AIReadService(Protocol):
 
 
 @runtime_checkable
+class BrandReadService(Protocol):
+    def brand_public(self) -> dict[str, str]: ...
+
+
+@runtime_checkable
+class BrandWriteService(Protocol):
+    def save_brand(self, name: str, description: str, reference_url: str) -> dict[str, str]: ...
+
+
+@runtime_checkable
+class CommentGenerationReadService(Protocol):
+    def comment_generation_public(self) -> dict[str, str | int]: ...
+
+
+@runtime_checkable
+class CommentGenerationWriteService(Protocol):
+    def save_comment_generation(self, name: str, description: str, reference_url: str,
+                                min_chars: int, max_chars: int) -> dict[str, str | int]: ...
+
+
+@runtime_checkable
 class AIWriteService(Protocol):
     def save_ai(self, provider: str, model: str, api_key: str, *, clear_key: bool) -> dict[str, object]: ...
 
@@ -136,7 +159,7 @@ class ProfileEmailService(Protocol):
 
 @runtime_checkable
 class ProfileVerifyService(Protocol):
-    def verify_profile_email(self, label: str, video_id: str) -> dict[str, object]: ...
+    def verify_profile_email(self, label: str) -> dict[str, object]: ...
 
 
 @runtime_checkable

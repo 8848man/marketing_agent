@@ -1,5 +1,11 @@
 # Handoff
 
+- H21 댓글 생성 관리 (2026-10-17): 설정 다이얼로그에서 브랜드 정보와 최소·최대 글자 수를 함께 저장한다. `comment` 범위가 없으면 40~120자를 쓰고, 프롬프트·검토 UI·서버 품질 검사와 게시 전 설정 스냅샷 비교에 적용한다. `config.yaml`은 시작 시 예시를 읽는 것만으로 생성되지 않으며 첫 설정 저장에서 생성된다. 기존 `/api/brand`는 유지하고 새 `/api/comment-settings`를 추가했다. 전체 자동 시험 163개 및 생성 JS 문법 통과; 실제 AI/YouTube 호출은 하지 않았다.
+
+- H19 설정 예시 구조 대조 (2026-10-17): 실제 두 `config.yaml`의 값은 출력하지 않고 키·자료형만 비교했다. 배포용 예시에 `channel_names`, `ai`, `chrome_profiles`, `selected_chrome_profile`, `profile_ids`를 안전한 기본값으로 추가하고 계약 문서를 갱신했다. 예시 로더 시험은 실제 사용자 설정 대신 임시 디렉터리만 읽도록 고쳤다. 전체 회귀 158개 통과.
+
+- H18 RSS 전 프로필 확인 (2026-10-17): 계정 확인 API는 프로필 레이블만 받고, 서비스는 영상 목록·RSS·게시 기록을 조회하지 않는다. 앱 전용 Chrome은 `https://www.youtube.com/`으로 이동해 홈 URL을 확인한 뒤 현재 계정 메뉴만 읽는다. 외부 리다이렉트와 영상 ID/임의 URL 요청은 거부한다. 전체 모의 회귀 158개 및 생성 JS 문법 통과. 실제 한국어 YouTube 계정 메뉴 수락은 남아 있다.
+
 - H17 단일 설치 명령 (2026-10-17): `requirements.txt`가 `-e .[test]`와 Playwright를 한 명령으로 설치한다. README의 Windows/macOS 절차와 시간대 오류 복구 안내를 갱신했다. Windows pip dry-run이 프로젝트·PyYAML·pytest·Playwright 및 조건부 tzdata를 해석했다. 사용자 Python 3.13 실제 설치·실행은 남아 있다.
 
 - H16 Windows 새 클론 실행 오류 (2026-10-17): `storage.py`와 `search_budget.py`가 import 시 `ZoneInfo("Asia/Seoul")`을 생성한다. `pyproject.toml`에 Windows 조건부 `tzdata` 런타임 의존성을 추가하고 README에 기존 venv 재설치·즉시 복구 명령을 기록했다. 사용자 Python 3.13 환경 재설치와 8770 포트 충돌 여부는 현장 확인이 남는다.
@@ -92,3 +98,4 @@
 2026-10-17: SDD 원본을 marketing_agent 내부로 이전했다. 이메일 우선 확인, 계정 변경, YouTube 키 오류 안내와 로컬 키 저장 UI를 반영했다. Windows 자동 회귀와 localhost 화면을 검증하고 macOS 실기기 수락은 남긴다.
 
 2026-10-17 U40 정정: 대시보드 폴더는 data/dashboard 하위가 아니라 배포 앱 루트 marketing_agent/로 해석한다. .env/config.yaml/drafts는 모두 그 안에 있으므로 파일 위치 자체는 규칙 위반이 아니다. Google 계정 선택 URL과 외부 프로필 옵션 등 남은 경계는 별도 검토가 필요하다. PROCESS에는 약 3일의 제작 기록과 실제 프롬프트를 기록했다.
+2026-10-17 H20 브랜드 설정: 설정 → 브랜드 설정 관리에서 이름·설명·참고 URL을 관리한다. AI 초안은 이름·설명만 사용하고 URL은 설명 수정용으로 저장만 한다. 브랜드명·설명 변경은 이전 승인 초안의 게시를 차단하며 새 초안과 사람 재승인이 필요하다. `prompt_policy.py`가 대시보드 공통 프롬프트의 원본이다. 자동 시험·생성 JS 검증 결과는 해당 변경 커밋과 함께 확인한다. 실제 제공사 응답 및 YouTube 게시는 수행하지 않았다.

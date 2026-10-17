@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from marketing_agent.captions import CaptionResult, VideoEvidence
 from marketing_agent import ai_client
@@ -88,7 +89,8 @@ def test_evidence_is_bounded_and_prompt_marks_it_untrusted():
     card = VideoCard("AbCdEfGhI12", "channel", "name", "title", "", "")
     evidence = VideoEvidence(Captions(), Comments()).collect(card)
     assert len(evidence.text) <= 12_000 + 2 + len("[인기 댓글]") + 1 + 10 * 500 + 10
-    prompt = build_draft_prompt(evidence)
+    prompt = build_draft_prompt(evidence, brand_name="운명원",
+                                brand_description="연애 고민을 사주 관점에서 살펴보는 서비스")
     assert "untrusted third-party text" in prompt.system
     assert json.loads(prompt.user)["evidence"] == evidence.text
 
@@ -125,12 +127,22 @@ def test_registered_provider_uses_same_settings_and_ui_contract():
             mapping.update(snapshot)
 
 
-def test_examples_match_both_loaders_without_secret_values():
+def test_examples_match_both_loaders_without_secret_values(tmp_path):
     root = Path(__file__).resolve().parents[1]
     agent = load_config(root / "config.legacy.example.yaml")
-    settings = DashboardSettings(root / "config.yaml")
+    source = (root / "config.example.yaml").read_text(encoding="utf-8")
+    example = yaml.safe_load(source)
+    assert set(example) == set(DashboardSettings.DEFAULT) | {
+        "dashboard_test_videos", "channel_names", "ai", "chrome_profiles",
+        "selected_chrome_profile", "profile_ids", "brand_settings"}
+    assert set(example["brand_settings"]) == {"name", "description", "reference_url"}
+    assert example["chrome_profiles"] == {} and example["profile_ids"] == {}
+    assert set(example["ai"]) == {"provider", "model"}
+    (tmp_path / "config.example.yaml").write_text(source, encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
     assert len(agent.keywords) > 0
     assert len(settings.channel_ids()) >= 5
+    assert settings.profile_public()["configured"] is False
     values = dict(line.split("=", 1) for line in (root / ".env.example").read_text(encoding="utf-8").splitlines()
                   if line and not line.startswith("#"))
     assert set(values) == {"YOUTUBE_API_KEY", *(details[1] for details in ai_client.PROVIDERS.values())}
