@@ -289,3 +289,36 @@ def test_same_quote_across_videos_is_flagged():
             "comment": "싱글들을 위한 줌 미팅방 소식 반가워요. 혼자 지낸 지 오래됐거든요. 친구가 운명원에서 인연 시기 보라던데 궁금해요."}
     other = "싱글들을 위한 줌 미팅방이라니 좋네요. 외로운데 운명원 결혼운도 궁금하네요."
     assert any(p.startswith("SAME_QUOTE") for p in review_problems(base, [other]))
+
+
+# --- IMP-17 setup overview -------------------------------------------------------
+def test_setup_status_counts_required_and_marks_optional(tmp_path):
+    settings = _settings(tmp_path)
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       poster=MagicMock(), feed_loader=lambda: VideoList(()))
+    with patch("marketing_agent.dashboard._installed_chrome", return_value=None):
+        status = service.setup_status()
+    items = {item["id"]: item for item in status["items"]}
+    assert items["channels"]["state"] == "ok" and items["channels"]["required"] is True
+    assert items["chrome"]["state"] == "missing"
+    assert items["profile:유튜브1"]["required"] is True and items["profile:유튜브2"]["required"] is False
+    assert items["ai"]["required"] is False and items["ai"]["target"] == "ai" and items["ai"]["focus"] == "#ai-key"
+    assert status["required_ok"] == sum(i["state"] == "ok" for i in status["items"] if i["required"])
+    assert status["required_total"] == sum(i["required"] for i in status["items"])
+    assert not any("KEY" in str(item["value"]) for item in status["items"])  # never echoes secrets
+    service._account_states["유튜브1"] = "SIGNED_IN"
+    with patch("marketing_agent.dashboard._installed_chrome", return_value="/x/chrome"):
+        again = service.setup_status()
+    assert again["required_ok"] == status["required_ok"] + 2
+
+
+def test_setup_status_http_requires_token(tmp_path):
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=_settings(tmp_path),
+                                       poster=MagicMock(), feed_loader=lambda: VideoList(()))
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert 'id="setup-open"' in page
+        assert request(port, "GET", "/api/setup-status")[0] == 403
+        status, body = request(port, "GET", "/api/setup-status", token=token)
+    assert status == 200 and json.loads(body)["required_total"] >= 4

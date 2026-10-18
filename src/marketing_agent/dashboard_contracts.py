@@ -183,6 +183,11 @@ class DraftRefineService(Protocol):
 
 
 @runtime_checkable
+class SetupStatusService(Protocol):
+    def setup_status(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
 class HistoryService(Protocol):
     def history(self, limit: int = 50) -> dict[str, object]: ...
 

@@ -313,4 +313,64 @@ async function updateProgress(){
 }
 setInterval(updateProgress,500);
 """
+    # IMP-17: "필수 설정 n/m" overview button left of 설정, with jump-to-field actions.
+    setup_style = """
+header{padding-right:250px}
+#setup-open{position:absolute;right:calc(clamp(16px,3vw,40px) + 76px);top:25px;background:#14253a;color:#fff;border-color:#a6caff}
+#setup-open.ok{border-color:#7fd3a0;color:#d8ffe6}#setup-open.warn{border-color:#f5b745;color:#ffe7b3}
+.setup-dialog{max-width:820px;width:calc(100% - 32px)}.setup-table{width:100%;border-collapse:collapse;font-size:.9rem}
+.setup-table th,.setup-table td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+.setup-table th{font-size:.78rem;color:var(--muted)}.setup-wrap{overflow-x:auto}
+.setup-pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.78rem;font-weight:700;white-space:nowrap}
+.setup-pill.ok{background:#e6f6eb;color:#176442}.setup-pill.warn{background:#fff4df;color:#8a5a00}.setup-pill.missing{background:#fff0f0;color:#9f2f35}
+.setup-badge{font-size:.74rem;border:1px solid var(--line);border-radius:6px;padding:0 6px;color:var(--muted);white-space:nowrap}
+.setup-badge.req{border-color:#174ea6;color:#174ea6;font-weight:700}.setup-detail{color:var(--muted);font-size:.82rem;margin-top:2px}
+.setup-table button{min-height:32px;padding:4px 10px;font-size:.84rem;margin:0;white-space:nowrap}
+.focus-flash{outline:3px solid #f5b745 !important;outline-offset:2px;transition:outline-color .6s}
+@media(max-width:720px){header{padding-right:16px;padding-top:72px}#setup-open{right:84px;top:18px;padding:8px}}
+"""
+    page = page.replace("</style>", setup_style + "</style>", 1)
+    page = page.replace('<button id="options-open"',
+                        '<button id="setup-open" type="button" aria-haspopup="dialog">필수 설정 …</button><button id="options-open"', 1)
+    setup_dialog = """<dialog id="setup-dialog" class="channel-dialog setup-dialog" aria-labelledby="setup-title">
+<div class="dialog-head"><h2 id="setup-title" tabindex="-1">필수 설정 점검</h2><button id="setup-close" type="button" class="secondary" aria-label="필수 설정 점검 닫기">닫기</button></div>
+<div class="dialog-scroll"><p id="setup-summary"></p><p class="ai-help">이 PC에 저장된 값만 확인합니다(외부 요청 없음). 연결 상태는 각 화면의 테스트·계정 확인을 실행한 뒤 갱신됩니다.</p>
+<div class="setup-wrap"><table class="setup-table"><thead><tr><th>상태</th><th>항목</th><th>구분</th><th>현재 값</th><th></th></tr></thead><tbody id="setup-rows"></tbody></table></div></div>
+<div class="dialog-actions"><button id="setup-refresh" type="button" class="secondary">다시 확인</button><button id="setup-done" type="button">닫기</button></div>
+</dialog>"""
+    page = page.replace('<ol class="workflow"', setup_dialog + '<ol class="workflow"', 1)
+    setup_script = r"""
+const setupDialog=$('setup-dialog');const SETUP_STATE={ok:['정상','ok'],warn:['확인 필요','warn'],missing:['미설정','missing']};
+const SETUP_OPEN={channel:'channel-menu-open',ai:'ai-menu-open',brand:'brand-menu-open',profile:'profile-menu-open'};
+function focusWhenReady(selector){let tries=0;const timer=setInterval(()=>{const el=document.querySelector(selector);tries++;
+ if(el&&el.offsetParent!==null&&!el.disabled){clearInterval(timer);el.scrollIntoView({block:'center'});el.focus();el.classList.add('focus-flash');setTimeout(()=>el.classList.remove('focus-flash'),1800);}
+ else if(tries>40)clearInterval(timer);},100);}
+async function refreshSetup(){try{const data=await json(await fetch('/api/setup-status',{headers:{'X-Session-Token':token}}));
+  const button=$('setup-open');
+  if(data.unavailable){button.textContent='필수 설정 · 연습 모드';button.className='';return data;}
+  button.textContent='필수 설정 '+data.required_ok+'/'+data.required_total;button.className=data.required_ok===data.required_total?'ok':'warn';
+  button.setAttribute('aria-label','필수 설정 '+data.required_total+'개 중 '+data.required_ok+'개 완료. 눌러서 전체 설정 점검');return data;
+ }catch(_){ $('setup-open').textContent='필수 설정 ?';return null;}}
+function renderSetup(data){const rows=$('setup-rows');rows.replaceChildren();
+ $('setup-summary').textContent=data.unavailable?'연습 모드에서는 설정을 점검하지 않습니다.':'기능 수행에 필요한 필수 설정 '+data.required_total+'개 중 '+data.required_ok+'개가 정상입니다.';
+ for(const item of data.items||[]){const tr=document.createElement('tr');
+  const s=SETUP_STATE[item.state]||['확인 필요','warn'];const st=document.createElement('td');line(st,'span',s[0]).className='setup-pill '+s[1];tr.append(st);
+  const name=document.createElement('td');line(name,'strong',item.label);line(name,'div',item.detail).className='setup-detail';tr.append(name);
+  const kind=document.createElement('td');line(kind,'span',item.required?'필수':'선택').className='setup-badge'+(item.required?' req':'');tr.append(kind);
+  const value=document.createElement('td');value.textContent=item.value;tr.append(value);
+  const act=document.createElement('td');if(item.target){const go=document.createElement('button');go.type='button';go.className='secondary';go.textContent='설정하기';
+   go.setAttribute('aria-label',item.label+' 설정하기');go.addEventListener('click',()=>jumpToSetting(item));act.append(go);}tr.append(act);
+  rows.append(tr);}}
+function jumpToSetting(item){setupDialog.close();
+ if(item.target==='load'){focusWhenReady(item.focus||'#load');return;}
+ const opener=$(SETUP_OPEN[item.target]);if(opener)opener.click();
+ const focus=item.target==='profile'&&item.id.startsWith('profile:')?'#profile-list button':item.focus;focusWhenReady(focus);}
+$('setup-open').addEventListener('click',async()=>{if(typeof closeOptions==='function')closeOptions();setupDialog.showModal();$('setup-title').focus();$('setup-summary').textContent='설정을 확인하는 중입니다…';const data=await refreshSetup();if(data)renderSetup(data);});
+$('setup-refresh').addEventListener('click',async()=>{const data=await refreshSetup();if(data)renderSetup(data);});
+$('setup-close').addEventListener('click',()=>setupDialog.close());$('setup-done').addEventListener('click',()=>setupDialog.close());
+for(const d of document.querySelectorAll('dialog'))if(d!==setupDialog)d.addEventListener('close',()=>refreshSetup());
+$('load').addEventListener('click',()=>setTimeout(refreshSetup,4000));
+refreshSetup();
+"""
+    page = page.replace("</script>", setup_script + "</script>", 1)
     return page.replace("</script>", progress + "</script>").encode("utf-8")

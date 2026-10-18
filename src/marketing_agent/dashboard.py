@@ -26,7 +26,7 @@ from .dashboard_contracts import (
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
     DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
-    HistoryService,
+    HistoryService, SetupStatusService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
     PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
     ProfileOptionsService, ProfileReadService, ProfileVerifyService,
@@ -36,7 +36,7 @@ from .dashboard_contracts import (
 from .dashboard_ui import FeedDraftService
 from .dashboard_settings import DashboardSettings
 from .dashboard_page import render_page as _page
-from .drafts import approve as approve_draft, save_generated, _load_record
+from .drafts import approve as approve_draft, quality_failure, save_generated, _load_record
 from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
 from .prompt_policy import build_draft_prompt, build_revision_prompt
@@ -181,6 +181,9 @@ class ConfiguredPostingService(PostingService):
         self._login_window_root: Path | None = None
         self._verified_emails: dict[str, tuple[str, str]] = {}
         self._account_states: dict[str, str] = {}
+        self._ai_test: tuple[bool, str] | None = None      # (ok, code) of the last explicit test
+        self._youtube_key_invalid = False                   # set when a draft run reports a bad key
+        self._last_feed_errors: dict[str, str] | None = None
         if settings is not None:
             selected = settings.profile_public()
             self.profile = str(selected["label"])
@@ -262,6 +265,93 @@ class ConfiguredPostingService(PostingService):
         if self.settings is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         return self.settings.profile_public()
+
+    def setup_status(self) -> dict[str, object]:
+        """IMP-17: one local overview of what this PC has configured. No network calls."""
+        if self.settings is None:
+            raise ValueError("SETTINGS_UNAVAILABLE")
+        items: list[dict[str, object]] = []
+
+        def add(key, label, required, state, value, detail, target="", focus=""):
+            items.append({"id": key, "label": label, "required": required, "state": state,
+                          "value": value, "detail": detail, "target": target, "focus": focus})
+
+        with self._settings_lock:
+            entries = self.settings.channel_entries()
+            bad = [e["channel_id"] for e in entries if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", e["channel_id"])]
+            names = ", ".join(e["channel_name"] or e["channel_id"] for e in entries[:5])
+            failed = self._last_feed_errors or {}
+            if bad or not 5 <= len(entries) <= 20:
+                add("channels", "YouTube 채널 ID", True, "missing", f"{len(entries)}개",
+                    "UC로 시작하는 24자리 ID를 5~20개 등록해야 합니다.", "channel", "#channel-rows input")
+            elif failed:
+                add("channels", "YouTube 채널 ID", True, "warn", f"{len(entries)}개 · {names}",
+                    "최근 영상 불러오기에서 실패한 채널: " + ", ".join(f"{k}({v.split(' ')[0]})" for k, v in failed.items()),
+                    "channel", "#channel-rows input")
+            else:
+                add("channels", "YouTube 채널 ID", True, "ok", f"{len(entries)}개 · {names}",
+                    "형식 확인 완료" + (" · 최근 불러오기 성공" if self._last_feed_errors is not None
+                                     else " · 아직 영상 불러오기 전"), "channel", "#channel-rows input")
+            chrome = _installed_chrome()
+            add("chrome", "Google Chrome 설치", True, "ok" if chrome else "missing",
+                "설치됨" if chrome else "찾을 수 없음",
+                "댓글 게시와 계정 확인에 사용합니다." if chrome else "Google Chrome을 설치한 뒤 대시보드를 다시 시작하세요.")
+            options = self.settings.profile_options_public()["options"]
+            for index, option in enumerate(options):
+                label = option["label"]
+                state = self._account_states.get(label, "UNKNOWN")
+                prepared = option["configured"] and option["connected"]
+                status = ("ok" if state == "SIGNED_IN" else "missing" if state == "SIGNED_OUT" or not prepared
+                          else "warn")
+                value = {"SIGNED_IN": "로그인됨", "SIGNED_OUT": "로그아웃"}.get(state,
+                         "준비됨 · 이번 실행에서 미확인" if prepared else "프로필 미준비")
+                detail = ("필수: 이 프로필로 댓글을 게시합니다." if index == 0 else
+                          "선택(가점): 로그인하면 새 영상이 이 프로필에도 돌아가며 배정됩니다.")
+                add(f"profile:{label}", f"Chrome 프로필 {label}", index == 0, status, value,
+                    detail + " '현재 계정 확인'을 누르면 상태가 갱신됩니다.", "profile", "#profile-list button")
+            approved = 0
+            try:
+                for path in self.drafts_dir.glob("*.json"):
+                    record = _load_record(self.drafts_dir, path.stem) if VIDEO_ID.fullmatch(path.stem) else None
+                    if record and record.get("approval_hash") and not quality_failure(record):
+                        approved += 1
+            except (OSError, ValueError):
+                pass
+            add("drafts", "승인된 댓글 초안", True, "ok" if approved else "missing", f"{approved}개",
+                "AI 키 없이도 ②에서 바로 쓸 수 있는 사람 승인 초안입니다." if approved else
+                "영상을 불러와 AI 초안을 만들고 검토·승인하세요.", "load", "#load")
+            brand = self.settings.brand_public()
+            limits = self.settings.comment_limits()
+            add("comment", "댓글 생성 설정", True, "ok" if brand["name"] and brand["description"] else "missing",
+                f"{brand['name']} · {limits['min_chars']}~{limits['max_chars']}자",
+                "브랜드명·설명과 글자 수 범위(없으면 40~120자).", "brand", "#brand-name")
+            ai = self.settings.ai_public()
+            if not ai["has_key"]:
+                state, detail = "missing", "없으면 저장된 승인 초안만 쓸 수 있습니다(새 영상 즉석 초안 불가)."
+            elif self._ai_test is None:
+                state, detail = "warn", "키 입력됨 · 이번 실행에서 연결 테스트 전입니다."
+            elif self._ai_test[0]:
+                state, detail = "ok", "연결 테스트 성공."
+            else:
+                state, detail = "warn", f"연결 테스트 실패({self._ai_test[1]}). 키와 모델을 확인하세요."
+            add("ai", "AI API 키", False, state, f"{ai['provider']} · {ai['model']} · " +
+                ("키 있음" if ai["has_key"] else "키 없음"), detail, "ai", "#ai-key")
+            has_youtube = bool(self.settings.youtube_api_key())
+            add("youtube", "YouTube Data API 키", False,
+                "missing" if not has_youtube else "warn" if self._youtube_key_invalid else "ok",
+                "키 있음" if has_youtube else "키 없음",
+                ("최근 초안 생성에서 키가 유효하지 않았습니다." if self._youtube_key_invalid else
+                 "AI 초안 근거에 인기 댓글을 더할 때만 씁니다.") if has_youtube else
+                "없어도 됩니다. 인기 댓글 없이 자막·제목·설명으로 초안을 만듭니다.", "ai", "#youtube-key")
+            enabled = self.settings.review_filter_enabled()
+            add("filter", "2차 필터", False, "ok" if enabled else "warn", "켜짐" if enabled else "꺼짐",
+                "AI 초안을 검사하고 문제가 있으면 다시 쓰게 합니다.", "brand", "#comment-review-filter")
+            add("test_videos", "본인 테스트 영상", False, "ok" if self.test_videos else "missing",
+                f"{len(self.test_videos)}개 등록",
+                "개발·시연용. README 부록 A의 명령으로 등록합니다(심사에는 필요 없음).")
+        required = [item for item in items if item["required"]]
+        return {"items": items, "required_total": len(required),
+                "required_ok": sum(item["state"] == "ok" for item in required)}
 
     def _probe_video_id(self) -> str:
         """An allowed watch page for account checks (ADR-0003): loaded RSS first."""
@@ -404,7 +494,12 @@ class ConfiguredPostingService(PostingService):
         provider, model, key = self.settings.ai_credentials()
         if not key:
             raise ValueError("AI_KEY_MISSING")
-        test_ai_connection(provider, model, key)
+        try:
+            test_ai_connection(provider, model, key)
+        except Exception as exc:
+            self._ai_test = (False, str(exc) if str(exc).isupper() else type(exc).__name__)
+            raise
+        self._ai_test = (True, "")
         return {"connected": True, "provider": provider, "model": model}
 
     def generate_draft(self, video_id: str) -> dict[str, object]:
@@ -420,6 +515,7 @@ class ConfiguredPostingService(PostingService):
             if not key:
                 raise ValueError("AI_KEY_MISSING")
             evidence = self.evidence_provider.collect(card)
+            self._youtube_key_invalid = "키가 유효하지" in (evidence.notice or "")
             brand = self.settings.brand_public()
             limits = self.settings.comment_limits()
             prompt = build_draft_prompt(evidence, brand_name=brand["name"],
@@ -555,6 +651,7 @@ class ConfiguredPostingService(PostingService):
     def list_videos(self) -> VideoList:
         with self._settings_lock:
             result = super().list_videos()
+            self._last_feed_errors = dict(result.errors)
             if self.settings is not None:
                 candidates = self._assignment_candidates()
                 with Store(self.db_path) as store:
@@ -817,6 +914,16 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, asdict(service.select_video(match.group(1))))
+                except Exception:
+                    return self._reject(503, INTERNAL_ERROR)
+            if self.path == "/api/setup-status":
+                if not self._session_ok():
+                    return self._reject(403, FORBIDDEN)
+                if not isinstance(service, SetupStatusService):
+                    return self._json(200, {"items": [], "required_total": 0, "required_ok": 0,
+                                            "unavailable": True})
+                try:
+                    return self._json(200, service.setup_status())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/history":
