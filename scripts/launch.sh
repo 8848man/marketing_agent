@@ -34,4 +34,5 @@ if [ ! -f "$STAMP" ]; then
   rm -f .venv/.requirements-* && touch "$STAMP"
 fi
 echo "3/3 대시보드를 시작합니다. 잠시 뒤 브라우저가 열립니다. 끝내려면 이 창에서 Ctrl+C."
+export PYTHONUNBUFFERED=1
 exec .venv/bin/python -m marketing_agent dashboard --port 8770 --port-tries 10 $MODE

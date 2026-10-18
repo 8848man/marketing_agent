@@ -1362,7 +1362,7 @@ def run_dashboard(*, port: int = 8765, service: DashboardService | None = None,
         raise OSError(f"PORT_IN_USE {port}-{port + max(1, min(int(port_tries), 20)) - 1}")
     with server:
         url = f"http://{HOST}:{server.server_port}/"
-        print(f"Dashboard: {url}")
+        print(f"Dashboard: {url}", flush=True)  # launchers read this line from a pipe
         if open_browser:
             webbrowser.open(url)
         try:

@@ -52,8 +52,10 @@ jobs:
             [ "$code" = "200" ] && break; sleep 2
           done
           echo "launcher_url=$url launcher_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
-          test "$code" = "200"
-          grep -q "applyFeatured" review.html
+          if [ "$code" != "200" ] || ! grep -q "applyFeatured" review.html; then
+            echo "::error title=launcher::$(tail -n 8 launcher.log | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
       - name: Chrome으로 우리 채널 영상 페이지(ko-KR) 열기
         run: .venv/bin/python .ucompany/scripts/mac_smoke.py --out smoke-artifacts | tee -a "$GITHUB_STEP_SUMMARY"
       - name: 안전 규칙 정적 검사(strict)
