@@ -2,7 +2,7 @@
 
 이 폴더(`.ucompany/sdd/`)가 제품의 **유일한 SDD 위치**다(2026-10-18 통합, [ADR-0001](decisions/ADR-0001-sdd-consolidation.md)). 이 색인이 ID·관계 어휘·읽는 순서의 원본이고, `graph.json`은 같은 내용을 기계가 읽도록 옮긴 파생 색인이다. 둘이 다르면 이 파일이 이긴다. 정합성은 `python .ucompany/scripts/check_sdd.py`로 검사한다.
 
-**현재 상태(2026-10-18):** 현행 판정은 [05 재검토](improvements/2026-10-17/05-plan-validity-review.md)와 [07 제출 전 결정](improvements/2026-10-17/07-submission-decisions.md)을 따른다. G-00·G-01·G-03은 해소, 남은 것은 제출용 초안 G-02, 초안 품질 G-04, Mac 수락 H06, 시연 영상 G-07이다.
+**현재 상태(2026-10-18):** 현행 판정은 [05 재검토](improvements/2026-10-17/05-plan-validity-review.md)와 [07 제출 전 결정](improvements/2026-10-17/07-submission-decisions.md)을 따른다. G-00·G-01·G-03·G-04(프롬프트 v7+2차 필터)는 해소, G-02는 승인·품질 통과 초안만 커밋(나머지 v7 초안은 사용자 승인 대기), 남은 것은 Mac 수락 H06(PR의 mac-smoke)과 시연 영상 G-07이다.
 
 ## 폴더 구조
 
