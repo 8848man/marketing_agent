@@ -101,4 +101,4 @@ python .ucompany/scripts/safety_scan.py --strict   # 안전 규칙 정적 검사
 python -m pytest -q                                # 자동 회귀
 ```
 
-GitHub Actions가 PR마다 macOS·Ubuntu에서 위 검사를 실행하고, `mac-smoke` 워크플로가 macOS에서 README 설치·대시보드 기동·Chrome으로 우리 채널 영상 페이지 열기를 확인합니다. 제작 노트는 [PROCESS.md](PROCESS.md), 설계 문서(SDD)는 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 작업 절차는 [workflow.md](.ucompany/sdd/workflow.md)에 있습니다. 원요구사항과 문서 권위는 [source-of-truth.md](.ucompany/sdd/source-of-truth.md), 설정 필드는 [예시 설정 계약](.ucompany/sdd/contracts/config-example.md)을 참고하세요.
+GitHub Actions가 PR마다 macOS·Ubuntu에서 위 검사를 실행하고, `mac-smoke` 워크플로가 macOS에서 README 설치·대시보드 기동·Chrome으로 우리 채널 영상 페이지 열기를 확인합니다. 제작 노트는 [PROCESS.md](PROCESS.md)(사람용 [for-humans.md](process/for-humans.md), AI용 [for-ai.md](process/for-ai.md)), 설계 문서(SDD)는 [.ucompany/sdd/00_index.md](.ucompany/sdd/00_index.md), 작업 절차는 [workflow.md](.ucompany/sdd/workflow.md)에 있습니다. 원요구사항과 문서 권위는 [source-of-truth.md](.ucompany/sdd/source-of-truth.md), 설정 필드는 [예시 설정 계약](.ucompany/sdd/contracts/config-example.md)을 참고하세요.
