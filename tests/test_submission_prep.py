@@ -4,11 +4,13 @@ import json
 import re
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import yaml
 
 from marketing_agent import __main__
 from marketing_agent.dashboard import ConfiguredPostingService, DashboardSettings
-from marketing_agent.dashboard_contracts import VideoCard, VideoList
+from marketing_agent.dashboard_contracts import PostStatus, VideoCard, VideoList
 from marketing_agent.dashboard_ui import _page
 from marketing_agent.posting_service import PostingService, _Selection
 from marketing_agent.storage import Store
@@ -17,6 +19,17 @@ from test_dashboard import running_server, request
 CHANNEL = "UCxlc0Ky0aWoD8uI09ad44Tg"
 NOW = datetime(2026, 10, 18, 1, 0, tzinfo=timezone.utc)
 
+
+
+def no_post_attempts(db_path) -> bool:
+    """IMP-19 keeps profile status in posts.db; what must stay empty is the post log."""
+    import sqlite3
+    if not db_path.exists():
+        return True
+    with sqlite3.connect(db_path) as db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return all(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+                   for table in ("dashboard_post_reservations", "post_results") if table in tables)
 
 def _settings(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
@@ -79,28 +92,106 @@ def test_dev_guard_blocks_our_channel_before_reservation_or_chrome(tmp_path):
     result = service.post_video("NewVideo001")
     assert result.reason_code == "DEV_OUR_CHANNEL_BLOCKED"
     poster.assert_not_called()
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
 
 
-def test_assignment_uses_signed_in_profiles_else_first_profile(tmp_path):
+def _three_profiles(tmp_path, cards):
     settings = _settings(tmp_path)
     for label in ("유튜브1", "유튜브2", "유튜브3"):
         (settings.app_profile_root(label) / "Default").mkdir(parents=True)
         settings.connect_profile(label)
+    poster = MagicMock()
+    poster.check_signed_in.return_value = ""
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       poster=poster, feed_loader=lambda: VideoList(cards))
+    service._profile_reason = lambda: ""
+    service._probe_video_id = lambda: "akn-AvCeHBI"
+    return settings, service
+
+
+def _profiles(service, cards):
+    states = service.video_states()
+    return [states[c.video_id]["profile"] for c in cards]
+
+
+def test_assignment_starts_on_first_profile_and_rebalances_unattempted_videos(tmp_path):
+    cards = tuple(VideoCard(f"Video00000{i}", CHANNEL, "외롭여", f"t{i}", f"2026-10-1{i}", "")
+                  for i in range(1, 7))
+    settings, service = _three_profiles(tmp_path, cards)
+    service.list_videos()
+    assert _profiles(service, cards) == ["유튜브1"] * 6
+    # one video already has a post attempt: it must never move
+    with Store(tmp_path / "posts.db") as store:
+        store.db.execute("INSERT INTO dashboard_post_reservations VALUES('a1','Video000002',?,'t2','h','h',"
+                         "'유튜브1','2026-10-18','2026-10-18T00:00:00Z','POSTED',NULL,NULL,NULL)", (CHANNEL,))
+    assert service.verify_profile("유튜브1")["reassigned"] == 0
+    result = service.verify_profile("유튜브2")
+    assert result["reassigned"] == 2
+    assert result["states"]["Video000003"]["profile"] == "유튜브2"
+    assert _profiles(service, cards) == ["유튜브1", "유튜브1", "유튜브2", "유튜브1", "유튜브2", "유튜브1"]
+    assert service.verify_profile("유튜브3")["reassigned"] >= 1
+    assert _profiles(service, cards) == ["유튜브1", "유튜브1", "유튜브2", "유튜브3", "유튜브1", "유튜브2"]
+    # same candidates again: nothing is reshuffled
+    assert service.verify_profile("유튜브3")["reassigned"] == 0
+    # restart keeps the confirmed profiles and the assignment
+    restarted = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                         poster=MagicMock(), feed_loader=lambda: VideoList(cards))
+    assert restarted._assignment_candidates() == ["유튜브1", "유튜브2", "유튜브3"]
+    restarted.list_videos()
+    assert _profiles(restarted, cards) == ["유튜브1", "유튜브1", "유튜브2", "유튜브3", "유튜브1", "유튜브2"]
+    assert restarted.profile_options_public()["options"][1]["account_state"] == "SIGNED_IN"
+
+
+def test_other_profiles_require_first_profile_and_signout_moves_videos_back(tmp_path):
     cards = tuple(VideoCard(f"Video00000{i}", CHANNEL, "외롭여", f"t{i}", f"2026-10-1{i}", "")
                   for i in range(1, 5))
-    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
-                                       poster=MagicMock(), feed_loader=lambda: VideoList(cards[:2]))
+    settings, service = _three_profiles(tmp_path, cards)
+    service.list_videos()
+    with pytest.raises(ValueError, match="PROFILE_PRIMARY_REQUIRED"):
+        service.verify_profile("유튜브2")
+    with pytest.raises(ValueError, match="PROFILE_PRIMARY_REQUIRED"):
+        service.open_app_profile("유튜브3")
+    service.poster.check_signed_in.assert_not_called()
+    service.verify_profile("유튜브1")
+    service.verify_profile("유튜브2")
+    assert _profiles(service, cards) == ["유튜브1", "유튜브2", "유튜브1", "유튜브2"]
+    # an unclear check (network) keeps the profile active
+    service.poster.check_signed_in.side_effect = ValueError("PROFILE_ACCOUNT_UNKNOWN")
+    with pytest.raises(ValueError):
+        service.verify_profile("유튜브2")
+    assert _profiles(service, cards) == ["유튜브1", "유튜브2", "유튜브1", "유튜브2"]
+    # a confirmed sign-out takes it out of the rotation
+    service.poster.check_signed_in.side_effect = ValueError("PROFILE_SIGNED_OUT")
+    with pytest.raises(ValueError):
+        service.verify_profile("유튜브2")
+    assert _profiles(service, cards) == ["유튜브1"] * 4
+    # opening 유튜브1's login window (account change) parks everything on 유튜브1
+    service.poster.check_signed_in.side_effect = None
+    service.verify_profile("유튜브1")
+    service.verify_profile("유튜브2")
+    with patch("marketing_agent.dashboard._open_login_window"):
+        result = service.open_app_profile("유튜브1")
+    assert result["reassigned"] == 2
     assert service._assignment_candidates() == ["유튜브1"]
-    service.list_videos()
-    service._account_states.update({"유튜브2": "SIGNED_IN", "유튜브3": "SIGNED_IN"})
-    assert service._assignment_candidates() == ["유튜브2", "유튜브3"]
-    service.feed_loader = lambda: VideoList(cards)
-    service.list_videos()
-    states = service.video_states()
-    assert {states[c.video_id]["profile"] for c in cards[:2]} == {"유튜브1"}
-    assert {states[c.video_id]["profile"] for c in cards[2:]} == {"유튜브2", "유튜브3"}
+    assert no_post_attempts(tmp_path / "posts.db")
 
+
+def test_login_required_on_post_deactivates_that_profile(tmp_path):
+    cards = tuple(VideoCard(f"Video00000{i}", CHANNEL, "외롭여", f"t{i}", f"2026-10-1{i}", "")
+                  for i in range(1, 3))
+    settings, service = _three_profiles(tmp_path, cards)
+    service.list_videos()
+    service.verify_profile("유튜브1")
+    service.verify_profile("유튜브2")
+    service.profile = "유튜브2"
+    service.poster.held_window_open.return_value = False
+    with patch("marketing_agent.dashboard.PostingService.post_video",
+               return_value=PostStatus("blocked", "LOGIN_REQUIRED")), \
+         patch.object(service, "_use_assigned_profile"), \
+         patch.object(service, "_draft_brand_matches", return_value=True):
+        assert service.post_video("Video000002").reason_code == "LOGIN_REQUIRED"
+    assert service._assignment_candidates() == ["유튜브1"]
+    assert service.profile_options_public()["options"][1]["account_state"] == "SIGNED_OUT"
 
 def test_drafts_cli_generates_unapproved_only_and_never_posts(tmp_path, capsys):
     cards = [VideoCard(f"Video00000{i}", CHANNEL, "외롭여", f"t{i}", f"2026-10-1{i}", "")

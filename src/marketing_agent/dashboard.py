@@ -185,6 +185,11 @@ class ConfiguredPostingService(PostingService):
         self._youtube_key_invalid = False                   # set when a draft run reports a bad key
         self._last_feed_errors: dict[str, str] | None = None
         if settings is not None:
+            with Store(self.db_path) as store:
+                for label, status in store.profile_status().items():
+                    if status["active"]:
+                        self._account_states[label] = "SIGNED_IN"
+                        self._verified_at[label] = status["confirmed_at"]
             selected = settings.profile_public()
             self.profile = str(selected["label"])
             root, directory = str(selected["user_data_dir"]), str(selected["profile_directory"])
@@ -304,11 +309,13 @@ class ConfiguredPostingService(PostingService):
                 status = ("ok" if state == "SIGNED_IN" else "missing" if state == "SIGNED_OUT" or not prepared
                           else "warn")
                 value = {"SIGNED_IN": "로그인됨", "SIGNED_OUT": "로그아웃"}.get(state,
-                         "준비됨 · 이번 실행에서 미확인" if prepared else "프로필 미준비")
+                         "준비됨 · 로그인 미확인" if prepared else "프로필 미준비")
                 if option.get("memo"):
                     value += f" · 메모: {option['memo']}"
-                detail = ("필수: 이 프로필로 댓글을 게시합니다." if index == 0 else
-                          "선택(가점): 로그인하면 새 영상이 이 프로필에도 돌아가며 배정됩니다.")
+                detail = ("필수: 이 프로필로 댓글을 게시합니다. 다른 프로필보다 먼저 로그인을 확인합니다." if index == 0 else
+                          "선택(가점): 로그인이 확인되면 아직 댓글을 달지 않은 영상이 이 프로필에도 돌아가며 다시 배정됩니다."
+                          + ("" if self._account_states.get(options[0]["label"]) == "SIGNED_IN"
+                             else f" {options[0]['label']} 로그인을 먼저 확인해야 설정할 수 있습니다."))
                 add(f"profile:{label}", f"Chrome 프로필 {label}", index == 0, status, value,
                     detail + " '현재 계정 확인'을 누르면 상태가 갱신됩니다.", "profile", "#profile-list button")
             approved = 0
@@ -366,15 +373,49 @@ class ConfiguredPostingService(PostingService):
                 return PDF_EXAMPLE_VIDEOS[channel_id]
         raise ValueError("PROBE_VIDEO_UNAVAILABLE")
 
+    def _primary_profile(self) -> str:
+        options = self.settings.profile_options_public()["options"]
+        return options[0]["label"] if options else ""
+
+    def _active_profiles(self) -> set[str]:
+        with Store(self.db_path) as store:
+            return {label for label, status in store.profile_status().items() if status["active"]}
+
     def _assignment_candidates(self) -> list[str]:
-        """IMP-09: rotate only through profiles confirmed signed in during this run."""
-        options = [item for item in self.settings.profile_options_public()["options"]
-                   if item["configured"] and item["connected"]]
-        signed_in = [item["label"] for item in options
-                     if self._account_states.get(item["label"]) == "SIGNED_IN"]
-        if signed_in:
-            return signed_in
-        return [options[0]["label"]] if options else []
+        """IMP-09/IMP-19: the first profile alone until it is confirmed signed in,
+        then every confirmed profile in settings order."""
+        all_options = self.settings.profile_options_public()["options"]
+        usable = [item["label"] for item in all_options if item["configured"] and item["connected"]]
+        primary = all_options[0]["label"] if all_options else ""
+        active = self._active_profiles()
+        if primary in usable and primary in active:
+            return [label for label in usable if label in active]
+        if primary in usable:
+            return [primary]
+        return usable[:1]
+
+    def _require_primary(self, label: str) -> None:
+        primary = self._primary_profile()
+        if label != primary and primary not in self._active_profiles():
+            raise ValueError("PROFILE_PRIMARY_REQUIRED")
+
+    def _set_profile_active(self, label: str, active: bool) -> int:
+        """Persist the confirmed state, then re-spread unattempted videos if candidates changed."""
+        with Store(self.db_path) as store:
+            store.set_profile_active(label, active, datetime.now(timezone.utc))
+        return self._sync_assignments()
+
+    def _sync_assignments(self, cards=None) -> int:
+        if self.settings is None:
+            return 0
+        cards = list(self._videos.values()) if cards is None else list(cards)
+        candidates = self._assignment_candidates()
+        with Store(self.db_path) as store:
+            if cards:
+                store.assign_dashboard_videos(cards, candidates, datetime.now(timezone.utc))
+            if not cards or store.assignment_candidates_key() == json.dumps(candidates, ensure_ascii=False):
+                return 0
+            return store.rebalance_dashboard_assignments(cards, candidates, datetime.now(timezone.utc))
 
     def profile_options_public(self) -> dict[str, object]:
         if self.settings is None:
@@ -397,8 +438,8 @@ class ConfiguredPostingService(PostingService):
         with self._settings_lock:
             if self.settings is None or self.poster is None:
                 raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-            self._verified_at.pop(label, None)
-            self._account_states[label] = "UNKNOWN"
+            self._require_primary(label)
+            previous = (self._account_states.get(label, "UNKNOWN"), self._verified_at.get(label, ""))
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
                     self._login_window_root == root and
@@ -419,12 +460,17 @@ class ConfiguredPostingService(PostingService):
             except ValueError as exc:
                 if str(exc) == "PROFILE_SIGNED_OUT":
                     self._account_states[label] = "SIGNED_OUT"
+                    self._verified_at.pop(label, None)
+                    self._set_profile_active(label, False)
                 else:
-                    self._account_states[label] = "UNKNOWN"
+                    # Not a clear answer (network, slow page): keep the last known state.
+                    self._account_states[label], self._verified_at[label] = previous
                 raise
             self._verified_at[label] = datetime.now(timezone.utc).isoformat()
             self._account_states[label] = "SIGNED_IN"
-            return self.profile_options_public()
+            reassigned = self._set_profile_active(label, True)
+            return {**self.profile_options_public(), "reassigned": reassigned,
+                    "states": self.video_states() if self._videos else {}}
 
     def save_profile_memo(self, label: str, memo: str) -> dict[str, object]:
         if self.settings is None:
@@ -460,12 +506,15 @@ class ConfiguredPostingService(PostingService):
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
-            self._verified_at.pop(label, None)
-            self._account_states[label] = "UNKNOWN"
+            self._require_primary(label)
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
                     self._login_window_process.poll() is None):
                 raise ValueError("PROFILE_LOCKED")
+            # The account may change in this window: stop assigning to it until re-checked.
+            self._verified_at.pop(label, None)
+            self._account_states[label] = "UNKNOWN"
+            reassigned = self._set_profile_active(label, False)
             root.mkdir(parents=True, exist_ok=True)
             profile = root / "Default"
             if not profile.resolve(strict=False).is_relative_to(root.resolve()):
@@ -476,7 +525,7 @@ class ConfiguredPostingService(PostingService):
             self._selected.clear()
             self._login_window_process = process
             self._login_window_root = root
-            return {**saved, "login_window_opened": True,
+            return {**saved, "login_window_opened": True, "reassigned": reassigned,
                     "states": self.video_states() if self._videos else {}}
 
     def save_ai(self, provider: str, model: str, api_key: str,
@@ -655,9 +704,7 @@ class ConfiguredPostingService(PostingService):
             result = super().list_videos()
             self._last_feed_errors = dict(result.errors)
             if self.settings is not None:
-                candidates = self._assignment_candidates()
-                with Store(self.db_path) as store:
-                    store.assign_dashboard_videos(result.videos, candidates, datetime.now(timezone.utc))
+                self._sync_assignments(result.videos)
             return result
 
     def video_states(self) -> dict[str, dict[str, str]]:
@@ -770,7 +817,12 @@ class ConfiguredPostingService(PostingService):
             reason = self._profile_reason()
             if reason:
                 return PostStatus("blocked", reason)
-            return super().post_video(video_id)
+            result = super().post_video(video_id)
+            if result.reason_code == "LOGIN_REQUIRED" and self.settings is not None and self.profile:
+                self._account_states[self.profile] = "SIGNED_OUT"
+                self._verified_at.pop(self.profile, None)
+                self._set_profile_active(str(self.profile), False)
+            return result
 
 
 def _capture_url(path: str, capture_dir: Path | None) -> str:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from contextlib import contextmanager
 import http.client
 import json
@@ -53,6 +55,17 @@ class FakeService:
         self.reservations += 1
         self.chrome_opens += 1
         return PostStatus("posted")
+
+
+def no_post_attempts(db_path) -> bool:
+    """IMP-19 keeps profile status in posts.db; what must stay empty is the post log."""
+    import sqlite3
+    if not db_path.exists():
+        return True
+    with sqlite3.connect(db_path) as db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return all(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+                   for table in ("dashboard_post_reservations", "post_results") if table in tables)
 
 
 @contextmanager
@@ -218,11 +231,12 @@ def test_account_check_needs_no_video_and_never_posts(tmp_path):
     option = result["options"][0]
     assert "verified_email" not in option
     assert option["verified_at"]
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
     with patch.object(poster, "check_signed_in", side_effect=ValueError("PROFILE_ACCOUNT_UNKNOWN")):
         with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
             service.verify_profile("유튜브1")
-    assert service.profile_options_public()["options"][0]["verified_at"] == ""
+    # IMP-19: an unclear check keeps the last confirmed state
+    assert service.profile_options_public()["options"][0]["account_state"] == "SIGNED_IN"
     with patch.object(poster, "check_signed_in", side_effect=ValueError("PROFILE_SIGNED_OUT")):
         with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
             service.verify_profile("유튜브1")
@@ -244,13 +258,16 @@ def test_account_check_without_rss_uses_requested_profile(tmp_path):
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster,
                                        feed_loader=lambda: (_ for _ in ()).throw(AssertionError("RSS called")))
+    from marketing_agent.storage import Store
+    with Store(tmp_path / "posts.db") as store:   # IMP-19: 유튜브1 confirmed first
+        store.set_profile_active("유튜브1", True, datetime.now(timezone.utc))
     with patch.object(poster, "check_signed_in", return_value="") as inspect:
         result = service.verify_profile("유튜브2")
     inspect.assert_called_once_with("akn-AvCeHBI")
     assert poster.user_data_dir == settings.app_profile_root("유튜브2")
     assert result["options"][1]["account_state"] == "SIGNED_IN"
     assert service._videos == {}
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
 
 
 def test_account_check_does_not_consult_existing_post_records(tmp_path):
@@ -531,7 +548,7 @@ def test_channel_dialog_api_adds_sixth_channel_without_exposing_secrets(tmp_path
                                      body=test_body)
             assert status == 200 and json.loads(result)["video_count"] == 0
             probe.assert_called_once_with(extra)
-        assert not (tmp_path / "posts.db").exists()
+        assert no_post_attempts(tmp_path / "posts.db")
 
 
 def test_channel_connection_checks_requested_rss_channel_id():
@@ -641,7 +658,7 @@ def test_ai_settings_are_write_only_and_test_requires_local_request_checks(tmp_p
         assert settings.ai_credentials()[2] == "SECOND_PRIVATE_KEY"
         settings.save_ai("grok", "grok-4.7", "", clear_key=True)
         assert settings.ai_credentials()[2] == ""
-        assert not (tmp_path / "posts.db").exists()
+        assert no_post_attempts(tmp_path / "posts.db")
     with running_server(DemoService()) as port:
         page = request(port, "GET", "/")[1]
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
@@ -1072,9 +1089,9 @@ def test_owned_test_video_cli_requires_explicit_local_evidence(tmp_path):
                        "config.yaml", "--register-owned-test-video", video_id]
             assert __main__.main(command) == 1
             run.assert_not_called()
-            assert not (work_dir / "posts.db").exists()
+            assert no_post_attempts(work_dir / "posts.db")
             assert __main__.main(command + ["--ownership-evidence", "config.yaml"]) == 1
-            assert not (work_dir / "posts.db").exists()
+            assert no_post_attempts(work_dir / "posts.db")
             assert __main__.main(command + ["--ownership-evidence", "data/ownership.txt"]) == 0
             run.assert_not_called()
             with Store(work_dir / "posts.db") as store:
@@ -1228,7 +1245,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     assert poster.user_data_dir == prior
     assert poster.profile_directory == "Default"
     assert service.profile == "유튜브1"
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
 
 
 def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
@@ -1238,13 +1255,16 @@ def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
     poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "shots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster)
+    from marketing_agent.storage import Store
+    with Store(tmp_path / "posts.db") as store:   # IMP-19: 유튜브1 confirmed first
+        store.set_profile_active("유튜브1", True, datetime.now(timezone.utc))
     with patch("marketing_agent.dashboard._open_login_window") as launch:
         service.open_app_profile("유튜브2")
         launch.assert_called_once_with(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
     assert settings.profile_public()["label"] == "유튜브1"
     assert settings.profile_options_public()["options"][1]["connected"] is True
     assert poster.user_data_dir == tmp_path
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
     with patch("marketing_agent.dashboard._installed_chrome", return_value=Path("chrome.exe")), \
          patch("marketing_agent.dashboard.subprocess.Popen") as start:
         from marketing_agent import dashboard as dashboard_module
@@ -1292,7 +1312,7 @@ def test_app_profile_setup_http_boundary(tmp_path):
             assert status == 200
             assert json.loads(body)["login_window_opened"] is True
             launch.assert_called_once()
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
 
 
 def test_profile_selection_http_uses_only_private_roots(tmp_path):
@@ -1318,7 +1338,7 @@ def test_profile_selection_http_uses_only_private_roots(tmp_path):
     assert poster.user_data_dir == root
     assert poster.profile_directory == "Default"
     assert service.profile == "유튜브2"
-    assert not (tmp_path / "posts.db").exists()
+    assert no_post_attempts(tmp_path / "posts.db")
 
 
 def test_app_login_window_blocks_post_until_closed(tmp_path):
@@ -1340,6 +1360,6 @@ def test_app_login_window_blocks_post_until_closed(tmp_path):
         assert result.reason_code == "PROFILE_LOCKED"
         post.assert_not_called()
         assert poster.events == []
-        assert not (tmp_path / "posts.db").exists()
+        assert no_post_attempts(tmp_path / "posts.db")
         launch.return_value.poll.return_value = 0
         assert service._profile_reason() == ""
