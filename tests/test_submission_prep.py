@@ -116,3 +116,17 @@ def test_drafts_cli_generates_unapproved_only_and_never_posts(tmp_path, capsys):
     service.post_video.assert_not_called()
     out = capsys.readouterr().out
     assert "Video000004 SKIP_APPROVED" in out and "GENERATED" in out
+    service.generate_draft.reset_mock()
+    with patch("marketing_agent.__main__._draft_service", return_value=service), \
+         patch("marketing_agent.__main__._approved", return_value=True):
+        assert __main__.main(["drafts", "--latest", "1", "--include-approved"]) == 0
+    assert [c.args[0] for c in service.generate_draft.call_args_list] == ["Video000004"]
+
+
+def test_previous_draft_is_kept_before_regeneration(tmp_path):
+    drafts, work = tmp_path / "drafts", tmp_path / "work"
+    drafts.mkdir()
+    (drafts / "Video000001.json").write_text('{"comment": "v5"}', encoding="utf-8")
+    __main__._keep_previous_draft(drafts, work, "Video000001")
+    kept = list((work / "draft_history").glob("Video000001.*.json"))
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == '{"comment": "v5"}'

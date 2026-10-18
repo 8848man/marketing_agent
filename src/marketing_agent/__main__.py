@@ -82,6 +82,16 @@ def _approved(card, drafts_dir: Path) -> bool:
         return False
 
 
+def _keep_previous_draft(drafts_dir: Path, work_dir: Path, video_id: str) -> None:
+    """Copy an existing draft to work_dir/draft_history before it is overwritten."""
+    current = drafts_dir / f"{video_id}.json"
+    if current.is_file() and not current.is_symlink():
+        history = work_dir / "draft_history"
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        (history / f"{video_id}.{stamp}.json").write_bytes(current.read_bytes())
+
+
 def _drafts_command(argv: list[str]) -> int:
     """IMP-11: batch-generate UNAPPROVED drafts for the newest videos; never posts."""
     parser = argparse.ArgumentParser(prog="marketing_agent drafts",
@@ -89,13 +99,16 @@ def _drafts_command(argv: list[str]) -> int:
     parser.add_argument("--latest", type=int, default=3, help="videos per channel (1-15)")
     parser.add_argument("--drafts-dir", default="drafts")
     parser.add_argument("--work-dir", default="data/dashboard")
+    parser.add_argument("--include-approved", action="store_true",
+                        help="also regenerate videos that already have an approved draft (becomes unapproved)")
     args = parser.parse_args(argv)
     if not 1 <= args.latest <= 15:
         print("drafts error: --latest must be 1..15", file=sys.stderr)
         return 2
     try:
         drafts_dir = _app_path(args.drafts_dir)
-        service = _draft_service(_app_path(args.work_dir), drafts_dir)
+        work_dir = _app_path(args.work_dir)
+        service = _draft_service(work_dir, drafts_dir)
         result = service.list_videos()
     except (OSError, ValueError) as exc:
         print(f"drafts error: {type(exc).__name__}", file=sys.stderr)
@@ -106,10 +119,11 @@ def _drafts_command(argv: list[str]) -> int:
     counts = {"GENERATED": 0, "SKIP_APPROVED": 0, "FAILED": 0}
     for channel_id, cards in by_channel.items():
         for card in sorted(cards, key=lambda c: c.published_at, reverse=True)[:args.latest]:
-            if _approved(card, drafts_dir):
+            if _approved(card, drafts_dir) and not args.include_approved:
                 status = "SKIP_APPROVED"
             else:
                 try:
+                    _keep_previous_draft(drafts_dir, work_dir, card.video_id)
                     service.generate_draft(card.video_id)
                     status = "GENERATED"
                 except ValueError as exc:

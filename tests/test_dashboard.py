@@ -917,7 +917,7 @@ def test_comment_length_setting_reaches_prompt_quality_and_approval(tmp_path):
     service._assigned_profile = lambda _: "유튜브1"
     generated = service.generate_draft(VIDEO_ID)
     assert (generated["min_chars"], generated["max_chars"]) == (20, 150)
-    assert "20-150 Korean character" in json.loads(calls[0].user)["instruction"]
+    assert "never outside 20-150" in json.loads(calls[0].user)["instruction"]
     assert service.approve_draft(VIDEO_ID, {key: generated[key] for key in
                                            ("worry_summary", "cited_detail", "comment")} | {"reviewer": "reviewer"})["can_post"]
     assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
