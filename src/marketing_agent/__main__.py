@@ -155,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                                       help="Existing evidence file inside --work-dir, required for registration")
         dashboard_args = dashboard_parser.parse_args(argv[1:])
         from .dashboard import ConfiguredPostingService, DashboardSettings, DemoService, run_dashboard
+        from .drafts import approved_draft_cards
         from .poster import VisibleChromePoster
         from .rss_feed import list_videos, recheck_video
         try:
@@ -186,7 +187,10 @@ def main(argv: list[str] | None = None) -> int:
             service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
                                                poster=poster, profile="유튜브1",
                                                test_videos=entries, settings=settings,
-                                               feed_loader=lambda: list_videos(channels=settings.channels(), cache_dir=work_dir / "rss_cache"),
+                                               feed_loader=lambda: list_videos(
+                                                   channels=settings.channels(), cache_dir=work_dir / "rss_cache",
+                                                   fallback=lambda channel_id: approved_draft_cards(
+                                                       drafts_dir, channel_id, settings.channels().get(channel_id, ""))),
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
             run_dashboard(port=dashboard_args.port, service=service,

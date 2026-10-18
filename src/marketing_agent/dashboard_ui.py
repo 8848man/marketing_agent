@@ -134,7 +134,7 @@ if(!data.videos.length)line($('videos'),'p','목록이 비어 있습니다. 설�
 for(const video of data.videos){{const button=document.createElement('button');const state=data.states?.[video.video_id]||{{profile:'',state:'unassigned'}};button.className='card state-'+state.state;button.type='button';button.dataset.videoId=video.video_id;
 const image=document.createElement('img');image.src=video.thumbnail_url;image.alt='영상 썸네일';button.append(image);
 line(button,'strong',video.title);line(button,'p',video.channel+' · '+video.published_at);const stateLabel={{posted:'댓글 게시 완료',ai_generated:'AI 초안 생성',review:'게시 결과 확인 필요',not_started:'미작성',unassigned:'담당 프로필 없음'}}[state.state]||'상태 확인 필요';line(button,'p',(state.profile||'미배정')+' · '+stateLabel).className='card-state';button.addEventListener('click',()=>selectVideo(video.video_id));$('videos').append(button);}}
-for(const [channel,error] of Object.entries(data.errors))line($('videos'),'p',channel+': '+error).className='status error';
+for(const [channel,error] of Object.entries(data.errors))line($('videos'),'p',channel+': '+(typeof rssText==='function'?rssText(error):error)).className='status error';
 if(data.videos.length)setStep('select');
 }}catch(error){{$('feed-state').classList.add('error');$('feed-state').textContent='영상 목록을 불러오지 못했습니다: '+error.message;}}finally{{guideButton($('load'));}}}}
 async function selectVideo(id){{selected=id;ready=false;profileRequired=false;setStep('select');guideButton($('post'),'초안을 확인하는 중입니다. 잠시 기다려주세요.');$('selection').className='status';$('selection').textContent='초안을 확인하는 중입니다…';$('post-state').textContent='초안을 확인하고 있습니다.';

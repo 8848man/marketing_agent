@@ -153,7 +153,7 @@ def parse_channel(data: bytes, channel_id: str, *, channels=None) -> tuple[Video
 
 
 def list_videos(*, fetch=fetch_channel, channels=None, cache_dir: str | Path | None = None,
-                now=None) -> VideoList:
+                now=None, fallback=None) -> VideoList:
     """List allowed channels. With cache_dir, a channel whose feed fails after retries
     falls back to its last good feed (<= 72h) for display only; posting still rechecks
     the live feed (recheck_video has no cache)."""
@@ -179,6 +179,12 @@ def list_videos(*, fetch=fetch_channel, channels=None, cache_dir: str | Path | N
                     continue
                 except (ValueError, ET.ParseError):
                     pass
+            # IMP-20: no feed and no cache — show approved-draft videos for display only.
+            spare = tuple(fallback(channel_id)) if fallback is not None else ()
+            if spare:
+                videos.extend(spare)
+                errors[label] = f"{reason} · 승인 초안 영상 {len(spare)}개만 표시"
+                continue
             errors[label] = reason
     videos.sort(key=lambda card: card.published_at, reverse=True)
     return VideoList(tuple(videos), errors)

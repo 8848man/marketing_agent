@@ -37,6 +37,42 @@ BRAND_NEGATIVE = (r"{brand}[^.!?。]{{0,16}}(?:의지하기 전|가기 전|보�
 MAX_DRAFT_BYTES = 1_000_000
 
 
+def approved_draft_cards(drafts_dir: str | Path, channel_id: str, channel_name: str = "") -> tuple[VideoCard, ...]:
+    """Display-only cards for one channel's approved, passing drafts (IMP-20).
+
+    Used only when the live RSS and its cache both fail, so a fresh clone still
+    shows the committed drafts. Posting rechecks the live feed and stays blocked.
+    """
+    root = Path(drafts_dir)
+    cards: list[VideoCard] = []
+    try:
+        if root.is_symlink() or not root.is_dir():
+            return ()
+        files = sorted(root.glob("*.json"))
+    except OSError:
+        return ()
+    for path in files:
+        if path.name == "latest.json" or path.is_symlink() or not VIDEO_ID.fullmatch(path.stem):
+            continue
+        try:
+            if path.stat().st_size > MAX_DRAFT_BYTES:
+                continue
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict) or record.get("video_id") != path.stem:
+            continue
+        title = record.get("title")
+        approval = record.get("approval_hash")
+        if (record.get("channel_id") != channel_id or not isinstance(title, str) or not title.strip()
+                or not isinstance(approval, str) or not HASH.fullmatch(approval)
+                or approval != content_hash(record) or quality_failure(record)):
+            continue
+        cards.append(VideoCard(path.stem, channel_id, channel_name or channel_id, title, "승인 초안 (RSS 장애 중 표시)",
+                               f"https://i.ytimg.com/vi/{path.stem}/hqdefault.jpg", ""))
+    return tuple(cards)
+
+
 def content_hash(draft: dict) -> str:
     """The exact fields a reviewer approves, with deterministic UTF-8 encoding."""
     payload = {key: draft.get(key, "") for key in APPROVED_FIELDS}
