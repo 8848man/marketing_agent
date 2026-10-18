@@ -28,7 +28,9 @@ BRAND_AS_COMMON_NOUN = (r"(?:제|저의|나의|내|우리의|너의|당신의|�
 BRAND_EXPERIENCE = (r"{brand}(?:에서|에서는|에서도|도 보고)[^.!?。]{{0,15}}?"
                     r"(?:봤|받았|보니|보니까|봤더니|봤는데|다녀|갔었|상담했)",
                     r"{brand}(?:은|는)\s*물론", r"{brand}\s*궁합도",
-                    r"{brand}(?:이나 사주)?에서\s*(?:제|내)\s")
+                    # a past reading result ("운명원에서 제 연애운이 안 좋았던"), not an
+                    # intent such as "운명원에서 제 연애운도 한번 봐보고 싶어요"
+                    r"{brand}(?:이나 사주)?에서\s*(?:제|내)\s[^.!?。]{{0,20}}?(?:있었|였|았던|었던)")
 # Comments that tell readers to rely on themselves *instead of* the brand work
 # against the PDF mission ("운명원에서 연애 사주를 보고 싶어지는가").
 BRAND_NEGATIVE = (r"{brand}[^.!?。]{{0,16}}(?:의지하기 전|가기 전|보기 전|받아도|맡겨야 하나|처럼 타고난)",)
