@@ -240,3 +240,52 @@ def test_second_pass_failure_keeps_first_draft(tmp_path):
     service, prompts = _service_with(tmp_path, [too_long, ValueError("AI_RESPONSE_INVALID")])
     assert service.generate_draft("Video000001")["comment"] == too_long["comment"]
     assert len(prompts) == 2
+
+
+# --- IMP-16 filter switch and re-run from the dashboard ------------------------
+def test_filter_switch_off_skips_second_pass(tmp_path):
+    too_long = dict(GOOD, comment=GOOD["comment"] + " 정말 공감되는 이야기였고 오래 기억에 남을 것 같아요." * 2)
+    service, prompts = _service_with(tmp_path, [too_long, GOOD])
+    service.settings.save_comment_generation("운명원", "연애 사주 업체", "", 40, 120, False)
+    result = service.generate_draft("Video000001")
+    assert len(prompts) == 1 and result["review_filter"] is False
+    assert any(p.startswith("LENGTH") for p in result["problems"])
+
+
+def test_refine_reviews_without_ai_then_rewrites_on_request(tmp_path):
+    too_long = dict(GOOD, comment=GOOD["comment"] + " 정말 공감되는 이야기였고 오래 기억에 남을 것 같아요." * 2)
+    service, prompts = _service_with(tmp_path, [too_long, GOOD])
+    service.settings.save_comment_generation("운명원", "연애 사주 업체", "", 40, 120, False)
+    service.generate_draft("Video000001")
+    prompts.clear()
+    view = service.refine_draft("Video000001", rewrite=False)
+    assert prompts == [] and view["changed"] is False and view["problems"]
+    view = service.refine_draft("Video000001", rewrite=True)
+    assert len(prompts) == 1 and view["changed"] is True and view["problems"] == []
+    assert view["comment"] == GOOD["comment"] and view["approved"] is False
+    assert json.loads(prompts[0].user)["previous_draft"]["comment"] == too_long["comment"]
+    again = service.refine_draft("Video000001", rewrite=True)
+    assert len(prompts) == 1 and again["changed"] is False  # nothing left to fix: no AI call
+
+
+def test_refine_http_requires_token_and_exact_body(tmp_path):
+    service, _ = _service_with(tmp_path, [GOOD])
+    service.generate_draft("Video000001")
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        origin = f"http://127.0.0.1:{port}"
+        body = json.dumps({"video_id": "Video000001", "rewrite": False})
+        assert request(port, "POST", "/api/drafts/refine", origin=origin, body=body)[0] == 403
+        bad = json.dumps({"video_id": "Video000001", "rewrite": "yes"})
+        assert request(port, "POST", "/api/drafts/refine", origin=origin, token=token, body=bad)[0] == 400
+        status, text = request(port, "POST", "/api/drafts/refine", origin=origin, token=token, body=body)
+    assert status == 200 and json.loads(text)["comment"] == GOOD["comment"]
+
+
+def test_same_quote_across_videos_is_flagged():
+    base = {"worry_summary": "고민", "cited_detail": "싱글들을 위한 줌 미팅방", "source_text": "싱글들을 위한 줌 미팅방 안내",
+            "brand_name": "운명원", "min_chars": 40, "max_chars": 120,
+            "comment": "싱글들을 위한 줌 미팅방 소식 반가워요. 혼자 지낸 지 오래됐거든요. 친구가 운명원에서 인연 시기 보라던데 궁금해요."}
+    other = "싱글들을 위한 줌 미팅방이라니 좋네요. 외로운데 운명원 결혼운도 궁금하네요."
+    assert any(p.startswith("SAME_QUOTE") for p in review_problems(base, [other]))

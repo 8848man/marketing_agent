@@ -859,12 +859,14 @@ def test_comment_generation_defaults_save_and_validation(tmp_path):
     assert not path.exists()
     saved = settings.save_comment_generation("별빛", "연애 대화", "", 30, 150)
     assert saved == {"name": "별빛", "description": "연애 대화", "reference_url": "",
-                     "min_chars": 30, "max_chars": 150}
+                     "min_chars": 30, "max_chars": 150, "review_filter": True}
     assert path.exists()
     assert DashboardSettings(path).comment_limits() == {"min_chars": 30, "max_chars": 150}
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["comment"] == {
-        "brand": "운명원", "min_chars": 30, "max_chars": 150}
+        "brand": "운명원", "min_chars": 30, "max_chars": 150, "review_filter": True}
     assert "min_chars: 30, max_chars: 150" in settings.yaml_text()
+    assert settings.save_comment_generation("별빛", "연애 대화", "", 30, 150, False)["review_filter"] is False
+    assert DashboardSettings(path).review_filter_enabled() is False
 
 
 def test_comment_generation_api_requires_token_and_exact_numbers(tmp_path):
@@ -892,7 +894,7 @@ def test_comment_generation_api_requires_token_and_exact_numbers(tmp_path):
         assert status == 400 and json.loads(response)["reason_code"] == "COMMENT_LENGTH_SETTINGS_INVALID"
         assert request(port, "POST", "/api/comment-settings", token=token, origin=origin,
                        body=json.dumps(data))[0] == 200
-        assert json.loads(request(port, "GET", "/api/comment-settings", token=token)[1]) == data
+        assert json.loads(request(port, "GET", "/api/comment-settings", token=token)[1]) == data | {"review_filter": True}
 
 
 def test_comment_length_setting_reaches_prompt_quality_and_approval(tmp_path):

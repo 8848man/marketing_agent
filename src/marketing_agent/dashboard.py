@@ -19,13 +19,14 @@ import webbrowser
 import xml.etree.ElementTree as ET
 
 from .ai_client import test_ai_connection
-from .captions import VideoEvidence
+from .captions import EvidenceResult, VideoEvidence
 from .dashboard_contracts import (
     AIReadService, AITestService, AIWriteService, BAD_REQUEST, ChannelEntryReadService,
     BrandReadService, BrandWriteService,
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
-    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, HistoryService,
+    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
+    HistoryService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
     PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
     ProfileOptionsService, ProfileReadService, ProfileVerifyService,
@@ -232,13 +233,14 @@ class ConfiguredPostingService(PostingService):
         return self.settings.comment_generation_public()
 
     def save_comment_generation(self, name: str, description: str, reference_url: str,
-                                min_chars: int, max_chars: int) -> dict[str, str | int]:
+                                min_chars: int, max_chars: int,
+                                review_filter: bool = True) -> dict[str, str | int | bool]:
         if self.settings is None:
             raise ValueError("COMMENT_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
             previous = self.settings.comment_generation_public()
             result = self.settings.save_comment_generation(
-                name, description, reference_url, min_chars, max_chars)
+                name, description, reference_url, min_chars, max_chars, review_filter)
             relevant = ("name", "description", "min_chars", "max_chars")
             if any(result[key] != previous[key] for key in relevant):
                 self._selected.clear()
@@ -423,33 +425,90 @@ class ConfiguredPostingService(PostingService):
             prompt = build_draft_prompt(evidence, brand_name=brand["name"],
                                         brand_description=brand["description"], **limits)
             result = self.draft_generator.generate(provider, model, key, prompt)
-            # IMP-15 second pass: deterministic review, then AI rewrite with concrete feedback.
-            others = other_comments(self.drafts_dir, video_id)
+            enabled = self.settings.review_filter_enabled()
             rounds = []
-            for _ in range(MAX_REVISIONS):
-                candidate = {**{k: str(result.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
-                             "source_text": evidence.text, "brand_name": brand["name"], **limits}
-                problems = review_problems(candidate, others)
-                if not problems:
-                    break
-                rounds.append({"comment": candidate["comment"], "problems": problems})
-                try:
-                    revised = self.draft_generator.generate(
-                        provider, model, key, build_revision_prompt(prompt, result, problems))
-                except ValueError:
-                    break  # keep the first draft; the person still reviews it
-                if isinstance(revised, dict):
-                    result = revised
-            if rounds:
-                final = {**{k: str(result.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
-                         "source_text": evidence.text, "brand_name": brand["name"], **limits}
-                rounds.append({"comment": final["comment"], "problems": review_problems(final, others)})
+            if enabled:
+                result, rounds = self._review_loop(provider, model, key, prompt, result,
+                                                   evidence.text, brand, limits, video_id)
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile,
                                     brand_name=brand["name"], brand_description=brand["description"],
                                     review_rounds=rounds, prompt_version=prompt.version,
                                     **limits)
-            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text", "min_chars", "max_chars")} | {"evidence_notice": evidence.notice}
+            return self._draft_view(record, brand, limits, video_id) | {
+                "evidence_notice": evidence.notice, "review_filter": enabled, "changed": bool(rounds)}
+
+    def _candidate(self, values: dict, source_text: str, brand: dict, limits: dict) -> dict:
+        return {**{k: str(values.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
+                "source_text": source_text, "brand_name": brand["name"], **limits}
+
+    def _review_loop(self, provider, model, key, prompt, result, source_text, brand, limits, video_id):
+        """IMP-15 second pass: deterministic review, then AI rewrite with concrete feedback."""
+        others = other_comments(self.drafts_dir, video_id)
+        rounds = []
+        for _ in range(MAX_REVISIONS):
+            problems = review_problems(self._candidate(result, source_text, brand, limits), others)
+            if not problems:
+                break
+            rounds.append({"comment": str(result.get("comment", "")), "problems": problems})
+            try:
+                revised = self.draft_generator.generate(
+                    provider, model, key, build_revision_prompt(prompt, result, problems))
+            except ValueError:
+                break  # keep the previous draft; the person still reviews it
+            if isinstance(revised, dict):
+                result = revised
+        if rounds:
+            final = self._candidate(result, source_text, brand, limits)
+            rounds.append({"comment": final["comment"], "problems": review_problems(final, others)})
+        return result, rounds
+
+    def _draft_view(self, record: dict, brand: dict, limits: dict, video_id: str) -> dict:
+        view = {key: record.get(key, "") for key in ("video_id", "worry_summary", "cited_detail", "comment",
+                                                     "evidence_sources", "source_text", "min_chars", "max_chars")}
+        current = review_problems(self._candidate(record, record.get("source_text", ""), brand, limits),
+                                  other_comments(self.drafts_dir, video_id))
+        return view | {"review_rounds": record.get("review_rounds", []), "problems": current,
+                       "approved": bool(record.get("approval_hash")),
+                       "prompt_version": record.get("prompt_version", "")}
+
+    def refine_draft(self, video_id: str, rewrite: bool = False) -> dict[str, object]:
+        """IMP-16: open a saved draft for review, optionally re-running the second-pass filter."""
+        if self.settings is None:
+            raise ValueError("AI_SETTINGS_UNAVAILABLE")
+        with self._settings_lock:
+            card = self._videos.get(video_id)
+            if card is None:
+                raise ValueError("VIDEO_NOT_FOUND")
+            record = _load_record(self.drafts_dir, video_id)
+            if not record:
+                raise ValueError("DRAFT_MISSING")
+            brand = self.settings.brand_public()
+            limits = self.settings.comment_limits()
+            view = self._draft_view(record, brand, limits, video_id) | {
+                "review_filter": self.settings.review_filter_enabled(), "changed": False}
+            if not rewrite or not view["problems"]:
+                return view
+            provider, model, key = self.settings.ai_credentials()
+            if not key:
+                raise ValueError("AI_KEY_MISSING")
+            source = str(record.get("source_text") or card.title)
+            sources = tuple(record.get("evidence_sources") or ())
+            prompt = build_draft_prompt(EvidenceResult(source, sources), brand_name=brand["name"],
+                                        brand_description=brand["description"], **limits)
+            start = {k: str(record.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")}
+            result, rounds = self._review_loop(provider, model, key, prompt, start, source,
+                                               brand, limits, video_id)
+            if result == start:
+                return view | {"review_rounds": view["review_rounds"] + rounds}
+            profile = str(record.get("generated_profile") or self._assigned_profile(video_id))
+            saved = save_generated(card, result, self.drafts_dir, source_text=source,
+                                   evidence_sources=sources, profile=profile,
+                                   brand_name=brand["name"], brand_description=brand["description"],
+                                   review_rounds=list(record.get("review_rounds", [])) + rounds,
+                                   prompt_version=prompt.version + "+refine", **limits)
+            return self._draft_view(saved, brand, limits, video_id) | {
+                "review_filter": self.settings.review_filter_enabled(), "changed": True}
 
     def approve_draft(self, video_id: str, values: dict) -> dict[str, object]:
         with self._settings_lock:
@@ -806,7 +865,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
                                  "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/comment-settings", "/api/youtube-key",
-                                 "/api/profile", "/api/profile/add", "/api/profile/email", "/api/profile/verify-email", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve"}:
+                                 "/api/profile", "/api/profile/add", "/api/profile/email", "/api/profile/verify-email", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine"}:
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
                 return self._reject_early_post(403, FORBIDDEN)
@@ -831,8 +890,10 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                             or any(not isinstance(data[key], str) for key in data)):
                         raise ValueError
                 elif self.path == "/api/comment-settings":
+                    base = {"name", "description", "reference_url", "min_chars", "max_chars"}
                     if (not isinstance(data, dict)
-                            or set(data) != {"name", "description", "reference_url", "min_chars", "max_chars"}
+                            or set(data) not in (base, base | {"review_filter"})
+                            or not isinstance(data.get("review_filter", True), bool)
                             or any(not isinstance(data[key], str) for key in ("name", "description", "reference_url"))
                             or any(type(data[key]) is not int for key in ("min_chars", "max_chars"))):
                         raise ValueError
@@ -876,6 +937,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                         raise ValueError
                     value = data.get("entries", data.get("channels"))
                     if not isinstance(value, list):
+                        raise ValueError
+                elif self.path == "/api/drafts/refine":
+                    if (not isinstance(data, dict) or set(data) != {"video_id", "rewrite"}
+                            or not isinstance(data["video_id"], str) or not VIDEO_ID.fullmatch(data["video_id"])
+                            or not isinstance(data["rewrite"], bool)):
                         raise ValueError
                 elif self.path == "/api/drafts/approve":
                     if (not isinstance(data, dict) or set(data) != {"video_id", "draft"}
@@ -1012,7 +1078,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 try:
                     return self._json(200, service.save_comment_generation(
                         data["name"], data["description"], data["reference_url"],
-                        data["min_chars"], data["max_chars"]))
+                        data["min_chars"], data["max_chars"], data.get("review_filter", True)))
                 except ValueError as exc:
                     reason = str(exc)
                     return self._reject(400, reason if reason.startswith(("BRAND_", "COMMENT_")) else BAD_REQUEST)
@@ -1047,6 +1113,17 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = str(exc)
                     return self._reject(409 if reason == "AI_KEY_MISSING" else 503,
                                         reason if reason.isupper() else "DRAFT_GENERATION_FAILED")
+                except OSError:
+                    return self._reject(503, "DRAFT_WRITE_FAILED")
+            if self.path == "/api/drafts/refine":
+                if not isinstance(service, DraftRefineService):
+                    return self._reject(404, BAD_REQUEST)
+                try:
+                    return self._json(200, service.refine_draft(data["video_id"], data["rewrite"]))
+                except ValueError as exc:
+                    reason = str(exc)
+                    return self._reject(409 if reason in {"AI_KEY_MISSING", "DRAFT_MISSING"} else 503,
+                                        reason if reason.isupper() else "DRAFT_REFINE_FAILED")
                 except OSError:
                     return self._reject(503, "DRAFT_WRITE_FAILED")
             if self.path == "/api/drafts/approve":

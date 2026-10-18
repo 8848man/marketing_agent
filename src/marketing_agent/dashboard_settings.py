@@ -288,23 +288,35 @@ class DashboardSettings:
                 raise ValueError("COMMENT_LENGTH_SETTINGS_INVALID")
             return validate_comment_limits(saved.get("min_chars", 40), saved.get("max_chars", 120))
 
-    def comment_generation_public(self) -> dict[str, str | int]:
+    def review_filter_enabled(self) -> bool:
+        """IMP-16: second-pass draft filter switch; on unless explicitly turned off."""
         with self._lock:
-            return {**self.brand_public(), **self.comment_limits()}
+            saved = self._read_full().get("comment", {})
+            value = saved.get("review_filter", True) if isinstance(saved, dict) else True
+            return value is not False
+
+    def comment_generation_public(self) -> dict[str, str | int | bool]:
+        with self._lock:
+            return {**self.brand_public(), **self.comment_limits(),
+                    "review_filter": self.review_filter_enabled()}
 
     def save_comment_generation(self, name: str, description: str, reference_url: str,
-                                min_chars: int, max_chars: int) -> dict[str, str | int]:
+                                min_chars: int, max_chars: int,
+                                review_filter: bool = True) -> dict[str, str | int | bool]:
+        if not isinstance(review_filter, bool):
+            raise ValueError("COMMENT_REVIEW_FILTER_INVALID")
         brand = self._brand_data({"brand_settings": {"name": name, "description": description,
                                                        "reference_url": reference_url}})
         lengths = validate_comment_limits(min_chars, max_chars)
         with self._lock:
             full = self._read_full()
             full["brand_settings"] = brand
-            full["comment"] = {**full.get("comment", {}), "brand": "운명원", **lengths}
+            full["comment"] = {**full.get("comment", {}), "brand": "운명원", **lengths,
+                               "review_filter": review_filter}
             normalized = self._validate(full)
             self._write_full(full)
             self._current = normalized
-            return {**brand, **lengths}
+            return {**brand, **lengths, "review_filter": review_filter}
 
     def save_brand(self, name: str, description: str, reference_url: str) -> dict[str, str]:
         brand = self._brand_data({"brand_settings": {"name": name, "description": description,

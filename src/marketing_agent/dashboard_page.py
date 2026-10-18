@@ -104,6 +104,8 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 <label class="ai-field" for="comment-min-chars">최소 글자 수 · 필수<input id="comment-min-chars" type="number" required min="1" max="1000" step="1" inputmode="numeric"></label>
 <label class="ai-field" for="comment-max-chars">최대 글자 수 · 필수<input id="comment-max-chars" type="number" required min="1" max="1000" step="1" inputmode="numeric"></label>
 <p class="ai-help">글자 수 설정이 없으면 기본 40~120자를 사용합니다. 1~1000자에서 최소값은 최대값보다 클 수 없습니다.</p>
+<label class="ai-field" for="comment-review-filter" style="display:flex;gap:8px;align-items:center"><input id="comment-review-filter" type="checkbox" checked style="width:auto"> 2차 필터 적용 (권장)</label>
+<p class="ai-help">켜 두면 AI 초안이 나온 직후 글자 수·금지 규칙·인용 길이·일반적인 칭찬·다른 영상과 같은 표현을 검사하고, 걸리면 같은 AI가 최대 2번 고쳐 씁니다. 결과는 여전히 사람이 검토·승인합니다.</p>
 <p id="brand-state" class="status" role="status" aria-live="polite"></p></div>
 <div class="dialog-actions"><button id="brand-cancel" type="button" class="secondary">취소</button><button id="brand-save" type="button">댓글 생성 설정 저장</button></div>
 </dialog>'''
@@ -241,7 +243,7 @@ $('brand-menu-open').addEventListener('click',async()=>{
   if(__BRAND_DEMO__){brandMessage('연습 모드에서는 브랜드 설정을 저장할 수 없습니다.');return;}
   try{const brand=await json(await fetch('/api/comment-settings',{headers:{'X-Session-Token':token}}));
     $('brand-name').value=brand.name;$('brand-description').value=brand.description;$('brand-url').value=brand.reference_url;
-    $('comment-min-chars').value=brand.min_chars;$('comment-max-chars').value=brand.max_chars;
+    $('comment-min-chars').value=brand.min_chars;$('comment-max-chars').value=brand.max_chars;$('comment-review-filter').checked=brand.review_filter!==false;
     guideButton($('brand-save'),'');brandMessage('브랜드 정보와 글자 수 범위를 확인한 뒤 저장하세요.');
   }catch(_){brandMessage('브랜드 설정을 불러오지 못했습니다.',true);guideButton($('brand-save'),'설정을 불러오지 못했습니다.');}
 });
@@ -254,7 +256,7 @@ $('brand-save').addEventListener('click',async()=>{
   if(!Number.isInteger(min_chars)||!Number.isInteger(max_chars)||min_chars<1||max_chars>1000||min_chars>max_chars){brandMessage('글자 수는 1~1000자이고 최소값은 최대값 이하로 입력하세요.',true);return;}
   if(reference_url&&!$('brand-url').checkValidity()){brandMessage('URL은 http 또는 https 주소로 입력하세요.',true);return;}
   guideButton($('brand-save'),'저장하는 중입니다.');brandMessage('댓글 생성 설정을 저장하는 중입니다…');
-  try{await localPost('/api/comment-settings',{name,description,reference_url,min_chars,max_chars});if(selected)await selectVideo(selected);brandMessage('저장했습니다. 다음 AI 초안 생성부터 적용됩니다. 브랜드명·설명·글자 수 변경 후 기존 초안은 다시 생성하고 승인해야 합니다.');}
+  try{await localPost('/api/comment-settings',{name,description,reference_url,min_chars,max_chars,review_filter:$('comment-review-filter').checked});if(selected)await selectVideo(selected);brandMessage('저장했습니다. 다음 AI 초안 생성부터 적용됩니다. 브랜드명·설명·글자 수 변경 후 기존 초안은 다시 생성하고 승인해야 합니다.');}
   catch(error){const messages={BRAND_NAME_INVALID:'브랜드명은 1~80자로 입력하세요.',BRAND_DESCRIPTION_INVALID:'설명은 1~1000자로 입력하세요.',BRAND_URL_INVALID:'URL은 http 또는 https 주소로 입력하세요.',COMMENT_LENGTH_SETTINGS_INVALID:'글자 수는 1~1000자이고 최소값은 최대값 이하로 입력하세요.'};brandMessage(messages[error.message]||'저장 실패: '+error.message,true);}
   finally{guideButton($('brand-save'),'');}
 });

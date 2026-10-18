@@ -79,6 +79,11 @@ def review_problems(candidate: dict, others: list[str]) -> list[str]:
     cited = candidate.get("cited_detail", "")
     if isinstance(cited, str) and len(cited) > 30:
         problems.append(f"QUOTE_TOO_LONG: 인용이 {len(cited)}자입니다. 근거에서 30자 이내의 짧은 표현만 그대로 인용하세요.")
+    if isinstance(cited, str) and len(cited.strip()) >= 6:
+        shared = next((other for other in others if cited.strip() in other), "")
+        if shared:
+            problems.append(f"SAME_QUOTE: 다른 영상 초안도 같은 표현('{cited.strip()}')을 인용했습니다. "
+                            "이 영상에서만 나오는 다른 장면이나 말을 골라 인용하세요.")
     praise = GENERIC_PRAISE.search(comment)
     if praise:
         problems.append(f"GENERIC: '{praise.group(0)}'처럼 어느 영상에나 붙는 칭찬은 빼세요.")
