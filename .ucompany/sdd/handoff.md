@@ -1,6 +1,6 @@
 # Handoff
 
-- IMP-21 제작 노트 분리 (2026-10-18): `PROCESS.md`는 안내판, 내용은 `process/for-humans.md`(사람용)·`process/for-ai.md`(AI용). Mac은 GitHub Actions 스모크만 했다고 명시. 새 실패·개선은 두 파일에 함께 추가하고 `tests/test_process_docs.py`가 원문·링크·건수를 대조한다. IMP-12(mac-smoke)는 실행 통과로 닫음.
+- IMP-21 제작 노트 (2026-10-18): 안내판+사람용·AI용으로 나눴다가(PR #6) 심사자만 읽는 문서라 `PROCESS.md` 한 파일(사람용 서술형)로 되돌렸다. Mac은 GitHub Actions 스모크만 했다고 명시. 프롬프트를 바꾸면 `PROCESS.md` 원문도 고쳐야 `tests/test_process_docs.py`가 통과한다. IMP-12(mac-smoke)는 실행 통과로 닫음.
 
 - IMP-20 RSS 장애 대비 (2026-10-18): 2026-10-18 오후 YouTube RSS가 브라우저에서도 500을 돌려 새로 받은 폴더(캐시 없음)에는 영상이 하나도 안 보였다. 실시간·캐시 모두 실패한 채널은 커밋된 승인 초안 영상만 표시하고, 오류는 "YouTube RSS 서버 오류(500) — YouTube 쪽 일시 장애"처럼 보여 준다. 게시 직전 재확인은 실시간 RSS만 쓰므로 장애 중 게시는 막힌다. 검증: V1 0·0, V2 170 passed, V3 새 폴더·네트워크 차단 화면.
 
