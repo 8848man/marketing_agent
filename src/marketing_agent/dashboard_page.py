@@ -117,6 +117,7 @@ dialog.channel-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr) a
 const demoChannels=__DEMO_CHANNELS__;
 const demoMode=__DEMO_MODE__;
 const channelPattern=/^UC[A-Za-z0-9_-]{22}$/;
+function rssText(error){const text=String(error||'');const [code,...rest]=text.split(' · ');const tail=rest.length?' · '+rest.join(' · '):'';const http=/^RSS_HTTP_([0-9]{3})$/.exec(code);let human=code;if(http){const n=Number(http[1]);human=n>=500?'YouTube RSS 서버 오류('+n+') — YouTube 쪽 일시 장애입니다. 잠시 뒤 다시 불러오세요':n===404?'YouTube RSS가 목록을 돌려주지 않음(404) — 간헐적 현상입니다. 잠시 뒤 다시 시도하세요':n===429?'요청이 많아 YouTube가 잠시 제한함(429) — 몇 분 뒤 다시 시도하세요':'YouTube RSS 응답 오류('+n+')';}else if(code==='RSS_NETWORK')human='YouTube RSS에 연결하지 못함(네트워크) — 인터넷 연결을 확인하세요';return human+tail;}
 const channelErrors={SETTINGS_CHANNELS_INVALID:'채널은 5~20개여야 하며 ID가 중복되면 안 됩니다.',SETTINGS_CHANNEL_NAME_INVALID:'채널명은 비워두거나 1~100자로 입력하세요.',SETTINGS_CHANNEL_ID_INVALID:'채널 ID는 UC로 시작하는 24자리여야 합니다.',SETTINGS_TEST_CHANNEL_CONFLICT:'본인 테스트 영상의 채널은 중복 등록할 수 없습니다.',SETTINGS_WRITE_FAILED:'설정 파일을 저장하지 못했습니다.',RSS_CHANNEL_MISMATCH:'RSS가 다른 채널 ID를 반환했습니다.',RSS_INVALID_XML:'RSS 응답 형식이 올바르지 않습니다.',RSS_REDIRECT_BLOCKED:'RSS가 다른 주소로 이동해 연결을 차단했습니다.',CHANNEL_TEST_NETWORK_FAILED:'YouTube RSS에 연결하지 못했습니다.',CHANNEL_TEST_FAILED:'RSS 연결 확인에 실패했습니다.'};
 let savedChannels=[],draftChannels=[],visibleRows=3,previousOverflow='';
 const dialog=$('channel-dialog');
@@ -135,7 +136,7 @@ async function testChannel(i,nameInput,idInput,state,test){
   try{
     const data=await json(await fetch('/api/channels/test',{method:'POST',headers:{'Content-Type':'application/json','X-Session-Token':token},body:JSON.stringify({channel_name:name,channel_id:id})}));
     const resolved=name||data.channel_name||'';if(!name&&resolved)nameInput.value=resolved;state.textContent='연결 확인 · '+(resolved||id)+' · 최근 항목 '+data.video_count+'개 (소유권 확인 아님)';draftChannels[i]={channel_name:resolved,channel_id:id};
-  }catch(error){state.textContent=channelErrors[error.message]||'연결 실패: '+error.message;state.className='row-state error';}
+  }catch(error){state.textContent=channelErrors[error.message]||(String(error.message).startsWith('RSS_')?'연결 실패: '+rssText(error.message):'연결 실패: '+error.message);state.className='row-state error';}
   finally{guideButton(test,demoMode?'연습 모드에서는 연결 테스트를 할 수 없습니다.':'');updateChannelSaveGuide();}
 }
 function renderChannels(){

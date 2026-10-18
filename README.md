@@ -87,6 +87,7 @@ python -m marketing_agent drafts --latest 3
 
 ## 부록 C. 문제 해결
 
+- 영상 목록에 "YouTube RSS 서버 오류(500)"처럼 나오면 YouTube 쪽 일시 장애입니다(브라우저로 RSS 주소를 열어도 같은 오류가 납니다). 장애 중에는 승인 초안이 있는 영상만 목록에 보이며, 게시 직전 확인도 실패하므로 댓글은 달리지 않습니다. 잠시 뒤 **영상 불러오기**를 다시 누르세요.
 - `ZoneInfoNotFoundError ... Asia/Seoul`(Windows): 설치 명령을 다시 실행하면 `tzdata`가 설치됩니다.
 - 8770 포트 사용 중: `--port 8771`처럼 바꿉니다.
 - `PROFILE_LOCKED`: 같은 프로필의 Chrome 창(로그인 창 포함)을 닫고 다시 시도합니다.

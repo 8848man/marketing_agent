@@ -237,3 +237,41 @@ def test_feed_failure_never_leaves_stale_postable_selection(tmp_path):
     service.list_videos()
     assert service.select_video(VIDEO_ID).reason_code == "VIDEO_NOT_FOUND"
     assert service.post_video(VIDEO_ID).state == "blocked"
+
+
+def test_rss_outage_without_cache_shows_only_approved_draft_videos(tmp_path):
+    """IMP-20: display-only fallback; unapproved, failing or other-channel drafts never appear."""
+    from marketing_agent.drafts import approved_draft_cards
+    good = approved()
+    (tmp_path / f"{VIDEO_ID}.json").write_text(json.dumps(good, ensure_ascii=False), encoding="utf-8")
+    unapproved = {**good, "video_id": "Unapproved1"}
+    unapproved.pop("approval_hash")
+    (tmp_path / "Unapproved1.json").write_text(json.dumps(unapproved, ensure_ascii=False), encoding="utf-8")
+    other = {**approved(), "video_id": "OtherChan01", "channel_id": "UC" + "x" * 22}
+    other["content_hash"] = other["approval_hash"] = content_hash(other)
+    (tmp_path / "OtherChan01.json").write_text(json.dumps(other, ensure_ascii=False), encoding="utf-8")
+    cards = approved_draft_cards(tmp_path, CHANNEL_ID, "외롭여")
+    assert [card.video_id for card in cards] == [VIDEO_ID]
+    assert cards[0].title == TITLE and cards[0].thumbnail_url.startswith("https://i.ytimg.com/vi/")
+    assert preview(cards[0], tmp_path).can_post      # same title/channel as the approved draft
+
+    def down(channel_id, **_):
+        raise FeedError("RSS_HTTP_500")
+    result = list_videos(fetch=down, channels={CHANNEL_ID: "외롭여"}, cache_dir=tmp_path / "cache",
+                         fallback=lambda cid: approved_draft_cards(tmp_path, cid, "외롭여"))
+    assert [card.video_id for card in result.videos] == [VIDEO_ID]
+    assert result.errors == {"외롭여": "RSS_HTTP_500 · 승인 초안 영상 1개만 표시"}
+    # posting time recheck has no fallback: it fails closed
+    assert recheck_video(VIDEO_ID, CHANNEL_ID, fetch=down, channels={CHANNEL_ID: "외롭여"}) is None
+    # a cached feed still wins over the fallback
+    result = list_videos(fetch=lambda cid: feed(), channels={CHANNEL_ID: "외롭여"}, cache_dir=tmp_path / "cache")
+    result = list_videos(fetch=down, channels={CHANNEL_ID: "외롭여"}, cache_dir=tmp_path / "cache",
+                         fallback=lambda cid: (_ for _ in ()).throw(AssertionError("fallback used")))
+    assert "받은 목록 표시" in result.errors["외롭여"]
+
+
+def test_rss_errors_are_explained_in_plain_korean():
+    from marketing_agent.dashboard_page import render_page
+    html = render_page("t").decode("utf-8")
+    assert "function rssText" in html and "YouTube RSS 서버 오류" in html
+    assert "rssText(error)" in html and "rssText(error.message)" in html
