@@ -148,7 +148,8 @@ def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
                    source_text: str | None = None, evidence_sources: tuple[str, ...] = (),
                    profile: str = "", brand_name: str = "운명원",
                    brand_description: str = "연애 고민을 사주 관점에서 살펴보는 서비스",
-                   min_chars: int = 40, max_chars: int = 120) -> dict:
+                   min_chars: int = 40, max_chars: int = 120,
+                   review_rounds: list | None = None, prompt_version: str = "") -> dict:
     """Store an AI suggestion as unapproved; it can never enable posting itself."""
     if (not isinstance(result, dict) or set(result) != set(GENERATED_FIELDS)
             or any(not isinstance(result.get(key), str) or not result[key].strip() for key in GENERATED_FIELDS)):
@@ -165,6 +166,11 @@ def save_generated(video: VideoCard, result: dict, drafts_dir: str | Path, *,
     if profile:
         record["generated_profile"] = profile
         record["generated_at"] = datetime.now(timezone.utc).isoformat()
+    if prompt_version:
+        record["prompt_version"] = prompt_version
+    if review_rounds:
+        # Audit trail of the second-pass filter; not part of the approval hash.
+        record["review_rounds"] = review_rounds
     _write_record(Path(drafts_dir), video.video_id, record)
     return record
 

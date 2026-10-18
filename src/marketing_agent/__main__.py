@@ -69,7 +69,7 @@ def _draft_service(work_dir: Path, drafts_dir: Path):
     settings = DashboardSettings(_app_path("config.yaml"))
     return ConfiguredPostingService(
         work_dir / "posts.db", drafts_dir, poster=None, settings=settings,
-        feed_loader=lambda: list_videos(channels=settings.channels()),
+        feed_loader=lambda: list_videos(channels=settings.channels(), cache_dir=work_dir / "rss_cache"),
         recheck=lambda video_id, channel_id: recheck_video(
             video_id, channel_id, channels=settings.channels()))
 
@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
             service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
                                                poster=poster, profile="유튜브1",
                                                test_videos=entries, settings=settings,
-                                               feed_loader=lambda: list_videos(channels=settings.channels()),
+                                               feed_loader=lambda: list_videos(channels=settings.channels(), cache_dir=work_dir / "rss_cache"),
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
             run_dashboard(port=dashboard_args.port, service=service,

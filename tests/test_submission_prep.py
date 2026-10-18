@@ -130,3 +130,113 @@ def test_previous_draft_is_kept_before_regeneration(tmp_path):
     __main__._keep_previous_draft(drafts, work, "Video000001")
     kept = list((work / "draft_history").glob("Video000001.*.json"))
     assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == '{"comment": "v5"}'
+
+
+# --- IMP-14 RSS retry/cache, IMP-15 second-pass filter -------------------------
+from urllib.error import HTTPError
+import pytest
+from marketing_agent import rss_feed
+from marketing_agent.captions import EvidenceResult
+from marketing_agent.draft_review import review_problems
+from marketing_agent.dashboard_contracts import VideoList as _VL
+
+FEED = ("<feed xmlns='http://www.w3.org/2005/Atom' xmlns:yt='http://www.youtube.com/xml/schemas/2015'>"
+        "<yt:channelId>xlc0Ky0aWoD8uI09ad44Tg</yt:channelId><title>외롭여</title>"
+        "<entry><yt:videoId>Video000001</yt:videoId><yt:channelId>UCxlc0Ky0aWoD8uI09ad44Tg</yt:channelId>"
+        "<title>제목</title><published>2026-10-17T00:00:00+00:00</published></entry></feed>").encode()
+
+
+class _Opener:
+    def __init__(self, outcomes):
+        self.outcomes, self.calls = list(outcomes), 0
+
+    def open(self, request, timeout):
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        body = MagicMock()
+        body.__enter__.return_value.read.return_value = outcome
+        return body
+
+
+def _http(code):
+    return HTTPError("https://www.youtube.com/feeds/videos.xml", code, "x", {}, None)
+
+
+def test_rss_retries_transient_errors_but_not_forbidden():
+    opener = _Opener([_http(404), _http(500), FEED])
+    assert rss_feed.fetch_channel(CHANNEL, opener=opener, sleep=lambda _s: None) == FEED
+    assert opener.calls == 3
+    forbidden = _Opener([_http(403)])
+    with pytest.raises(rss_feed.FeedError, match="RSS_HTTP_403"):
+        rss_feed.fetch_channel(CHANNEL, opener=forbidden, sleep=lambda _s: None)
+    assert forbidden.calls == 1
+
+
+def test_list_uses_recent_cache_only_for_display(tmp_path):
+    channels = {CHANNEL: "외롭여"}
+    rss_feed.list_videos(fetch=lambda _c: FEED, channels=channels, cache_dir=tmp_path)
+    def broken(_c):
+        raise rss_feed.FeedError("RSS_HTTP_404")
+    result = rss_feed.list_videos(fetch=broken, channels=channels, cache_dir=tmp_path)
+    assert [v.video_id for v in result.videos] == ["Video000001"]
+    assert "RSS_HTTP_404" in result.errors["외롭여"] and "목록 표시" in result.errors["외롭여"]
+    assert rss_feed.recheck_video("Video000001", CHANNEL, fetch=broken, channels=channels) is None
+
+
+def test_review_flags_length_long_quote_praise_and_repeated_closing():
+    base = {"worry_summary": "고민", "cited_detail": "짧은 장면", "source_text": "짧은 장면 설명",
+            "brand_name": "운명원", "min_chars": 40, "max_chars": 120}
+    good = dict(base, comment="짧은 장면 보고 웃었어요. 저도 비슷한 일이 있었거든요. 친구가 운명원 궁합이 잘 맞는다고 하던데 한번 보고 싶네요.")
+    assert review_problems(good, ["전혀 다른 문장입니다. 운명원에서 재회운 보고 싶어요."]) == []
+    long = dict(base, comment=good["comment"] + " 영상 잘 봤어요." * 6)
+    codes = " ".join(review_problems(long, []))
+    assert "LENGTH" in codes and "GENERIC" in codes
+    repeated = review_problems(good, ["다른 영상. 친구가 운명원 궁합이 잘 맞는다고 하던데 한번 보고 싶네요."])
+    assert any(p.startswith("REPEATED_CLOSING") for p in repeated)
+
+
+def _service_with(tmp_path, responses):
+    settings = _settings(tmp_path)
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    card = VideoCard("Video000001", CHANNEL, "외롭여", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("E", (), {"collect": lambda self, _c: EvidenceResult("답장이 늦어질 때 자막", ("자막",))})()
+    prompts = []
+    class Gen:
+        def generate(self, provider, model, key, prompt):
+            prompts.append(prompt)
+            item = responses.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       evidence_provider=evidence, draft_generator=Gen(),
+                                       feed_loader=lambda: _VL((card,)))
+    service._videos[card.video_id] = card
+    service._assigned_profile = lambda _v: "유튜브1"
+    return service, prompts
+
+
+GOOD = {"worry_summary": "답장을 기다리는 마음", "cited_detail": "답장이 늦어질 때",
+        "comment": "답장이 늦어질 때 혼자 폰만 보던 제 모습이 떠올랐어요ㅠ 친구가 운명원에서 둘 궁합 한번 보라던데 저도 궁금해지네요."}
+
+
+def test_second_pass_rewrites_until_review_passes_and_keeps_audit(tmp_path):
+    too_long = dict(GOOD, comment=GOOD["comment"] + " 정말 공감되는 이야기였고 오래 기억에 남을 것 같아요." * 2)
+    service, prompts = _service_with(tmp_path, [too_long, GOOD])
+    result = service.generate_draft("Video000001")
+    assert result["comment"] == GOOD["comment"] and len(prompts) == 2
+    revision = json.loads(prompts[1].user)
+    assert revision["previous_draft"]["comment"] == too_long["comment"]
+    assert any(item.startswith("LENGTH") for item in revision["fix"])
+    saved = json.loads((tmp_path / "drafts" / "Video000001.json").read_text(encoding="utf-8"))
+    assert saved["prompt_version"].startswith("draft-v7") and len(saved["review_rounds"]) == 2
+    assert saved["review_rounds"][-1]["problems"] == [] and "approval_hash" not in saved
+
+
+def test_second_pass_failure_keeps_first_draft(tmp_path):
+    too_long = dict(GOOD, comment=GOOD["comment"] + " 정말 공감되는 이야기였고 오래 기억에 남을 것 같아요." * 2)
+    service, prompts = _service_with(tmp_path, [too_long, ValueError("AI_RESPONSE_INVALID")])
+    assert service.generate_draft("Video000001")["comment"] == too_long["comment"]
+    assert len(prompts) == 2

@@ -38,7 +38,8 @@ from .dashboard_page import render_page as _page
 from .drafts import approve as approve_draft, save_generated, _load_record
 from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
-from .prompt_policy import build_draft_prompt
+from .prompt_policy import build_draft_prompt, build_revision_prompt
+from .draft_review import MAX_REVISIONS, other_comments, review_problems
 from .rss_feed import CHANNELS, fetch_channel, list_videos, parse_channel, recheck_video
 from .storage import Store
 
@@ -422,9 +423,31 @@ class ConfiguredPostingService(PostingService):
             prompt = build_draft_prompt(evidence, brand_name=brand["name"],
                                         brand_description=brand["description"], **limits)
             result = self.draft_generator.generate(provider, model, key, prompt)
+            # IMP-15 second pass: deterministic review, then AI rewrite with concrete feedback.
+            others = other_comments(self.drafts_dir, video_id)
+            rounds = []
+            for _ in range(MAX_REVISIONS):
+                candidate = {**{k: str(result.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
+                             "source_text": evidence.text, "brand_name": brand["name"], **limits}
+                problems = review_problems(candidate, others)
+                if not problems:
+                    break
+                rounds.append({"comment": candidate["comment"], "problems": problems})
+                try:
+                    revised = self.draft_generator.generate(
+                        provider, model, key, build_revision_prompt(prompt, result, problems))
+                except ValueError:
+                    break  # keep the first draft; the person still reviews it
+                if isinstance(revised, dict):
+                    result = revised
+            if rounds:
+                final = {**{k: str(result.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
+                         "source_text": evidence.text, "brand_name": brand["name"], **limits}
+                rounds.append({"comment": final["comment"], "problems": review_problems(final, others)})
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile,
                                     brand_name=brand["name"], brand_description=brand["description"],
+                                    review_rounds=rounds, prompt_version=prompt.version,
                                     **limits)
             return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text", "min_chars", "max_chars")} | {"evidence_notice": evidence.notice}
 
