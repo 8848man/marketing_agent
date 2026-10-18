@@ -291,7 +291,7 @@ def _inspection(tmp_path, *, avatar_visible, login_visible, redirect=None):
 
 def test_account_check_uses_allowed_watch_page_and_never_clicks(tmp_path):
     poster, page, avatar = _inspection(tmp_path, avatar_visible=True, login_visible=False)
-    assert poster.inspect_account_email(PROBE) == ""
+    assert poster.check_signed_in(PROBE) == ""
     page.goto.assert_called_once_with(PROBE_URL, wait_until="domcontentloaded", timeout=30000)
     avatar.first.click.assert_not_called()
     assert not page.get_by_text.called and not page.screenshot.called
@@ -300,20 +300,20 @@ def test_account_check_uses_allowed_watch_page_and_never_clicks(tmp_path):
 def test_account_check_distinguishes_visible_signed_out_page(tmp_path):
     poster, page, _ = _inspection(tmp_path, avatar_visible=False, login_visible=True)
     with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-        poster.inspect_account_email(PROBE)
+        poster.check_signed_in(PROBE)
 
 
 def test_account_check_unknown_when_neither_control_visible(tmp_path):
     poster, page, _ = _inspection(tmp_path, avatar_visible=False, login_visible=False)
     with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
-        poster.inspect_account_email(PROBE)
+        poster.check_signed_in(PROBE)
 
 
 def test_account_check_rejects_redirect_and_bad_video_id(tmp_path):
     poster, page, _ = _inspection(tmp_path, avatar_visible=True, login_visible=False,
                                   redirect="https://www.youtube.com/")
     with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
-        poster.inspect_account_email(PROBE)
+        poster.check_signed_in(PROBE)
     page.locator.assert_not_called()
     with pytest.raises(ValueError, match="INVALID_VIDEO_ID"):
-        poster.inspect_account_email("https://myaccount.google.com/")
+        poster.check_signed_in("https://myaccount.google.com/")

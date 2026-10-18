@@ -42,7 +42,7 @@ def main() -> int:
         # 1) the app's own account-check path on an allowed watch page
         poster = VisibleChromePoster(root, "Default", screenshot_dir=out)
         try:
-            poster.inspect_account_email(PROBE)
+            poster.check_signed_in(PROBE)
             report["account_check"] = "SIGNED_IN (unexpected on a fresh profile)"
         except ValueError as exc:
             report["account_check"] = str(exc)

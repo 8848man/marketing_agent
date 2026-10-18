@@ -153,13 +153,13 @@ class ProfileAddService(Protocol):
 
 
 @runtime_checkable
-class ProfileEmailService(Protocol):
-    def save_profile_email(self, label: str, email: str) -> dict[str, object]: ...
+class ProfileMemoService(Protocol):
+    def save_profile_memo(self, label: str, memo: str) -> dict[str, object]: ...
 
 
 @runtime_checkable
 class ProfileVerifyService(Protocol):
-    def verify_profile_email(self, label: str) -> dict[str, object]: ...
+    def verify_profile(self, label: str) -> dict[str, object]: ...
 
 
 @runtime_checkable

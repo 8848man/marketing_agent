@@ -15,10 +15,10 @@ import yaml
 
 from .ai_client import PROVIDERS, validate_model
 from .posting_service import CHANNEL_ID
-from .profile_emails import ProfileEmails
 from .rss_feed import CHANNELS
 
 CHANNEL_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}\Z")
+PROFILE_MEMO_MAX = 40
 PROFILE_LABEL = re.compile(r'[^\x00-\x1f\x7f\\/:*?"<>|]{1,30}\Z')
 PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
 BRAND_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
@@ -405,12 +405,13 @@ class DashboardSettings:
             raise ValueError("PROFILE_PATH_UNSAFE")
         return root
 
-    def _profile_email_store(self) -> ProfileEmails:
-        app_root = self.path.parent.resolve()
-        base = self.path.parent / "data" / "dashboard"
-        if not base.resolve(strict=False).is_relative_to(app_root):
-            raise ValueError("PROFILE_EMAIL_FILE_UNSAFE")
-        return ProfileEmails(base / "profile-emails.json", self._current["profiles"])
+    @staticmethod
+    def _memos(full: dict) -> dict[str, str]:
+        memos = full.get("profile_memos", {})
+        if not isinstance(memos, dict):
+            return {}
+        return {key: value for key, value in memos.items()
+                if isinstance(key, str) and isinstance(value, str)}
 
     def profile_options_public(self) -> dict[str, object]:
         """List only the application's three private profiles, never Chrome's local data."""
@@ -418,7 +419,7 @@ class DashboardSettings:
             full = self._read_full()
             selected = self._selected_profile(full)
             saved = full.get("chrome_profiles", {})
-            emails = self._profile_email_store()
+            memos = self._memos(full)
             options = []
             for label in self._current["profiles"]:
                 root = self.app_profile_root(label)
@@ -426,7 +427,7 @@ class DashboardSettings:
                 connected = (configured and isinstance(saved, dict) and
                              saved.get(label) == {"user_data_dir": str(root),
                                                   "profile_directory": "Default"})
-                options.append({"label": label, "email": emails.get(label), "configured": configured,
+                options.append({"label": label, "memo": memos.get(label, ""), "configured": configured,
                                 "connected": connected, "selected": label == selected})
             return {"selected": selected, "options": options}
 
@@ -457,10 +458,29 @@ class DashboardSettings:
             self._current = normalized
             return {"label": name, "profile_id": profile_id}
 
-    def save_profile_email(self, label: str, email: str) -> dict[str, object]:
+    def save_profile_memo(self, label: str, memo: str) -> dict[str, object]:
+        """A short free-text note per profile (IMP-18). Emails are refused on purpose."""
+        text = memo.strip() if isinstance(memo, str) else None
+        if text is None or len(text) > PROFILE_MEMO_MAX or any(ord(ch) < 32 for ch in text):
+            raise ValueError("PROFILE_MEMO_INVALID")
+        if "@" in text:
+            raise ValueError("PROFILE_MEMO_EMAIL_BLOCKED")
         with self._lock:
-            self._profile_email_store().set(label, email)
-            return self.profile_options_public()
+            if label not in self._current["profiles"]:
+                raise ValueError("PROFILE_NAME_INVALID")
+            full = self._read_full()
+            memos = self._memos(full)
+            if text:
+                memos[label] = text
+            else:
+                memos.pop(label, None)
+            memos = {key: value for key, value in memos.items() if key in self._current["profiles"]}
+            if memos:
+                full["profile_memos"] = memos
+            else:
+                full.pop("profile_memos", None)
+            self._write_full(full)
+        return self.profile_options_public()
 
     def save_profile(self, label: str) -> dict[str, object]:
         root = self.app_profile_root(label)

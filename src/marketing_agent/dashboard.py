@@ -28,7 +28,7 @@ from .dashboard_contracts import (
     DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
     HistoryService, SetupStatusService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
-    PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
+    PostStatus, ProfileAddService, ProfileMemoService, ProfileOpenService,
     ProfileOptionsService, ProfileReadService, ProfileVerifyService,
     ProfileWriteService, SettingsReadService, SettingsWriteService,
     VideoCard, VideoList, VideoStateService, YouTubeKeyService,
@@ -179,7 +179,7 @@ class ConfiguredPostingService(PostingService):
         self._posting_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chrome-post")
         self._login_window_process: subprocess.Popen | None = None
         self._login_window_root: Path | None = None
-        self._verified_emails: dict[str, tuple[str, str]] = {}
+        self._verified_at: dict[str, str] = {}
         self._account_states: dict[str, str] = {}
         self._ai_test: tuple[bool, str] | None = None      # (ok, code) of the last explicit test
         self._youtube_key_invalid = False                   # set when a draft run reports a bad key
@@ -305,6 +305,8 @@ class ConfiguredPostingService(PostingService):
                           else "warn")
                 value = {"SIGNED_IN": "로그인됨", "SIGNED_OUT": "로그아웃"}.get(state,
                          "준비됨 · 이번 실행에서 미확인" if prepared else "프로필 미준비")
+                if option.get("memo"):
+                    value += f" · 메모: {option['memo']}"
                 detail = ("필수: 이 프로필로 댓글을 게시합니다." if index == 0 else
                           "선택(가점): 로그인하면 새 영상이 이 프로필에도 돌아가며 배정됩니다.")
                 add(f"profile:{label}", f"Chrome 프로필 {label}", index == 0, status, value,
@@ -382,22 +384,20 @@ class ConfiguredPostingService(PostingService):
             window_open = (self._login_window_process is not None and
                            self._login_window_process.poll() is None)
             for option in result["options"]:
-                verified = self._verified_emails.get(option["label"])
-                option["verified_email"] = verified[0] if verified else ""
-                option["verified_at"] = verified[1] if verified else ""
+                option["verified_at"] = self._verified_at.get(option["label"], "")
                 option["account_state"] = self._account_states.get(option["label"], "UNKNOWN")
                 option["login_window_open"] = bool(window_open and
                     self._login_window_root == self.settings.app_profile_root(option["label"]))
             return result
 
-    def verify_profile_email(self, label: str) -> dict[str, object]:
-        return self._posting_worker.submit(self._verify_profile_email_on_worker, label).result()
+    def verify_profile(self, label: str) -> dict[str, object]:
+        return self._posting_worker.submit(self._verify_profile_on_worker, label).result()
 
-    def _verify_profile_email_on_worker(self, label: str) -> dict[str, object]:
+    def _verify_profile_on_worker(self, label: str) -> dict[str, object]:
         with self._settings_lock:
             if self.settings is None or self.poster is None:
                 raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-            self._verified_emails.pop(label, None)
+            self._verified_at.pop(label, None)
             self._account_states[label] = "UNKNOWN"
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
@@ -415,21 +415,23 @@ class ConfiguredPostingService(PostingService):
             if reason:
                 raise ValueError(reason)
             try:
-                email = self.poster.inspect_account_email(self._probe_video_id())
+                self.poster.check_signed_in(self._probe_video_id())
             except ValueError as exc:
                 if str(exc) == "PROFILE_SIGNED_OUT":
                     self._account_states[label] = "SIGNED_OUT"
                 else:
                     self._account_states[label] = "UNKNOWN"
                 raise
-            self._verified_emails[label] = (email, datetime.now(timezone.utc).isoformat())
+            self._verified_at[label] = datetime.now(timezone.utc).isoformat()
             self._account_states[label] = "SIGNED_IN"
             return self.profile_options_public()
 
-    def save_profile_email(self, label: str, email: str) -> dict[str, object]:
+    def save_profile_memo(self, label: str, memo: str) -> dict[str, object]:
         if self.settings is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-        return self.settings.save_profile_email(label, email)
+        with self._settings_lock:
+            self.settings.save_profile_memo(label, memo)
+        return self.profile_options_public()
 
     def save_profile(self, label: str) -> dict[str, object]:
         if self.settings is None or self.poster is None:
@@ -458,7 +460,7 @@ class ConfiguredPostingService(PostingService):
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
-            self._verified_emails.pop(label, None)
+            self._verified_at.pop(label, None)
             self._account_states[label] = "UNKNOWN"
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
@@ -972,7 +974,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
                                  "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/comment-settings", "/api/youtube-key",
-                                 "/api/profile", "/api/profile/add", "/api/profile/email", "/api/profile/verify-email", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine"}:
+                                 "/api/profile", "/api/profile/add", "/api/profile/memo", "/api/profile/verify", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine"}:
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
                 return self._reject_early_post(403, FORBIDDEN)
@@ -1010,11 +1012,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 elif self.path == "/api/profile/add":
                     if not isinstance(data, dict) or set(data) != {"label"} or not isinstance(data["label"], str):
                         raise ValueError
-                elif self.path == "/api/profile/email":
-                    if (not isinstance(data, dict) or set(data) != {"label", "email"}
-                            or not isinstance(data["label"], str) or not isinstance(data["email"], str)):
+                elif self.path == "/api/profile/memo":
+                    if (not isinstance(data, dict) or set(data) != {"label", "memo"}
+                            or not isinstance(data["label"], str) or not isinstance(data["memo"], str)):
                         raise ValueError
-                elif self.path == "/api/profile/verify-email":
+                elif self.path == "/api/profile/verify":
                     if (not isinstance(data, dict) or set(data) != {"label"}
                             or not isinstance(data["label"], str)):
                         raise ValueError
@@ -1124,27 +1126,27 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._reject(400, reason if reason.startswith("PROFILE_") or reason.startswith("USER_") else BAD_REQUEST)
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
-            if self.path == "/api/profile/email":
-                if not isinstance(service, ProfileEmailService):
+            if self.path == "/api/profile/memo":
+                if not isinstance(service, ProfileMemoService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    return self._json(200, service.save_profile_email(data["label"], data["email"]))
+                    return self._json(200, service.save_profile_memo(data["label"], data["memo"]))
                 except ValueError as exc:
                     return self._reject(400, str(exc) if str(exc).startswith("PROFILE_") else BAD_REQUEST)
                 except OSError:
-                    return self._reject(503, "PROFILE_EMAIL_WRITE_FAILED")
-            if self.path == "/api/profile/verify-email":
+                    return self._reject(503, "SETTINGS_WRITE_FAILED")
+            if self.path == "/api/profile/verify":
                 if not isinstance(service, ProfileVerifyService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    return self._json(200, service.verify_profile_email(data["label"]))
+                    return self._json(200, service.verify_profile(data["label"]))
                 except ValueError as exc:
                     reason = str(exc)
                     return self._reject(400 if reason == "PROFILE_SETTINGS_INVALID"
                                         else 409 if reason == "PROFILE_SIGNED_OUT" else 503,
-                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_", "PROBE_")) else "PROFILE_EMAIL_CHECK_FAILED")
+                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_", "PROBE_")) else "PROFILE_ACCOUNT_CHECK_FAILED")
                 except Exception as exc:
-                    reason = getattr(exc, "code", "PROFILE_EMAIL_CHECK_FAILED")
+                    reason = getattr(exc, "code", "PROFILE_ACCOUNT_CHECK_FAILED")
                     return self._reject(503, reason)
             if self.path == "/api/channels/test":
                 if not isinstance(service, ChannelReadService):

@@ -19,6 +19,7 @@
 | `ai.provider`, `ai.model` | 기본 OpenAI·기본 모델 예시. 비밀 키 필드는 넣지 않는다. | `dashboard_settings.py`의 `_ai_data`, `save_ai` |
 | `chrome_profiles` | 기본 빈 맵. 프로필 연결 시 해당 PC의 앱 전용 절대 경로와 `Default`를 자동 저장한다. 예시에 다른 PC의 경로를 복사하지 않는다. | `dashboard_settings.py`의 `profile_options_public`, `connect_profile` |
 | `selected_chrome_profile` | 기본 첫 프로필 이름. 현재 선택을 저장한다. | `dashboard_settings.py`의 `_selected_profile`, `save_profile` |
+| `profile_memos` | 선택. 프로필 이름 → 40자 이내 메모(별칭). `@`가 든 값은 저장하지 않는다(이메일 금지). 비우면 키를 지운다. | `dashboard_settings.py`의 `save_profile_memo`, `profile_options_public` |
 | `profile_ids` | 기본 빈 맵. 추가 프로필의 내부 ID를 자동 저장하며 기본 3개는 내장 ID를 쓴다. | `dashboard_settings.py`의 `app_profile_root`, `add_profile` |
 
 이전 프로젝트의 `config.yaml`에는 `topic`, `keywords`, `trigger`, `chrome_debug_url` 등 보조 CLI 필드가 함께 남아 있을 수 있다. 대시보드가 사용하는 현재 예시에 이를 다시 합치지 않는다. 보조 CLI의 예시는 아래 별도 파일을 따른다.

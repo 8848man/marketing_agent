@@ -98,7 +98,7 @@ def test_dashboard_is_loopback_and_has_three_panels():
         assert "POST" not in selection
         assert "const missing=draft.reason_code==='DRAFT_MISSING'" in page
         assert "guideButton($('post')" in page
-        assert "/api/profile/verify-email" in page
+        assert "/api/profile/verify" in page
         assert "로그인 창 열기" not in page
         assert "verifyProfileAccount" not in page
         assert "function showEvidence(panel,draft)" in page
@@ -159,46 +159,49 @@ def test_keep_window_flag_is_strictly_validated_before_posting():
         assert service.posts == 0
 
 
-def test_profile_email_is_encrypted_and_not_a_login_claim(tmp_path):
-    import os
+def test_profile_memo_is_plain_note_and_refuses_emails(tmp_path):
     import pytest
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
-    if os.name != "nt":
-        with pytest.raises(ValueError, match="PROFILE_EMAIL_ENCRYPTION_UNAVAILABLE"):
-            settings.save_profile_email("유튜브1", "reviewer@example.com")
-        return
-    options = settings.save_profile_email("유튜브1", "reviewer@example.com")
-    assert options["options"][0]["email"] == "reviewer@example.com"
-    path = tmp_path / "data" / "dashboard" / "profile-emails.json"
-    assert "reviewer@example.com" not in path.read_text(encoding="ascii")
-    assert DashboardSettings(tmp_path / "config.yaml").profile_options_public()["options"][0]["email"] == "reviewer@example.com"
-    with pytest.raises(ValueError, match="PROFILE_EMAIL_INVALID"):
-        settings.save_profile_email("유튜브4", "reviewer@example.com")
-    with pytest.raises(ValueError, match="PROFILE_EMAIL_INVALID"):
-        settings.save_profile_email("유튜브1", "bad email")
+    options = settings.save_profile_memo("유튜브1", "  운명원 마케팅 1호  ")
+    assert options["options"][0]["memo"] == "운명원 마케팅 1호"
+    assert DashboardSettings(tmp_path / "config.yaml").profile_options_public()["options"][0]["memo"] == "운명원 마케팅 1호"
+    assert not (tmp_path / "data" / "dashboard" / "profile-emails.json").exists()
+    with pytest.raises(ValueError, match="PROFILE_MEMO_EMAIL_BLOCKED"):
+        settings.save_profile_memo("유튜브1", "reviewer@example.com")
+    with pytest.raises(ValueError, match="PROFILE_MEMO_INVALID"):
+        settings.save_profile_memo("유튜브1", "가" * 41)
+    with pytest.raises(ValueError, match="PROFILE_MEMO_INVALID"):
+        settings.save_profile_memo("유튜브1", "줄\n바꿈")
+    with pytest.raises(ValueError, match="PROFILE_NAME_INVALID"):
+        settings.save_profile_memo("유튜브4", "없는 프로필")
+    assert settings.save_profile_memo("유튜브1", "")["options"][0]["memo"] == ""
+    assert "profile_memos" not in yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
 
 
-@pytest.mark.skipif(os.name != "nt", reason="manual email storage uses Windows DPAPI; macOS rejects it by design")
-def test_profile_email_http_requires_local_token_and_valid_label(tmp_path):
+def test_profile_memo_http_requires_local_token_and_valid_body(tmp_path):
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
     settings = DashboardSettings(tmp_path / "config.yaml")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
     with running_server(service) as port:
         page = request(port, "GET", "/")[1]
+        assert "/api/profile/memo" in page
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
-        body = json.dumps({"label": "유튜브1", "email": "reviewer@example.com"})
-        assert request(port, "POST", "/api/profile/email", body=body)[0] == 403
-        assert request(port, "POST", "/api/profile/email", origin=f"http://{HOST}:{port}",
-                       token=token, body=json.dumps({"label": "유튜브4", "email": "reviewer@example.com"}))[0] == 400
-        assert request(port, "POST", "/api/profile/email", origin=f"http://{HOST}:{port}",
-                       token=token, body=body)[0] == 200
-        assert settings.profile_options_public()["options"][0]["email"] == "reviewer@example.com"
+        body = json.dumps({"label": "유튜브1", "memo": "운명원 2호"})
+        origin = f"http://{HOST}:{port}"
+        assert request(port, "POST", "/api/profile/memo", body=body)[0] == 403
+        assert request(port, "POST", "/api/profile/memo", origin=origin, token=token,
+                       body=json.dumps({"label": "유튜브1", "email": "x"}))[0] == 400
+        assert request(port, "POST", "/api/profile/memo", origin=origin, token=token,
+                       body=json.dumps({"label": "유튜브1", "memo": "a@b.c"}))[0] == 400
+        assert request(port, "POST", "/api/profile/email", origin=origin, token=token, body=body)[0] == 404
+        assert request(port, "POST", "/api/profile/memo", origin=origin, token=token, body=body)[0] == 200
+        assert settings.profile_options_public()["options"][0]["memo"] == "운명원 2호"
 
 
-def test_verified_email_needs_no_video_and_never_posts(tmp_path):
+def test_account_check_needs_no_video_and_never_posts(tmp_path):
     import pytest
     (tmp_path / "config.example.yaml").write_text(
         yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
@@ -209,24 +212,24 @@ def test_verified_email_needs_no_video_and_never_posts(tmp_path):
     poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster)
-    with patch.object(poster, "inspect_account_email", return_value="actual@example.com") as inspect:
-        result = service.verify_profile_email("유튜브1")
+    with patch.object(poster, "check_signed_in", return_value="") as inspect:
+        result = service.verify_profile("유튜브1")
     inspect.assert_called_once_with("akn-AvCeHBI")
     option = result["options"][0]
-    assert option["verified_email"] == "actual@example.com"
+    assert "verified_email" not in option
     assert option["verified_at"]
     assert not (tmp_path / "posts.db").exists()
-    with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_EMAIL_NOT_VISIBLE")):
-        with pytest.raises(ValueError, match="PROFILE_EMAIL_NOT_VISIBLE"):
-            service.verify_profile_email("유튜브1")
-    assert service.profile_options_public()["options"][0]["verified_email"] == ""
-    with patch.object(poster, "inspect_account_email", side_effect=ValueError("PROFILE_SIGNED_OUT")):
+    with patch.object(poster, "check_signed_in", side_effect=ValueError("PROFILE_ACCOUNT_UNKNOWN")):
+        with pytest.raises(ValueError, match="PROFILE_ACCOUNT_UNKNOWN"):
+            service.verify_profile("유튜브1")
+    assert service.profile_options_public()["options"][0]["verified_at"] == ""
+    with patch.object(poster, "check_signed_in", side_effect=ValueError("PROFILE_SIGNED_OUT")):
         with pytest.raises(ValueError, match="PROFILE_SIGNED_OUT"):
-            service.verify_profile_email("유튜브1")
+            service.verify_profile("유튜브1")
     assert service.profile_options_public()["options"][0]["account_state"] == "SIGNED_OUT"
     restarted = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                          settings=settings, poster=poster)
-    assert restarted.profile_options_public()["options"][0]["verified_email"] == ""
+    assert restarted.profile_options_public()["options"][0]["verified_at"] == ""
 
 
 def test_account_check_without_rss_uses_requested_profile(tmp_path):
@@ -241,11 +244,11 @@ def test_account_check_without_rss_uses_requested_profile(tmp_path):
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster,
                                        feed_loader=lambda: (_ for _ in ()).throw(AssertionError("RSS called")))
-    with patch.object(poster, "inspect_account_email", return_value="current@example.com") as inspect:
-        result = service.verify_profile_email("유튜브2")
+    with patch.object(poster, "check_signed_in", return_value="") as inspect:
+        result = service.verify_profile("유튜브2")
     inspect.assert_called_once_with("akn-AvCeHBI")
     assert poster.user_data_dir == settings.app_profile_root("유튜브2")
-    assert result["options"][1]["verified_email"] == "current@example.com"
+    assert result["options"][1]["account_state"] == "SIGNED_IN"
     assert service._videos == {}
     assert not (tmp_path / "posts.db").exists()
 
@@ -269,24 +272,24 @@ def test_account_check_does_not_consult_existing_post_records(tmp_path):
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        settings=settings, poster=poster,
                                        feed_loader=lambda: (_ for _ in ()).throw(OSError("RSS down")))
-    with patch.object(poster, "inspect_account_email", return_value="active@example.com") as inspect:
-        assert service.verify_profile_email("유튜브1")["options"][0]["verified_email"] == "active@example.com"
+    with patch.object(poster, "check_signed_in", return_value="") as inspect:
+        assert service.verify_profile("유튜브1")["options"][0]["account_state"] == "SIGNED_IN"
     inspect.assert_called_once_with("akn-AvCeHBI")
     with Store(tmp_path / "posts.db") as store:
         assert store.db.execute("SELECT COUNT(*) FROM dashboard_post_reservations").fetchone()[0] == 2
 
 
-def test_verify_email_http_rejects_untrusted_request_before_browser():
+def test_verify_http_rejects_untrusted_request_before_browser():
     class Service(FakeService):
-        def verify_profile_email(self, label):
+        def verify_profile(self, label):
             self.chrome_opens += 1
             return {"options": []}
     service = Service()
     with running_server(service) as port:
         page = request(port, "GET", "/")[1]
-        assert "localPost('/api/profile/verify-email',{label})" in page
+        assert "localPost('/api/profile/verify',{label})" in page
         token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
-        path = "/api/profile/verify-email"
+        path = "/api/profile/verify"
         body = json.dumps({"label": "유튜브1"})
         assert request(port, "POST", path, body=body)[0] == 403
         assert request(port, "POST", path, token=token, body=body)[0] == 403
@@ -662,7 +665,7 @@ def test_profile_settings_list_only_app_profiles_and_select_by_label(tmp_path):
     root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube2"
     (root / "Default").mkdir(parents=True)
     assert settings.profile_options_public()["options"][1] == {
-        "label": "유튜브2", "email": "", "configured": True, "connected": False, "selected": False}
+        "label": "유튜브2", "memo": "", "configured": True, "connected": False, "selected": False}
     saved = settings.save_profile("유튜브2")
     assert saved == {"label": "유튜브2", "user_data_dir": str(root),
                      "profile_directory": "Default", "configured": True}
@@ -670,9 +673,9 @@ def test_profile_settings_list_only_app_profiles_and_select_by_label(tmp_path):
     choices = settings.profile_options_public()
     assert choices["selected"] == "유튜브2"
     assert choices["options"] == [
-        {"label": "유튜브1", "email": "", "configured": False, "connected": False, "selected": False},
-        {"label": "유튜브2", "email": "", "configured": True, "connected": True, "selected": True},
-        {"label": "유튜브3", "email": "", "configured": False, "connected": False, "selected": False},
+        {"label": "유튜브1", "memo": "", "configured": False, "connected": False, "selected": False},
+        {"label": "유튜브2", "memo": "", "configured": True, "connected": True, "selected": True},
+        {"label": "유튜브3", "memo": "", "configured": False, "connected": False, "selected": False},
     ]
     assert "Chrome User Data" not in str(choices)
     for label in ("Profile 3", "유튜브4"):

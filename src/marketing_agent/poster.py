@@ -134,7 +134,7 @@ class VisibleChromePoster:
         return (location.scheme == "https" and location.netloc == "www.youtube.com"
                 and location.path == "/watch" and parse_qs(location.query).get("v") == [video_id])
 
-    def inspect_account_email(self, video_id: str) -> str:
+    def check_signed_in(self, video_id: str) -> str:
         """Classify sign-in state on an allowed watch page only (ADR-0003).
 
         The page is never clicked and no account menu or email is read: a visible
@@ -196,7 +196,7 @@ class VisibleChromePoster:
             detail = str(exc).lower()
             if any(word in detail for word in ("singletonlock", "processsingleton", "profile in use", "already running")):
                 raise ProfileLocked("PROFILE_LOCKED") from exc
-            raise ValueError("PROFILE_EMAIL_CHECK_FAILED") from exc
+            raise ValueError("PROFILE_ACCOUNT_CHECK_FAILED") from exc
 
     @staticmethod
     def _author_href(page) -> str:
