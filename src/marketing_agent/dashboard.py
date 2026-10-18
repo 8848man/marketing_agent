@@ -25,7 +25,7 @@ from .dashboard_contracts import (
     BrandReadService, BrandWriteService,
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
-    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
+    DashboardService, ReviewPickService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
     HistoryService, SetupStatusService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
     PostStatus, ProfileAddService, ProfileMemoService, ProfileOpenService,
@@ -36,7 +36,7 @@ from .dashboard_contracts import (
 from .dashboard_ui import FeedDraftService
 from .dashboard_settings import DashboardSettings
 from .dashboard_page import render_page as _page
-from .drafts import approve as approve_draft, quality_failure, save_generated, _load_record
+from .drafts import approve as approve_draft, awaiting_approval, quality_failure, save_generated, _load_record
 from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
 from .prompt_policy import build_draft_prompt, build_revision_prompt
@@ -169,9 +169,10 @@ class ConfiguredPostingService(PostingService):
 
     def __init__(self, *args, settings: DashboardSettings | None = None,
                  evidence_provider: VideoEvidence | None = None,
-                 draft_generator: DraftGenerator | None = None, **kwargs):
+                 draft_generator: DraftGenerator | None = None, review_mode: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
+        self.review_mode = review_mode
         self.evidence_provider = evidence_provider or VideoEvidence(
             key_provider=settings.youtube_api_key if settings is not None else None)
         self.draft_generator = draft_generator or ProviderDraftGenerator()
@@ -707,6 +708,29 @@ class ConfiguredPostingService(PostingService):
                 self._sync_assignments(result.videos)
             return result
 
+    def review_pick(self) -> dict[str, str] | None:
+        """IMP-22: in review mode, the newest loaded video whose AI draft awaits
+        approval and that has never been attempted here. Display only."""
+        if not self.review_mode:
+            return None
+        candidates = sorted((card for key, card in self._videos.items() if key not in self.test_videos),
+                            key=lambda card: (card.published_at, card.video_id), reverse=True)
+        with Store(self.db_path) as store:
+            for card in candidates:
+                if store.dashboard_post_status(card.video_id):
+                    continue
+                if store.db.execute("SELECT 1 FROM dashboard_post_reservations WHERE video_id=?",
+                                    (card.video_id,)).fetchone():
+                    continue
+                if not awaiting_approval(self.drafts_dir, card):
+                    continue
+                # Prefer a draft the second-pass filter has nothing left to fix.
+                record = _load_record(Path(self.drafts_dir), card.video_id) or {}
+                if review_problems(record, other_comments(Path(self.drafts_dir), card.video_id)):
+                    continue
+                return {"video_id": card.video_id, "badge": "테스트용"}
+        return None
+
     def video_states(self) -> dict[str, dict[str, str]]:
         states = {}
         with self._settings_lock, Store(self.db_path) as store:
@@ -786,6 +810,10 @@ class ConfiguredPostingService(PostingService):
             if result.can_post and self.settings is not None:
                 if not self._draft_brand_matches(video_id):
                     return replace(result, can_post=False, reason_code="BRAND_CHANGED_REGENERATE")
+            if not result.can_post and result.reason_code == "APPROVAL_MISSING":
+                # IMP-22: a draft awaiting human approval shows the approval step first;
+                # profile checks apply once it is approved.
+                return result
             if video_id in self._videos:
                 try:
                     self._assigned_profile(video_id)
@@ -907,6 +935,8 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     result = asdict(service.list_videos())
                     if isinstance(service, VideoStateService):
                         result["states"] = service.video_states()
+                    if isinstance(service, ReviewPickService):
+                        result["featured"] = service.review_pick()
                     return self._json(200, result)
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
@@ -1320,8 +1350,17 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
 
 def run_dashboard(*, port: int = 8765, service: DashboardService | None = None,
                   capture_dir: str | Path | None = None,
-                  open_browser: bool = True) -> None:
-    with create_server(service, port=port, capture_dir=capture_dir) as server:
+                  open_browser: bool = True, port_tries: int = 1) -> None:
+    server = None
+    for candidate in range(port, port + max(1, min(int(port_tries), 20))):
+        try:
+            server = create_server(service, port=candidate, capture_dir=capture_dir)
+            break
+        except OSError:
+            continue
+    if server is None:
+        raise OSError(f"PORT_IN_USE {port}-{port + max(1, min(int(port_tries), 20)) - 1}")
+    with server:
         url = f"http://{HOST}:{server.server_port}/"
         print(f"Dashboard: {url}")
         if open_browser:

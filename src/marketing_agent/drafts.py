@@ -37,7 +37,35 @@ BRAND_NEGATIVE = (r"{brand}[^.!?。]{{0,16}}(?:의지하기 전|가기 전|보�
 MAX_DRAFT_BYTES = 1_000_000
 
 
-def approved_draft_cards(drafts_dir: str | Path, channel_id: str, channel_name: str = "") -> tuple[VideoCard, ...]:
+def awaiting_approval(drafts_dir: str | Path, video: VideoCard) -> bool:
+    """True for an AI draft of this exact video that passes quality checks but has
+    no valid human approval yet (IMP-22 review pick)."""
+    try:
+        record = _load_record(Path(drafts_dir), video.video_id)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(record, dict):
+        return False
+    if (record.get("video_id") != video.video_id or record.get("channel_id") != video.channel_id
+            or record.get("title") != video.title):
+        return False
+    comment = record.get("comment")
+    if not isinstance(comment, str) or not comment.strip() or quality_failure(record):
+        return False
+    return _awaiting(record)
+
+
+def _awaiting(record: dict) -> bool:
+    """An AI-generated draft (has generated_at) without a valid approval. A stored
+    content_hash, when present, must still match (no edits after generation)."""
+    digest = content_hash(record)
+    stored = record.get("content_hash")
+    return (isinstance(record.get("generated_at"), str) and record.get("approval_hash") != digest
+            and (stored is None or stored == digest))
+
+
+def approved_draft_cards(drafts_dir: str | Path, channel_id: str, channel_name: str = "", *,
+                         include_awaiting: bool = False) -> tuple[VideoCard, ...]:
     """Display-only cards for one channel's approved, passing drafts (IMP-20).
 
     Used only when the live RSS and its cache both fail, so a fresh clone still
@@ -63,12 +91,14 @@ def approved_draft_cards(drafts_dir: str | Path, channel_id: str, channel_name: 
         if not isinstance(record, dict) or record.get("video_id") != path.stem:
             continue
         title = record.get("title")
-        approval = record.get("approval_hash")
+        digest = content_hash(record)
+        approved = record.get("approval_hash") == digest
+        awaiting = include_awaiting and not approved and _awaiting(record)
         if (record.get("channel_id") != channel_id or not isinstance(title, str) or not title.strip()
-                or not isinstance(approval, str) or not HASH.fullmatch(approval)
-                or approval != content_hash(record) or quality_failure(record)):
+                or not (approved or awaiting) or quality_failure(record)):
             continue
-        cards.append(VideoCard(path.stem, channel_id, channel_name or channel_id, title, "승인 초안 (RSS 장애 중 표시)",
+        label = "승인 초안 (RSS 장애 중 표시)" if approved else "승인 전 초안 (RSS 장애 중 표시)"
+        cards.append(VideoCard(path.stem, channel_id, channel_name or channel_id, title, label,
                                f"https://i.ytimg.com/vi/{path.stem}/hqdefault.jpg", ""))
     return tuple(cards)
 

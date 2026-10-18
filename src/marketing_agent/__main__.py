@@ -145,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "dashboard":
         dashboard_parser = argparse.ArgumentParser(description="Run the local dashboard")
         dashboard_parser.add_argument("--port", type=int, default=8765)
+        dashboard_parser.add_argument("--review", action="store_true",
+                                      help="Reviewer mode: pin one AI draft awaiting approval as '테스트용' (IMP-22)")
+        dashboard_parser.add_argument("--port-tries", type=int, default=1,
+                                      help="Try this many consecutive ports starting at --port (1-20)")
         dashboard_parser.add_argument("--demo", action="store_true", help="Offline UI walkthrough; never contacts YouTube or opens the posting profile")
         dashboard_parser.add_argument("--drafts-dir", default="drafts")
         dashboard_parser.add_argument("--work-dir", default="data/dashboard")
@@ -187,17 +191,20 @@ def main(argv: list[str] | None = None) -> int:
             service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
                                                poster=poster, profile="유튜브1",
                                                test_videos=entries, settings=settings,
+                                               review_mode=dashboard_args.review,
                                                feed_loader=lambda: list_videos(
                                                    channels=settings.channels(), cache_dir=work_dir / "rss_cache",
                                                    fallback=lambda channel_id: approved_draft_cards(
-                                                       drafts_dir, channel_id, settings.channels().get(channel_id, ""))),
+                                                       drafts_dir, channel_id, settings.channels().get(channel_id, ""),
+                                                       include_awaiting=dashboard_args.review)),
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
             run_dashboard(port=dashboard_args.port, service=service,
-                          capture_dir=capture_dir)
+                          capture_dir=capture_dir, port_tries=dashboard_args.port_tries)
             return 0
         except (OSError, ValueError) as exc:
-            print(f"dashboard error: {type(exc).__name__}", file=sys.stderr)
+            detail = str(exc) if str(exc).startswith("PORT_IN_USE") else type(exc).__name__
+            print(f"dashboard error: {detail}", file=sys.stderr)
             return 1
     parser = argparse.ArgumentParser(description="Run the guarded marketing agent")
     parser.add_argument("--config", default="config.legacy.example.yaml")

@@ -1,5 +1,7 @@
 # Handoff
 
+- IMP-22~25 제출 마무리 (2026-10-19): 2026-10-19 02시대 시연 녹화 중 `ma_review` 폴더(개발 가드 없음)에서 우리 채널 3건(`ZmEIpurPTCA`·`k_0c0m0Hk5k`·`c-QzU4kuu90`)이 게시됐고 사용자가 같은 날 아침 모두 삭제했다(누적 10건 모두 삭제, PROCESS 실패 5). 심사 모드(`--review`, '테스트용' 추천)와 더블클릭 실행 파일, 제출 초안 세트(15건: 승인 5·승인 전 10), HOW_TO_SETTING·오픈소스 출처·PROCESS 재구성, SDD 커버리지 검사를 반영했다. 제출 버전은 `submitment` 브랜치·`submission-20261019` 태그. 검증: V1 check_sdd 0·safety 0, V2 pytest, V3 Linux 실행 파일·헤드리스 화면, mac-smoke(실행 파일 단계 포함). V4 Mac 실기기 미수행.
+
 - IMP-21 제작 노트 (2026-10-18): 안내판+사람용·AI용으로 나눴다가(PR #6) 심사자만 읽는 문서라 `PROCESS.md` 한 파일(사람용 서술형)로 되돌렸다. Mac은 GitHub Actions 스모크만 했다고 명시. 프롬프트를 바꾸면 `PROCESS.md` 원문도 고쳐야 `tests/test_process_docs.py`가 통과한다. IMP-12(mac-smoke)는 실행 통과로 닫음.
 
 - IMP-20 RSS 장애 대비 (2026-10-18): 2026-10-18 오후 YouTube RSS가 브라우저에서도 500을 돌려 새로 받은 폴더(캐시 없음)에는 영상이 하나도 안 보였다. 실시간·캐시 모두 실패한 채널은 커밋된 승인 초안 영상만 표시하고, 오류는 "YouTube RSS 서버 오류(500) — YouTube 쪽 일시 장애"처럼 보여 준다. 게시 직전 재확인은 실시간 RSS만 쓰므로 장애 중 게시는 막힌다. 검증: V1 0·0, V2 170 passed, V3 새 폴더·네트워크 차단 화면.

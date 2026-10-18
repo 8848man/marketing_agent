@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["src/**", "requirements.txt", "pyproject.toml", "README.md", ".ucompany/scripts/mac_smoke.py"]
+    paths: ["src/**", "requirements.txt", "pyproject.toml", "README.md", ".ucompany/scripts/mac_smoke.py",
+            "start-review.command", "start.command", "scripts/**"]
 
 permissions:
   contents: read
@@ -41,6 +42,18 @@ jobs:
           echo "dashboard_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
           grep -q "④ 실행 기록" page.html
           test "$code" = "200"
+      - name: 심사용 실행 파일로 기동 (start-review.command)
+        run: |
+          bash start-review.command > launcher.log 2>&1 &
+          url=""; code=""
+          for i in $(seq 1 90); do
+            url=$(grep -o 'http://127.0.0.1:[0-9]*/' launcher.log | head -1 || true)
+            if [ -n "$url" ]; then code=$(curl -s -o review.html -w "%{http_code}" "$url" || true); fi
+            [ "$code" = "200" ] && break; sleep 2
+          done
+          echo "launcher_url=$url launcher_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$code" = "200"
+          grep -q "applyFeatured" review.html
       - name: Chrome으로 우리 채널 영상 페이지(ko-KR) 열기
         run: .venv/bin/python .ucompany/scripts/mac_smoke.py --out smoke-artifacts | tee -a "$GITHUB_STEP_SUMMARY"
       - name: 안전 규칙 정적 검사(strict)
@@ -52,3 +65,4 @@ jobs:
           path: |
             smoke-artifacts/
             dashboard.log
+            launcher.log

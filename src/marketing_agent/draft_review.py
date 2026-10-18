@@ -17,7 +17,7 @@ from .drafts import MAX_DRAFT_BYTES, quality_failure
 
 MAX_REVISIONS = 2
 SIMILARITY_LIMIT = 0.4
-GENERIC_PRAISE = re.compile(r"영상\s*잘\s*봤|많이\s*배웠|많이\s*배워|도움이\s*(?:됐|되|많이)|좋은\s*영상\s*감사|유익한\s*영상")
+GENERIC_PRAISE = re.compile(r"영상\s*잘\s*봤|많은\s*것을\s*배우|많이\s*배웠|많이\s*배워|도움이\s*(?:됐|되|많이)|좋은\s*영상\s*감사|유익한\s*영상")
 SENTENCE = re.compile(r"[^.!?。~]+[.!?。~]*")
 
 

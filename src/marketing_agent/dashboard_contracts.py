@@ -62,6 +62,11 @@ class DashboardService(Protocol):
 # can implement only the routes they support. Runtime checks test the named method;
 # annotations document the expected call and response shape for implementers.
 @runtime_checkable
+class ReviewPickService(Protocol):
+    def review_pick(self) -> dict[str, str] | None: ...
+
+
+@runtime_checkable
 class VideoStateService(Protocol):
     def video_states(self) -> dict[str, dict[str, str]]: ...
 
