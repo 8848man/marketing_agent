@@ -413,3 +413,97 @@ def test_setup_status_http_requires_token(tmp_path):
         assert request(port, "GET", "/api/setup-status")[0] == 403
         status, body = request(port, "GET", "/api/setup-status", token=token)
     assert status == 200 and json.loads(body)["required_total"] >= 4
+
+
+CLOSINGS = ("운명원이 재회운을 잘 본다던데 한번 보고 싶어요.", "궁합은 운명원에서 보면 정확하다더라고요, 나중에 꼭 가 볼래요.",
+            "결혼운 궁금할 땐 운명원 얘기를 자주 듣는데 저도 언젠가 확인해 보고 싶네요.",
+            "인연 시기가 언제일지 운명원 가서 물어보고 싶은 밤이에요.", "요즘 연애운이 궁금해서 운명원 후기를 찾아보는 중이에요.",
+            "친구가 운명원 사주 얘기를 하던데 저도 들어 보고 싶어졌어요.", "운명원 연애 사주가 그렇게 잘 맞는다니 솔깃하네요.")
+
+
+def _draft(tmp_path, card, *, approve=False, comment=None, broken=False):
+    from marketing_agent.drafts import content_hash
+    record = {"video_id": card.video_id, "channel_id": card.channel_id, "title": card.title,
+              "worry_summary": "연락이 뜸해진 사람을 기다리는 고민",
+              "cited_detail": card.title, "source_text": card.title,
+              "comment": comment or f"{card.title} 장면이 계속 생각나네요. 저도 연락 기다리다 지친 적 있어서요. "
+                                    + CLOSINGS[int(card.video_id[-1]) % len(CLOSINGS)]}
+    record["content_hash"] = content_hash(record)
+    record["generated_at"] = "2026-10-18T00:00:00+00:00"
+    if broken:
+        record["comment"] += " 수정"
+    if approve:
+        record.update(approval_hash=record["content_hash"], reviewer="아무개",
+                      reviewed_at="2026-10-19T00:00:00+00:00")
+    drafts = tmp_path / "drafts"
+    drafts.mkdir(exist_ok=True)
+    (drafts / f"{card.video_id}.json").write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+
+def test_review_mode_pins_newest_unapproved_unposted_draft(tmp_path):
+    """IMP-22: only in review mode; approved, broken, attempted or draftless videos are skipped."""
+    cards = tuple(VideoCard(f"Video00000{i}", CHANNEL, "외롭여", f"영상 제목 {i}", f"2026-10-1{i}", "")
+                  for i in range(1, 7))
+    _draft(tmp_path, cards[5], approve=True)        # newest: already approved
+    _draft(tmp_path, cards[4], broken=True)         # edited after generation: hash mismatch
+    _draft(tmp_path, cards[3])                      # awaiting approval but already attempted below
+    _draft(tmp_path, cards[2])                      # awaiting approval -> expected pick
+    _draft(tmp_path, cards[1])                      # older awaiting approval
+    settings = _settings(tmp_path)
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       poster=MagicMock(), feed_loader=lambda: VideoList(cards),
+                                       review_mode=True)
+    service.list_videos()
+    with Store(tmp_path / "posts.db") as store:
+        store.db.execute("INSERT INTO dashboard_post_reservations VALUES('a1','Video000004',?,'t','h','h',"
+                         "'유튜브1','2026-10-19','2026-10-19T00:00:00Z','PRECHECK_FAILED',NULL,NULL,NULL)", (CHANNEL,))
+    assert service.review_pick() == {"video_id": "Video000003", "badge": "테스트용"}
+    normal = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                      poster=MagicMock(), feed_loader=lambda: VideoList(cards))
+    normal.list_videos()
+    assert normal.review_pick() is None
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        body = json.loads(request(port, "GET", "/api/videos", token=token)[1])
+    assert body["featured"]["video_id"] == "Video000003"
+    assert "applyFeatured(data.featured)" in page and "테스트용" in page
+    service.poster.assert_not_called()
+
+
+def test_review_fallback_includes_awaiting_drafts_only_when_asked(tmp_path):
+    from marketing_agent.drafts import approved_draft_cards
+    cards = (VideoCard("Video000001", CHANNEL, "외롭여", "영상 제목 1", "2026-10-11", ""),
+             VideoCard("Video000002", CHANNEL, "외롭여", "영상 제목 2", "2026-10-12", ""))
+    _draft(tmp_path, cards[0], approve=True)
+    _draft(tmp_path, cards[1])
+    assert [c.video_id for c in approved_draft_cards(tmp_path / "drafts", CHANNEL)] == ["Video000001"]
+    assert [c.video_id for c in approved_draft_cards(tmp_path / "drafts", CHANNEL, include_awaiting=True)] \
+        == ["Video000001", "Video000002"]
+
+
+def test_dashboard_tries_next_port_when_busy(tmp_path):
+    import socket
+    from marketing_agent.dashboard import run_dashboard
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    busy.listen()
+    port = busy.getsockname()[1]
+    started = []
+    with patch("marketing_agent.dashboard.ThreadingHTTPServer.serve_forever",
+               side_effect=lambda *a, **k: started.append(True)):
+        run_dashboard(port=port, service=PostingService(tmp_path / "p.db", tmp_path / "d"),
+                      open_browser=False, port_tries=3)
+    busy.close()
+    assert started == [True]
+
+
+def test_review_pick_skips_draft_the_second_filter_still_flags(tmp_path):
+    cards = tuple(VideoCard(f"Video00000{i}", CHANNEL, "외롭여", "같은 장면이 나오는 제목", f"2026-10-1{i}", "")
+                  for i in range(1, 3))
+    _draft(tmp_path, cards[0])
+    _draft(tmp_path, cards[1])          # same title -> same quote as the other draft
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=_settings(tmp_path),
+                                       poster=MagicMock(), feed_loader=lambda: VideoList(cards), review_mode=True)
+    service.list_videos()
+    assert service.review_pick() is None

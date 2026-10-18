@@ -2,13 +2,13 @@
 
 이 폴더(`.ucompany/sdd/`)가 제품의 **유일한 SDD 위치**다(2026-10-18 통합, [ADR-0001](decisions/ADR-0001-sdd-consolidation.md)). 이 색인이 ID·관계 어휘·읽는 순서의 원본이고, `graph.json`은 같은 내용을 기계가 읽도록 옮긴 파생 색인이다. 둘이 다르면 이 파일이 이긴다. 정합성은 `python .ucompany/scripts/check_sdd.py`로 검사한다.
 
-**현재 상태(2026-10-18):** 현행 판정은 [05 재검토](improvements/2026-10-17/05-plan-validity-review.md)와 [07 제출 전 결정](improvements/2026-10-17/07-submission-decisions.md)을 따른다. G-00·G-01·G-03·G-04(프롬프트 v7+2차 필터)는 해소, G-02는 승인·품질 통과 초안만 커밋(나머지 v7 초안은 사용자 승인 대기), 남은 것은 Mac 수락 H06(PR의 mac-smoke)과 시연 영상 G-07이다.
+**현재 상태(2026-10-19):** 제출 준비 완료 단계. G-00(우리 채널 사전 게시 10건 모두 삭제)·G-01·G-02(채널별 최신 초안 커밋, IMP-23)·G-03·G-04·H06(macOS는 Actions 스모크만, 실기기 미검증)·G-07(시연 영상 촬영 완료) 처리. 제출 버전은 `submitment` 브랜치로 고정한다. 판정 근거는 [tasks.md](features/track2-dashboard/tasks.md)의 IMP-00~25와 [handoff.md](handoff.md).
 
 ## 폴더 구조
 
 ```text
 .ucompany/
-├─ scripts/                  check_sdd.py · safety_scan.py (V1 검증, CI에서도 실행)
+├─ scripts/                  check_sdd.py · safety_scan.py · mac_smoke.py (V1 검증, CI에서도 실행)
 └─ sdd/
    ├─ 00_index.md            이 색인 (ID·관계·읽는 순서의 원본)
    ├─ graph.json             파생 기계 색인 (focus = FEAT-TRACK2)
@@ -23,8 +23,10 @@
    │  ├─ feature.md          기능 진입점
    │  ├─ spec.md · plan.md · tasks.md · validation-protocol.md · checklist.md
    │  └─ reviews/            작성 당시 검토 기록 (3·4차 검토, 재사용 감사, 원문 대조)
-   └─ improvements/2026-10-17/   01~05 개선 사이클 문서 + 06 과제 적합성 보고서
+   └─ improvements/2026-10-17/   01~07 개선 사이클 문서·과제 적합성 보고서·제출 결정
 ```
+
+저장소 루트의 사람·심사자용 파일: `README.md`, `PROCESS.md`, `HOW_TO_SETTING.md`, `AGENTS.md`, 실행 파일 `start-review.command`·`start-review.bat`·`start.command`·`start.bat`(공통 스크립트 `scripts/launch.*`).
 
 ## 읽는 순서
 
@@ -69,9 +71,20 @@
 | CODE-SETTINGS | code | [dashboard_settings.py](../../src/marketing_agent/dashboard_settings.py) | 대시보드 설정·키 파일 경계 |
 | CODE-CONTRACTS | code | [dashboard_contracts.py](../../src/marketing_agent/dashboard_contracts.py) | 대시보드 기본·선택 기능 계약 |
 | CODE-GENERATOR | code | [draft_generation.py](../../src/marketing_agent/draft_generation.py) | 주입 가능한 AI 초안 생성 계약 |
-| CODE-PROMPT | code | [prompt_policy.py](../../src/marketing_agent/prompt_policy.py) | 공통 프롬프트 원본(현행 `draft-v5-brand-proper-noun`) |
+| CODE-PROMPT | code | [prompt_policy.py](../../src/marketing_agent/prompt_policy.py) | 공통 프롬프트 원본(현행 `draft-v7-scene-first-reviewed`, `check_sdd.py`가 대조) |
 | CODE-PAGE | code | [dashboard_page.py](../../src/marketing_agent/dashboard_page.py) | 설정·브랜드 관리 다이얼로그 |
 | CODE-POSTER | code | [poster.py](../../src/marketing_agent/poster.py) | 앱 전용 프로필 Chrome 게시(유일한 게시 경로) |
+| CODE-REVIEW | code | [draft_review.py](../../src/marketing_agent/draft_review.py) | 2차 필터: 규칙·반복 검사와 AI 재작성 지시 |
+| CODE-POSTING | code | [posting_service.py](../../src/marketing_agent/posting_service.py) | 명시적 클릭 게시 결정·예약·기록·개발 가드 |
+| CODE-STORE | code | [storage.py](../../src/marketing_agent/storage.py) | 게시 예약·배정·프로필 활성 상태 DB |
+| CODE-EVIDENCE | code | [captions.py](../../src/marketing_agent/captions.py) | 자막·제목·설명·인기 댓글 근거 수집 |
+| CODE-GUARD | code | [guard.py](../../src/marketing_agent/guard.py) | 게시 대상 소유·허용 범위 관문 |
+| CODE-CLI | code | [__main__.py](../../src/marketing_agent/__main__.py) | `dashboard`(`--review` 심사 모드)·`drafts` 명령 진입점 |
+| TOOL-LAUNCH | tool | [launch.sh](../../scripts/launch.sh) | 더블클릭 실행 파일(`start*.command`·`start*.bat`)의 공통 스크립트 |
+| DOC-README | document | [README.md](../../README.md) | 심사자 실행·사용법·안전 규칙·오픈소스 출처 |
+| DOC-SETUP | document | [HOW_TO_SETTING.md](../../HOW_TO_SETTING.md) | AI 도우미가 사용자에게 역으로 묻는 설치 대화 절차 |
+| DOC-PROCESS | document | [PROCESS.md](../../PROCESS.md) | 제작 노트(과제 PDF 04) |
+| DOC-AGENTS | document | [AGENTS.md](../../AGENTS.md) | AI 작업자 진입점·작업 규칙 |
 
 ## 관계 어휘
 

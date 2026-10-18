@@ -70,8 +70,8 @@ since: 2026-10-18
 1. `git push -u origin <브랜치>` 후 `main` 대상 PR을 연다. 본문은 [PR 템플릿](../../.github/pull_request_template.md)을 채운다(Spec·구현·검증·안전 체크).
 2. [CI](../../.github/workflows/ci.yml)가 V1·V2를 macOS·Ubuntu에서 다시 실행한다. 빨간불이면 머지하지 않는다.
 3. 리뷰: 사람 리뷰어 1명, 또는 이 작업을 만들지 않은 별도 AI 세션이 PR diff와 spec을 대조한다(작성자가 자기 작업을 채점하지 않는다).
-4. **Squash merge**로 `main`에 합치고 브랜치를 삭제한다. 커밋 제목은 1단계의 작업 ID를 포함한다.
-5. 제출 시점에는 `main`에 `submission-YYYYMMDD` 태그를 달고, 저장소 공개(Public) 전환은 사용자 승인 후에만 한다.
+4. **Merge commit**으로 `main`에 합쳐 Spec 커밋과 구현 커밋의 쌍을 이력에 남기고, 병합한 작업 브랜치는 원격에서 삭제한다. 커밋 제목은 1단계의 작업 ID를 포함한다.
+5. 제출 시점에는 `main`에서 **`submitment` 브랜치**를 만들어 제출 버전을 고정하고 `submission-YYYYMMDD` 태그를 단다. `submitment`에는 직접 커밋하지 않는다(제출 후 수정은 `main`에서). 저장소 공개(Public) 전환은 사용자 승인 후에만 한다.
 
 권장 저장소 설정: `main` 보호(직접 push 금지, CI 통과 필수, 선형 이력).
 
