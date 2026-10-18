@@ -180,7 +180,7 @@ T11의 README·PROCESS를 현재 코드와 확인된 증거에 맞춰 갱신했�
 - [x] IMP-15 2차 필터(검사 → AI 재작성 최대 2회, 감사 기록)와 프롬프트 v7. 자동 시험 통과. 사용자 PC 재생성으로 효과 확인 필요.
 - [x] IMP-16 2차 필터 설정 토글(기본 켬)·검토·승인 화면 열기·2차 필터 다시 적용·`SAME_QUOTE` 검사. 자동 시험 통과, 실제 화면 확인은 사용자 PC.
 - [x] IMP-17 필수 설정 n/m 버튼·점검 화면·설정하기 포커스 이동. 자동 시험과 헤드리스 화면 확인(데스크톱·390px, 채널 ID 입력 포커스 이동) 완료.
-- [x] IMP-21 제작 노트 분리: `PROCESS.md` 안내판 + `process/for-humans.md`·`process/for-ai.md`, Mac 검증 범위 명시, 문서-코드 대조 시험 4개.
+- [x] IMP-21 제작 노트 정리: 분리(PR #6) 후 `PROCESS.md` 한 파일(사람용)로 되돌림, Mac 검증 범위 명시, 문서-코드 대조 시험.
 - [x] IMP-20 RSS 장애 대비: 실시간·캐시 모두 실패한 채널은 승인·품질 통과 초안 영상만 표시용으로 보여 주고(게시 직전 실시간 재확인은 그대로), RSS 오류 코드를 한국어 설명으로 표시. 자동 시험 170 passed, 새로 받은 폴더에서 네트워크 차단 상태로 대시보드를 띄워 승인 초안 3개 표시를 확인.
 - [x] IMP-19 할당 갱신·유튜브1 우선(`dashboard_profile_status`·`dashboard_assignment_meta`, 게시 시도 없는 영상만 재배정, 확인 불명은 상태 유지, `LOGIN_REQUIRED`·로그인 창 열기는 비활성화, `PROFILE_PRIMARY_REQUIRED`). 자동 시험 168 passed, 헤드리스 화면(유튜브2 버튼 비활성→유튜브1 확인 후 활성→카드 담당 즉시 갱신) 확인.
 - [x] IMP-18 프로필 메모가 이메일 저장을 대체(`profile_memos`, `@` 거부, DPAPI 저장소·`/api/profile/email` 삭제, `/api/profile/verify`·`check_signed_in` 이름 정리). 자동 시험 166 passed와 헤드리스 화면(메모 저장·이메일 거부 안내) 확인.
