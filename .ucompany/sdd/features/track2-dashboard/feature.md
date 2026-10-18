@@ -6,7 +6,7 @@ status: in_progress
 
 # Track 2 로컬 YouTube 댓글 대시보드
 
-> 이 문서의 아래 날짜별 수치와 상태는 해당 시점의 이력이다. 현행 원문 식별은 [`SOURCE_OF_TRUTH.md`](../../../../SOURCE_OF_TRUTH.md), 현재 H 개선 작업은 [`tasks.md`](../../../../docs/track2-agent/tasks.md)를 따른다.
+> 이 문서의 아래 날짜별 수치와 상태는 해당 시점의 이력이다. 현행 원문 식별은 [`.ucompany/sdd/source-of-truth.md`](../../source-of-truth.md), 현재 H 개선 작업은 [`tasks.md`](tasks.md)를 따른다.
 
 ## 목표
 
@@ -15,11 +15,11 @@ status: in_progress
 ## 기준 문서와 제품
 
 - 원본 PDF: `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf`
-- 요구사항: [`spec.md`](../../../../docs/track2-agent/spec.md)
-- 구현 계획: [`plan.md`](../../../../docs/track2-agent/plan.md)
-- 작업과 체크박스: [`tasks.md`](../../../../docs/track2-agent/tasks.md)
-- 수락 관문: [`validation-protocol.md`](../../../../docs/track2-agent/validation-protocol.md)
-- 제품 진입점: [`marketing_agent/SDD.md`](../../../../SDD.md)
+- 요구사항: [`spec.md`](spec.md)
+- 구현 계획: [`plan.md`](plan.md)
+- 작업과 체크박스: [`tasks.md`](tasks.md)
+- 수락 관문: [`validation-protocol.md`](validation-protocol.md)
+- 제품 진입점: [SDD 색인](../../00_index.md) · [작업 워크플로우](../../workflow.md) · [개선 재검토](../../improvements/2026-10-17/05-plan-validity-review.md)
 
 ## 현재 상태와 다음 증거
 

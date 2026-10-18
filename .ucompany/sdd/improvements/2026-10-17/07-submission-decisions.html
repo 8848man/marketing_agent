@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Track 2 제출 전 결정</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@600;800&display=swap">
+<style>
+/* Layout: answer sheet — one card per user answer (1~7), each with verdict, reasoning, options to pick; sticky decision summary at the end. */
+:root{
+  --bg:#f3f4f7; --surface:#ffffff; --sunk:#eceef3; --ink:#1b2130; --muted:#5b6476; --line:#d9dde6;
+  --accent:#3946a8; --accent-soft:#e6e8f7;
+  --fail:#b93a26; --fail-soft:#fbe9e5; --warn:#a86a10; --warn-soft:#fbf1df; --ok:#2c7a4b; --ok-soft:#e3f2e8; --unk:#5f6878; --unk-soft:#eceef2;
+  --f-display:"Noto Serif KR","Apple SD Gothic Neo",serif;
+  --f-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12151d; --surface:#1a1f2a; --sunk:#151923; --ink:#e7eaf2; --muted:#9aa3b6; --line:#2c3342;
+  --accent:#9aa6ff; --accent-soft:#252b4a;
+  --fail:#ff8a72; --fail-soft:#3a1f1a; --warn:#f0b65a; --warn-soft:#3a2d15; --ok:#6fd39a; --ok-soft:#173022; --unk:#a7afc0; --unk-soft:#232835; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12151d; --surface:#1a1f2a; --sunk:#151923; --ink:#e7eaf2; --muted:#9aa3b6; --line:#2c3342;
+  --accent:#9aa6ff; --accent-soft:#252b4a;
+  --fail:#ff8a72; --fail-soft:#3a1f1a; --warn:#f0b65a; --warn-soft:#3a2d15; --ok:#6fd39a; --ok-soft:#173022; --unk:#a7afc0; --unk-soft:#232835; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65;margin:0}
+.wrap{max-width:980px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 72px;display:grid;gap:28px}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font-family:var(--f-display);font-weight:800;font-size:clamp(26px,4vw,38px);line-height:1.25}
+h2{font-family:var(--f-display);font-weight:600;font-size:clamp(19px,2.4vw,23px);line-height:1.35}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{color:var(--muted);max-width:68ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;word-break:break-all}
+ul,ol{margin:0;padding-left:20px}
+li+li{margin-top:4px}
+header{display:grid;gap:12px}
+
+/* timeline */
+.days{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:grid;gap:10px;align-content:start;min-width:0}
+.day h3{font-family:var(--f-display);font-size:18px}
+.day ol{font-size:14px}
+.who{font-family:var(--f-mono);font-size:11px;padding:1px 6px;border-radius:4px;margin-right:6px;white-space:nowrap}
+.who.c{background:var(--accent-soft);color:var(--accent)} .who.u{background:var(--warn-soft);color:var(--warn)}
+
+/* nav */
+.jump{display:flex;flex-wrap:wrap;gap:8px}
+.jump a{font-size:13px;text-decoration:none;color:var(--ink);border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;display:inline-flex;gap:6px;align-items:center}
+.jump a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dot{width:8px;height:8px;border-radius:50%}
+
+/* answer cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:grid;scroll-margin-top:16px;min-width:0}
+.card>.hd{display:grid;grid-template-columns:48px 1fr;gap:14px;padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.num{font-family:var(--f-display);font-weight:800;font-size:30px;line-height:1;color:var(--accent)}
+.you{font-size:13px;color:var(--muted)}
+.you b{color:var(--ink);font-weight:500}
+.verdict{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.s-fail{color:var(--fail);background:var(--fail-soft)} .s-warn{color:var(--warn);background:var(--warn-soft)}
+.s-ok{color:var(--ok);background:var(--ok-soft)} .s-unk{color:var(--unk);background:var(--unk-soft)}
+.bd{padding:16px 20px 20px;display:grid;gap:14px;min-width:0}
+.bd>p,.bd li{max-width:72ch}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.box{background:var(--sunk);border-radius:8px;padding:12px 14px;display:grid;gap:6px;align-content:start;min-width:0;font-size:14px}
+.box h3{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600}
+
+/* flow diagram */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;counter-reset:f}
+.step{border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;background:var(--surface);display:grid;gap:4px}
+.step b{font-size:13px}
+.step.bad{border-color:var(--fail);background:var(--fail-soft)}
+.step.good{border-color:var(--ok);background:var(--ok-soft)}
+.step small{color:var(--muted)}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--surface)}
+.tabs button{all:unset;cursor:pointer;padding:6px 14px;font-size:13px;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--surface)}
+.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* options */
+fieldset{border:0;margin:0;padding:0;display:grid;gap:8px}
+legend{font-size:13px;font-weight:600;margin-bottom:6px}
+.opt{display:grid;grid-template-columns:20px 1fr;gap:10px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;font-size:14px;background:var(--surface)}
+.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.opt input{margin-top:4px;accent-color:var(--accent)}
+.opt small{display:block;color:var(--muted);font-size:12.5px}
+.rec{font-family:var(--f-mono);font-size:11px;color:var(--ok);margin-left:6px}
+
+/* history mock */
+.mock{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.mock .bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--sunk)}
+.mock .bar b{font-size:14px}
+.meter{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.hrow{display:grid;grid-template-columns:96px 1fr 86px 110px;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;align-items:start}
+.hrow:last-child{border-bottom:0}
+.hrow .t{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.hrow .c{color:var(--muted);font-size:12.5px;margin-top:2px}
+.hrow .p{font-family:var(--f-mono);font-size:12px}
+.mfilter{display:flex;gap:6px;flex-wrap:wrap}
+.chip{all:unset;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:600}
+.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* summary */
+.summary{background:var(--surface);border:2px solid var(--accent);border-radius:var(--r);padding:18px 20px;display:grid;gap:12px}
+.summary pre{margin:0;background:var(--sunk);border-radius:8px;padding:12px 14px;font-family:var(--f-mono);font-size:13px;white-space:pre-wrap;word-break:break-word}
+.btn{all:unset;cursor:pointer;background:var(--accent);color:var(--surface);font-weight:600;font-size:14px;padding:8px 16px;border-radius:8px;justify-self:start}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.note{font-size:13px;color:var(--muted)}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px;display:grid;gap:6px}
+footer a{color:var(--accent)}
+
+@media (max-width:640px){
+  .card>.hd{grid-template-columns:1fr}
+  .hrow{grid-template-columns:1fr 1fr}
+  .hrow>div:nth-child(2){grid-column:1/-1;order:3}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">TRACK 2 · 제출 D-1 · 2026-10-18(일) 기준</div>
+  <h1>보내주신 7개 답변에 대한 판단과 실행안</h1>
+  <p class="lede">각 항목마다 판단, 이유, 제가 맡을 수 있는 일을 정리했습니다. 선택지가 있는 항목은 고르신 뒤 맨 아래 <b>선택 요약 복사</b>로 붙여 주시면 그 내용대로 바로 진행하겠습니다. 추천안은 미리 골라 두었습니다.</p>
+  <nav class="jump" aria-label="항목 이동" id="jump"></nav>
+</header>
+
+<section aria-labelledby="tl-h" style="display:grid;gap:12px">
+  <h2 id="tl-h">오늘과 내일, 누가 무엇을</h2>
+  <div class="days">
+    <div class="day"><h3>오늘 · 일요일</h3><ol>
+      <li><span class="who c">Claude</span>④ 실행 기록 패널 구현 (4번)</li>
+      <li><span class="who c">Claude</span>계정 확인·로그인을 허용 영상 페이지 기반으로 변경 (2번)</li>
+      <li><span class="who c">Claude</span>로그인된 프로필에만 영상 배정 + README 1회 로그인 절차 (3번)</li>
+      <li><span class="who c">Claude</span>초안 일괄 생성 명령 추가 → <span class="who u">사용자</span>명령 1줄 실행 (5번)</li>
+      <li><span class="who c">Claude</span>macOS 스모크 워크플로 작성 → <span class="who u">사용자</span>GitHub에 push (6번)</li>
+    </ol></div>
+    <div class="day"><h3>오늘 밤</h3><ol>
+      <li><span class="who c">Claude</span>생성된 초안 1차 평가·재작성 제안표 게시</li>
+      <li><span class="who u">사용자</span>제안표 보고 승인 여부 결정</li>
+      <li><span class="who c">Claude</span>승인본만 <code>drafts/</code>에 커밋, macOS CI 결과 확인</li>
+    </ol></div>
+    <div class="day"><h3>내일 · 제출일</h3><ol>
+      <li><span class="who c">Claude</span>오전에 RSS 최신 영상 재확인, 새 영상 있으면 초안 보충</li>
+      <li><span class="who u">사용자</span>시연 영상 녹화, 저장소 Public 전환 (7번)</li>
+      <li><span class="who u">사용자</span>제출 페이지에서 저장소·영상 링크 제출</li>
+    </ol></div>
+  </div>
+</section>
+
+<div id="cards" style="display:grid;gap:18px"></div>
+
+<section class="summary" aria-labelledby="sum-h">
+  <h2 id="sum-h">선택 요약</h2>
+  <p class="note">아래 내용을 복사해 채팅에 붙여 주세요. 고른 내용은 이 브라우저에만 저장됩니다.</p>
+  <pre id="sumtext"></pre>
+  <button type="button" class="btn" id="copy">선택 요약 복사</button>
+  <span class="note" id="copied" role="status"></span>
+</section>
+
+<footer>
+  <span>근거: 프로젝트 코드(<code>dashboard.py</code> 계정 확인·로그인 경로, <code>storage.py</code> 배정·게시 기록), 로컬 <code>posts.db</code> 게시 기록, 과제 PDF 3~6쪽.</span>
+  <span>클라우드 Mac 가격은 출시 당시 보도 기준이며 현재 요금은 각 서비스에서 확인이 필요합니다: <a href="https://techcrunch.com/2021/02/02/scaleway-launches-mac-mini-cloud-instances/" target="_blank" rel="noopener">TechCrunch (Scaleway)</a>, <a href="https://www.computerworld.com/article/3605768/how-to-rent-a-virtual-m1-mac-mini-for-12-cents-an-hour.html" target="_blank" rel="noopener">Computerworld</a>, <a href="https://apple.slashdot.org/story/20/12/01/1454252/aws-brings-the-mac-mini-to-its-cloud" target="_blank" rel="noopener">Slashdot (AWS EC2 Mac)</a>.</span>
+</footer>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const S={ok:['완료로 반영','s-ok'],go:['Claude가 진행','s-ok'],alt:['개선안 있음','s-warn'],risk:['대안 확정 필요','s-warn'],part:['부분적으로 가능','s-warn'],later:['보류 확인','s-unk']};
+
+const CARDS=[
+{n:1,you:'채널에 단 댓글 7개 정리했어.',st:'ok',title:'확인했습니다. 문서·기록만 정리하면 끝입니다',
+ body:`<p>삭제해 주신 것으로 B1 차단 요소는 해소로 표시하겠습니다. 남은 일은 두 가지입니다.</p>
+ <ul><li><b>로컬 게시 기록</b>: <code>data/dashboard/posts.db</code>에는 7건이 <code>POSTED</code>로 남아 있습니다. 이 파일은 저장소에 올라가지 않으므로 심사자에게는 영향이 없습니다. 다만 같은 영상에 다시 게시하려 하면 "영상당 1개" 가드가 막습니다(의도된 동작이라 그대로 둡니다).</li>
+ <li><b>재발 방지</b>: 개발 PC에서만 켜는 설정 <code>DEV_BLOCK_OUR_CHANNELS=1</code>(로컬 <code>.env</code>)을 추가하면, 등록한 본인 테스트 영상이 아닌 우리 채널 영상 게시를 Chrome 실행 전에 막습니다. 심사자 PC에는 이 값이 없으니 심사 흐름은 그대로입니다.</li></ul>`,
+ q:{id:'q1',legend:'PROCESS.md에 이 일을 어떻게 남길까요?',opts:[
+  ['honest','실패·개선 항목으로 짧게 기록',true,'"테스트 영상 등록 없이 우리 채널에 게시 → 삭제 → 개발용 차단 가드 추가". PDF가 실패와 개선을 평가하므로 숨기는 것보다 설명이 유리합니다.'],
+  ['none','기록하지 않음',false,'로컬 기록·히스토리 문서(history.md)에는 이미 흔적이 있어 저장소 안에서 불일치가 생길 수 있습니다.']]},
+ q2:{id:'q1b',legend:'개발용 우리 채널 차단 가드를 추가할까요?',opts:[['yes','추가',true,'기본값 꺼짐. 개발자 .env에서만 켭니다.'],['no','추가하지 않음',false,'']]}},
+
+{n:2,you:'계정 확인, 로그인 창은 계정 확인 프로세스상 어쩔 수 없었어. 개선할 수 있으면 개선안 제시해줘.',st:'alt',title:'개선 가능합니다. 프로그램은 우리 채널 영상 페이지만 열고, Google 로그인은 사람이 버튼을 눌러 이동하게 바꿉니다',
+ body:`<p>지금 구조에서 문제가 되는 것은 <b>프로그램이 직접</b> <code>youtube.com/</code> 홈과 <code>accounts.google.com/AccountChooser</code>(→ <code>myaccount.google.com</code>)를 연다는 점입니다. 계정 확인 자체는 우리 채널 영상 페이지에서도 똑같이 할 수 있습니다. 영상 페이지에도 오른쪽 위에 로그인 아바타 또는 "로그인" 버튼이 있기 때문입니다.</p>
+ <div><div class="tabs" role="tablist" aria-label="흐름 비교"><button type="button" role="tab" aria-selected="true" data-f="now">지금</button><button type="button" role="tab" aria-selected="false" data-f="new">개선안 A</button></div></div>
+ <div class="flow" id="flow"></div>
+ <div class="cols">
+  <div class="box"><h3>바꾸는 것</h3><ul><li>확인용 영상: PDF 2쪽 예시 영상 5개(우리 채널 소속 고정) → 실패하면 RSS 최신 영상</li><li>계정 확인: 영상 페이지에서 아바타 유무만 판정. 계정 메뉴 클릭·이메일 읽기 제거</li><li>로그인 창: 같은 영상 페이지를 앱 전용 프로필로 엶. 사용자가 YouTube의 "로그인"을 직접 클릭</li><li><code>GOOGLE_LOGIN_URL</code> 삭제 → <code>safety_scan.py --strict</code> 통과</li></ul></div>
+  <div class="box"><h3>잃는 것</h3><ul><li>프로필 목록에 이메일이 표시되지 않습니다. "로그인됨"과 YouTube 채널 이름 정도만 보입니다.</li><li>어느 계정으로 게시됐는지는 게시 후 작성자 링크 확인(기존 기능)으로 대신 증명합니다.</li></ul></div>
+  <div class="box"><h3>규모</h3><ul><li>약 0.5일. <code>dashboard.py</code>, <code>poster.py</code>, 설정 화면 문구, 테스트</li><li>spec에 이전 결정 U30·H18·U26을 대체한다는 기록을 남깁니다.</li></ul></div>
+ </div>`,
+ q:{id:'q2',legend:'어느 안으로 갈까요?',opts:[
+  ['A','A안: 영상 페이지 기반 확인 + 사람이 로그인 클릭, 이메일 표시 제거',true,'안전 규칙 문구에 가장 가깝고 코드 검사에서 설명할 것이 없습니다.'],
+  ['B','B안: A안 + 영상 페이지에서 계정 메뉴를 열어 이메일 표시 유지',false,'페이지는 허용 범위지만, "댓글 외 동작" 해석 여지가 남고 선택자가 깨지기 쉽습니다.'],
+  ['keep','현행 유지, README에 불가피한 이유 설명',false,'README가 스스로 "미충족"을 적는 상태가 유지됩니다. 실격 판단은 심사자 재량입니다.']]}},
+
+{n:3,you:'프로필 해석은 제출일이 내일인데 오늘은 휴일이라 물어볼 수 없어. 최적의 대안을 제시해줘.',st:'risk',title:'어느 해석이든 동작하는 쪽으로 갑니다: 앱 전용 프로필 + 1회 로그인 + 로그인된 프로필에만 배정',
+ body:`<p>PDF 문장 두 개가 단서입니다. "유튜브1·2·3 프로필이 설치되어 있다"와 "크롬은 평소 쓰는 기본 프로필의 자동 제어를 막으니 <b>프로필 폴더를 지정해 여는 방식</b>(<code>--user-data-dir</code>)으로 연결하라"입니다. 심사자의 프로필이 어떤 형태든, 기존 로그인 상태를 그대로 쓰려면 Chrome 내부 파일을 복사하거나 기본 데이터 폴더를 제어해야 합니다. 앞쪽은 안전 규칙 위반이고, 뒤쪽은 Chrome 136 이후 막혀 있습니다.</p>
+ <div class="tbl"><table><thead><tr><th>심사자 PC의 실제 형태</th><th>기존 프로필을 직접 쓰려는 방식</th><th>앱 전용 프로필 + 1회 로그인 (추천)</th></tr></thead><tbody>
+ <tr><td>일반 Chrome 프로필(기본 데이터 폴더 안 Profile 1~3)</td><td>Chrome이 자동화를 거부하거나, 쿠키 복사가 필요해 안전 규칙 위반</td><td>동작. 심사자가 프로필당 1회 로그인(약 1분)</td></tr>
+ <tr><td>별도 폴더로 만든 프로필 3개</td><td>동작할 수 있지만 대시보드 폴더 밖 경로를 받아야 함(규칙 해석 위험)</td><td>동작. 위와 같음</td></tr>
+ <tr><td>심사자가 README를 그대로 따름</td><td>경로를 찾아 입력해야 함</td><td>버튼 3번이면 끝</td></tr></tbody></table></div>
+ <div class="cols">
+  <div class="box"><h3>함께 바꿀 것 (중요)</h3><ul><li><b>로그인 확인된 프로필에만 영상 배정.</b> 지금은 폴더가 준비된 프로필이면 1→2→3으로 고정 배정되어, 심사자가 유튜브1만 로그인하면 영상 3개 중 2개가 게시 단계에서 막힙니다.</li><li>유튜브2·3이 준비되지 않으면 모두 유튜브1로 보냅니다(필수 충족). 나중에 로그인하면 새 영상부터 순환합니다.</li></ul></div>
+  <div class="box"><h3>README 첫 화면에 넣을 3단계</h3><ol><li>설정 → 프로필 → 유튜브1 "로그인 창 열기"</li><li>열린 영상 페이지에서 오른쪽 위 "로그인" → 유튜브1 계정으로 로그인 → 창 닫기</li><li>"로그인됨" 확인. 유튜브2·3은 선택(가점)</li></ol><p class="note">왜 기존 프로필을 쓰지 않는지(Chrome 정책과 안전 규칙)를 한 문단으로 설명합니다.</p></div>
+ </div>
+ <p class="note">문의가 가능해지면 확인용으로 보낼 문장: "심사 PC의 유튜브1~3은 Chrome 기본 프로필인가요, 별도 사용자 데이터 폴더인가요? 제출물은 안전 규칙 준수를 위해 앱 폴더 안의 전용 프로필에 1회 로그인하는 방식입니다."</p>`,
+ q:{id:'q3',legend:'프로필 방식',opts:[
+  ['app','앱 전용 프로필 + 1회 로그인 + 로그인된 프로필에만 배정',true,'두 해석 모두에서 동작하고 안전 규칙 설명이 단순합니다.'],
+  ['ext','위에 더해 "기존 프로필 폴더 경로 지정" 고급 옵션 추가',false,'심사자 형태가 별도 폴더일 때만 이득. 대시보드 폴더 밖 경로를 받는 코드가 다시 생깁니다.']]}},
+
+{n:4,you:'실행 기록 패널은 네가 추가해줘.',st:'go',title:'맡겠습니다. 이렇게 만들 예정입니다',
+ body:`<p>세 칸 아래에 <b>④ 실행 기록</b>을 붙입니다. 게시 시도마다 시간, 영상, 프로필, 댓글, 결과를 최신순으로 보여 줍니다. 아래는 지금 로컬 DB의 실제 기록 일부(14건 중 11건)로 만든 미리보기입니다.</p>
+ <div class="mock" aria-label="실행 기록 패널 미리보기"><div class="bar"><b>④ 실행 기록</b><div class="mfilter" id="hf"></div><span class="meter" id="hmeter"></span></div><div id="hist"></div></div>
+ <div class="cols">
+  <div class="box"><h3>구현</h3><ul><li><code>GET /api/history</code>: 세션 토큰 필요, 최근 50건, 키·이메일 제외</li><li>댓글 본문을 기록 테이블에 저장하는 열 추가(기존 행은 승인 초안에서 복원)</li><li>실패 사유 코드를 한국어로, 실패 캡처·"댓글 보기" 링크</li><li>오늘 게시 수 / 하루 상한 표시</li></ul></div>
+  <div class="box"><h3>순서</h3><ul><li>spec <code>R-LOG-01</code> 수락 기준 보강 → 테스트 → 코드</li><li>토큰 없는 조회 거부, 시간 역순, 상한 표시 테스트</li><li>약 0.5일</li></ul></div>
+ </div>`},
+
+{n:5,you:'해당 실행을 맡겨도 되나? (초안 재생성 → 사람 평가 → 커밋)',st:'part',title:'대부분 맡기셔도 됩니다. 단 두 군데는 직접 하셔야 합니다',
+ body:`<p>제가 쓰는 작업 환경은 YouTube와 Gemini에 직접 접속할 수 없습니다(오늘 확인). 키는 사용자 PC의 <code>.env</code>에 있으므로, 생성은 사용자 PC에서 명령 한 줄로 돌리고 나머지는 제가 맡는 방식이 가장 빠릅니다.</p>
+ <div class="tbl"><table><thead><tr><th>단계</th><th>담당</th><th>내용</th></tr></thead><tbody>
+ <tr><td>1. 일괄 생성 명령 추가</td><td><span class="who c">Claude</span></td><td><code>python -m marketing_agent drafts --latest 3</code>: 5채널 최신 영상 각 3개(15개)를 프롬프트 v5로 생성, <b>미승인</b> 저장. 게시·Chrome 호출 없음</td></tr>
+ <tr><td>2. 명령 실행</td><td><span class="who u">사용자</span></td><td>Windows에서 한 줄, 3~5분. 키 값은 화면에 나오지 않음</td></tr>
+ <tr><td>3. 1차 평가·재작성</td><td><span class="who c">Claude</span></td><td>평가표(영상 고유 장면, 시청자다움, 운명원을 보고 싶어지는가, 금지 규칙)로 점수화. 미달 문안은 근거 원문 안에서 고쳐 쓴 대안 제시</td></tr>
+ <tr><td>4. 승인</td><td><span class="who u">사용자</span></td><td>제가 올린 비교표에서 "승인/수정"만 고르시면 됩니다. 승인 기록의 검토자는 사용자 이름. AI가 스스로 승인하지 않습니다</td></tr>
+ <tr><td>5. 커밋</td><td><span class="who c">Claude</span></td><td>승인본만 <code>drafts/</code>에 커밋, 오래된 파일·<code>latest.json</code> 정리</td></tr></tbody></table></div>
+ <p class="note">내일 오전 RSS에 새 영상이 올라오면 같은 절차로 그 영상만 보충합니다.</p>`,
+ q:{id:'q5',legend:'진행 방식',opts:[
+  ['split','생성 명령은 사용자, 평가·재작성·커밋은 Claude, 승인은 사용자',true,'가장 빠르고 승인 책임이 분명합니다.'],
+  ['dash','대시보드에서 직접 영상별로 생성·승인',false,'15개를 손으로 하면 1시간 이상 걸립니다.']]},
+ q2:{id:'q5n',legend:'채널당 몇 개를 준비할까요?',opts:[['3','최신 3개씩 (15개)',true,'심사자가 고를 여유 + 작업량 균형'],['5','최신 5개씩 (25개)',false,'평가 시간이 늘어납니다'],['1','최신 1개씩 (5개)',false,'심사자가 다른 영상을 고르면 초안이 없습니다']]}},
+
+{n:6,you:'현재 내 PC는 Mac 환경이 없어. 해당 환경에서 리허설할 대안이 없나?',st:'part',title:'GitHub의 macOS 서버로 설치·실행·Chrome 열기까지는 자동 리허설이 됩니다',
+ body:`<p>실제 게시(로그인 필요)를 빼면 Mac에서 깨질 수 있는 부분은 대부분 자동으로 확인할 수 있습니다. 이미 추가한 CI가 macOS에서 테스트를 돌리고, 여기에 <b>Mac 스모크 리허설</b>을 더합니다.</p>
+ <div class="tbl"><table><thead><tr><th>대안</th><th>확인 범위</th><th>비용·시간</th><th>판단</th></tr></thead><tbody>
+ <tr><td><b>GitHub Actions macOS 스모크</b></td><td>README 명령 그대로 설치(시간 측정) → 대시보드 실행·접속 → 앱 전용 프로필로 Chrome 실행 → 우리 채널 영상 페이지(한국어) 열기·댓글 영역·로그인 버튼 확인 → 스크린샷 저장</td><td>무료 한도 안(비공개 저장소는 macOS 분당 차감). 실행 10분</td><td><span class="pill s-ok">추천</span></td></tr>
+ <tr><td>클라우드 Mac 대여 (Scaleway, AWS EC2 Mac 등)</td><td>화면 공유로 실제 로그인·본인 테스트 영상 게시까지</td><td>Apple 라이선스로 최소 24시간 과금. 보도 기준 Scaleway 약 €0.1/시간, AWS는 하루 수십 달러. 계정 인증·설정에 반나절</td><td><span class="pill s-warn">시간 있으면</span></td></tr>
+ <tr><td>Windows 새 사용자 계정에서 클린 리허설</td><td>README 순서·10분 기준. Mac 고유 문제는 못 잡음</td><td>30분</td><td><span class="pill s-warn">보조</span></td></tr>
+ <tr><td>지인 Mac 30분</td><td>전부</td><td>섭외</td><td><span class="pill s-unk">가능하면 최고</span></td></tr></tbody></table></div>
+ <div class="box"><h3>Mac에서 실제로 깨질 수 있는 지점과 확인 방법</h3><ul><li>기본 <code>python3</code>가 3.9 → 스모크에서 README 명령으로 그대로 재현</li><li>Chrome 경로 <code>/Applications/Google Chrome.app</code>, Playwright <code>channel="chrome"</code> → 스모크에서 Chrome 실행 확인</li><li>한국어 YouTube 댓글 영역 선택자 → 로그아웃 상태 화면까지 확인, 로그인 후 입력창은 확인 불가</li><li>이메일 암호화 저장(Windows 전용) → Mac에서 거부되는 경로가 오류 없이 넘어가는지 테스트</li></ul></div>
+ <p class="note">스모크는 GitHub에서 돌기 때문에 이번 브랜치를 push해 주셔야 합니다(제 작업 환경에는 push 권한이 없습니다). 저장소는 비공개 상태 그대로 괜찮습니다.</p>`,
+ q:{id:'q6',legend:'리허설 방법',opts:[
+  ['ci','GitHub Actions macOS 스모크',true,'오늘 바로 가능, 비용 없음에 가까움'],
+  ['ci+cloud','스모크 + 클라우드 Mac 하루 대여로 실게시까지',false,'확실하지만 오늘 안에 준비하기 빠듯합니다'],
+  ['win','Windows 클린 리허설만',false,'Mac 고유 문제를 잡지 못합니다']]}},
+
+{n:7,you:'시연 영상 녹화랑 저장소 퍼블릭 전환은 추후에 진행할게.',st:'later',title:'알겠습니다. 막히지 않게 준비만 해 두겠습니다',
+ body:`<ul><li><b>시연 영상 대본</b>(2분 30초): ① 영상 불러오기 → ② 본인 테스트 영상 선택, 고민 한 줄·초안 → ③ 댓글 달기 → Chrome 프로필이 열리고 한 글자씩 입력 → 게시 → 내 댓글 확인 → ④ 실행 기록에 성공 표시. 4번 패널이 생기면 마지막 장면이 하나 늘어납니다.</li>
+ <li><b>본인 테스트 영상 등록</b>이 아직 0건입니다. 녹화 전에 본인 채널 영상 하나를 <code>--register-owned-test-video</code>로 등록해야 우리 채널을 건드리지 않고 시연할 수 있습니다. 등록 절차를 README 부록에 넣겠습니다.</li>
+ <li><b>Public 전환 직전</b>: <code>python .ucompany/scripts/safety_scan.py --strict</code> 통과, <code>.env</code>·<code>config.yaml</code> 미추적, 이 브랜치가 <code>main</code>에 머지됐는지 확인. 체크리스트로 드리겠습니다.</li></ul>`}
+];
+
+const KEY='track2-plan-choices';
+let choice={};try{choice=JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){choice={};}
+function radios(q){
+  if(!q)return '';
+  return `<fieldset><legend>${esc(q.legend)}</legend>${q.opts.map(([v,t,rec,d])=>{
+    const checked=(choice[q.id]??q.opts.find(o=>o[2])[0])===v;
+    return `<label class="opt" for="${q.id}-${v}"><input type="radio" name="${q.id}" id="${q.id}-${v}" value="${v}" ${checked?'checked':''}><span>${esc(t)}${rec?'<span class="rec">추천</span>':''}${d?`<small>${esc(d)}</small>`:''}</span></label>`}).join('')}</fieldset>`;
+}
+$('cards').innerHTML=CARDS.map(c=>`<article class="card" id="a${c.n}"><div class="hd"><span class="num">${c.n}</span><div><p class="you">보내신 답: <b>${esc(c.you)}</b></p><div class="verdict"><span class="pill ${S[c.st][1]}">${S[c.st][0]}</span></div><h2 style="margin-top:8px">${esc(c.title)}</h2></div></div>
+  <div class="bd">${c.body}${radios(c.q)}${radios(c.q2)}</div></article>`).join('');
+$('jump').innerHTML=CARDS.map(c=>`<a href="#a${c.n}"><span class="dot" style="background:var(--${S[c.st][1]==='s-ok'?'ok':S[c.st][1]==='s-warn'?'warn':'unk'})"></span>${c.n}. ${esc(c.you.split(/[.,]/)[0].slice(0,18))}</a>`).join('');
+
+/* flow tabs */
+const FLOW={now:[['① 계정 확인','프로그램이 youtube.com 홈을 엶','bad'],['② 계정 메뉴','아바타 클릭 → 이메일 읽기','bad'],['③ 로그인 창','프로그램이 accounts.google.com AccountChooser를 엶','bad'],['④ 로그인 후','myaccount.google.com으로 이동','bad']],
+ new:[['① 확인용 영상','PDF 예시 영상(우리 채널)의 watch 페이지만 엶','good'],['② 계정 확인','아바타 있음 = 로그인됨 / "로그인" 버튼 = 로그아웃','good'],['③ 로그인 필요 시','같은 영상 페이지를 앱 전용 프로필로 열고 안내만 표시','good'],['④ 사람이 클릭','YouTube "로그인" 버튼은 사용자가 직접 누름 → 창 닫으면 재확인','good']]};
+function drawFlow(k){$('flow').innerHTML=FLOW[k].map(([t,d,c])=>`<div class="step ${c}"><b>${t}</b><small>${esc(d)}</small></div>`).join('');
+  document.querySelectorAll('[data-f]').forEach(b=>b.setAttribute('aria-selected',b.dataset.f===k));}
+document.querySelectorAll('[data-f]').forEach(b=>b.addEventListener('click',()=>drawFlow(b.dataset.f)));
+drawFlow('now');
+
+/* history mock from real local records (2026-10-16~17 KST) */
+const H=[
+ ['10-17 09:00','Live streaming of 리즈시절 LizTV','리즈시절 LizTV','유튜브2','POSTED','','저도 오랫동안 혼자 살고 있어요. 리즈님 방송 보면서…'],
+ ['10-16 14:36','Live streaming of 리즈시절 LizTV','리즈시절 LizTV','유튜브3','PRECHECK_FAILED','로그인 필요','요즘 운명원은 물론 사주까지 보면서…'],
+ ['10-16 14:19','남자는 ‘원래 그런 사람’이 아닙니다','외롭여','유튜브1','POSTED','','늘 남자의 MBTI나 사주를 보며…'],
+ ['10-16 09:18','남자가 놓치기 싫어하는 여자의 특징 6가지','심리조각','유튜브3','POSTED','','남자가 놓치기 싫어하는 여자의 특징 6가지가…'],
+ ['10-16 09:02','Live streaming of 리즈시절 LizTV','리즈시절 LizTV','유튜브3','POSTED','','외로운 싱글들을 위한 줌 미팅방…'],
+ ['10-16 08:51','알파남들이 결국 정착하는 가치높은 여자들의 비밀','리즈시절 LizTV','유튜브2','POSTED','','알파남들이 결국 정착하는…'],
+ ['10-16 08:50','알파남들이 결국 정착하는 가치높은 여자들의 비밀','리즈시절 LizTV','유튜브2','PRECHECK_FAILED','로그인 필요','알파남들이 결국 정착하는…'],
+ ['10-16 07:12','Live streaming of 리즈시절 LizTV','리즈시절 LizTV','유튜브1','POSTED','','싱글들을 위한 줌 미팅방 주최…'],
+ ['10-16 07:08','중년싱글들만을 위한 낭만 여행에 초대합니다','리즈시절 LizTV','유튜브1','POSTED','','중년이 되니 혼자 보내는 시간이…'],
+ ['10-16 07:03','중년싱글들만을 위한 낭만 여행에 초대합니다','리즈시절 LizTV','유튜브1','PRECHECK_FAILED','YouTube 화면 이동 실패','중년이 되니 혼자 보내는 시간이…'],
+ ['10-16 06:49','중년싱글들만을 위한 낭만 여행에 초대합니다','리즈시절 LizTV','유튜브1','PRECHECK_FAILED','브라우저 실행 실패','중년이 되니 혼자 보내는 시간이…']
+];
+const HS={POSTED:['게시 완료','s-ok'],PRECHECK_FAILED:['게시 전 중단','s-fail']};
+let hf='all';
+function drawHist(){
+  const opts=[['all','전체'],['POSTED','성공'],['PRECHECK_FAILED','실패']];
+  $('hf').innerHTML=opts.map(([k,t])=>`<button type="button" class="chip" data-k="${k}" aria-pressed="${hf===k}">${t}</button>`).join('');
+  $('hmeter').textContent='오늘 게시 1 / 10 (10-17 기준)';
+  $('hist').innerHTML=H.filter(h=>hf==='all'||h[4]===hf).map(h=>`<div class="hrow"><span class="t">${h[0]}</span><div><b>${esc(h[1])}</b><div class="c">${esc(h[2])} · “${esc(h[6])}”</div></div><span class="p">${h[3]}</span><div><span class="pill ${HS[h[4]][1]}">${HS[h[4]][0]}</span>${h[5]?`<div class="c">${esc(h[5])} · 캡처</div>`:'<div class="c">댓글 보기</div>'}</div></div>`).join('');
+}
+$('hf').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;hf=b.dataset.k;drawHist();});
+drawHist();
+
+/* summary */
+function label(q){if(!q)return '';const v=document.querySelector(`input[name="${q.id}"]:checked`);const o=q.opts.find(x=>x[0]===(v?v.value:''));return o?o[1]:'';}
+function drawSum(){
+  const lines=['[제출 전 결정]'];
+  CARDS.forEach(c=>{
+    const parts=[c.q,c.q2].filter(Boolean).map(q=>`${q.legend.replace(/[?？]$/,'')} → ${label(q)}`);
+    if(c.n===4)parts.push('실행 기록 패널 구현 진행');
+    if(c.n===7)parts.push('시연 영상·Public 전환은 사용자가 추후 진행, 준비 자료만 요청');
+    lines.push(`${c.n}. ${parts.join(' / ')}`);
+  });
+  $('sumtext').textContent=lines.join('\n');
+}
+document.addEventListener('change',e=>{if(e.target.type!=='radio')return;choice[e.target.name]=e.target.value;try{localStorage.setItem(KEY,JSON.stringify(choice));}catch(err){}drawSum();});
+drawSum();
+$('copy').addEventListener('click',()=>{const t=$('sumtext').textContent;
+  const done=()=>{$('copied').textContent='복사했습니다. 채팅에 붙여 주세요.';};
+  try{navigator.clipboard.writeText(t).then(done,()=>{selectSum();});}catch(e){selectSum();}});
+function selectSum(){const r=document.createRange();r.selectNodeContents($('sumtext'));const s=getSelection();s.removeAllRanges();s.addRange(r);$('copied').textContent='복사가 막혀 있어 텍스트를 선택해 두었습니다. Ctrl+C로 복사해 주세요.';}
+})();
+</script>
+</body>
+</html>

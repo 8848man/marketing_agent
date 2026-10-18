@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
@@ -114,6 +115,20 @@ class Store:
             CREATE TABLE IF NOT EXISTS dashboard_assignment_cursor (
                 id INTEGER PRIMARY KEY CHECK(id=1), profile TEXT NOT NULL
             );
+            -- IMP-19: last confirmed sign-in per app profile (no account data),
+            -- and the candidate list the current assignments were balanced for.
+            CREATE TABLE IF NOT EXISTS dashboard_profile_status (
+                label TEXT PRIMARY KEY, active INTEGER NOT NULL CHECK(active IN (0,1)),
+                confirmed_at TEXT, changed_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS dashboard_assignment_meta (
+                id INTEGER PRIMARY KEY CHECK(id=1), candidates TEXT NOT NULL
+            );
+            -- Comment text shown in the history panel (R-LOG-01). Kept beside the
+            -- reservation table so older databases need no column migration.
+            CREATE TABLE IF NOT EXISTS dashboard_post_bodies (
+                attempt_id TEXT PRIMARY KEY, body TEXT NOT NULL
+            );
         """)
 
     def assign_dashboard_videos(self, cards, candidates: list[str], when: datetime) -> None:
@@ -157,6 +172,74 @@ class Store:
         except Exception:
             self.db.execute("ROLLBACK")
             raise
+
+    def profile_status(self) -> dict[str, dict]:
+        rows = self.db.execute("SELECT label,active,confirmed_at FROM dashboard_profile_status").fetchall()
+        return {row["label"]: {"active": bool(row["active"]), "confirmed_at": row["confirmed_at"] or ""}
+                for row in rows}
+
+    def set_profile_active(self, label: str, active: bool, when: datetime) -> None:
+        stamp = _stamp(when)
+        with self.db:
+            if active:
+                self.db.execute(
+                    "INSERT INTO dashboard_profile_status VALUES(?,1,?,?) ON CONFLICT(label) DO UPDATE "
+                    "SET active=1, confirmed_at=excluded.confirmed_at, changed_at=excluded.changed_at",
+                    (label, stamp, stamp))
+            else:
+                self.db.execute(
+                    "INSERT INTO dashboard_profile_status VALUES(?,0,NULL,?) ON CONFLICT(label) DO UPDATE "
+                    "SET active=0, changed_at=excluded.changed_at", (label, stamp))
+
+    def assignment_candidates_key(self) -> str | None:
+        row = self.db.execute("SELECT candidates FROM dashboard_assignment_meta WHERE id=1").fetchone()
+        return row["candidates"] if row else None
+
+    def rebalance_dashboard_assignments(self, cards, candidates: list[str], when: datetime) -> int:
+        """Re-spread videos without any post attempt over ``candidates`` (IMP-19).
+
+        Videos are taken oldest first and dealt in candidate order. Videos with a
+        reservation, a legacy post, or an earlier post-based assignment keep
+        their profile. Returns how many assignments changed.
+        """
+        key = json.dumps(candidates, ensure_ascii=False)
+        changed = 0
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            index = 0
+            last = ""
+            for card in sorted(cards, key=lambda item: (item.published_at, item.video_id)):
+                row = self.db.execute(
+                    "SELECT profile,source FROM dashboard_video_assignments WHERE video_id=?",
+                    (card.video_id,)).fetchone()
+                if row is None or row["source"] in ("existing_post", "legacy_post_unknown"):
+                    continue
+                if self.db.execute("SELECT 1 FROM dashboard_post_reservations WHERE video_id=?",
+                                   (card.video_id,)).fetchone():
+                    continue
+                if self.db.execute("SELECT 1 FROM post_results WHERE video_id=?",
+                                   (card.video_id,)).fetchone():
+                    continue
+                if candidates:
+                    target, source = candidates[index % len(candidates)], "rebalance"
+                    index += 1
+                    last = target
+                else:
+                    target, source = None, "no_candidate"
+                if row["profile"] != target:
+                    changed += 1
+                    self.db.execute("UPDATE dashboard_video_assignments SET profile=?, assigned_at=?, source=? "
+                                    "WHERE video_id=?", (target, _stamp(when), source, card.video_id))
+            if last:
+                self.db.execute("INSERT INTO dashboard_assignment_cursor VALUES(1,?) "
+                                "ON CONFLICT(id) DO UPDATE SET profile=excluded.profile", (last,))
+            self.db.execute("INSERT INTO dashboard_assignment_meta VALUES(1,?) "
+                            "ON CONFLICT(id) DO UPDATE SET candidates=excluded.candidates", (key,))
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return changed
 
     def dashboard_assignment(self, video_id: str):
         return self.db.execute("SELECT * FROM dashboard_video_assignments WHERE video_id=?",
@@ -251,7 +334,8 @@ class Store:
 
     def reserve_reviewed_post(self, *, video_id: str, channel_id: str, title: str,
                               body_hash: str, approval_hash: str, profile: str,
-                              when: datetime, daily_limit: int = 10, local_tz=KST) -> str:
+                              when: datetime, daily_limit: int = 10, local_tz=KST,
+                              body: str = "") -> str:
         """Reserve across processes before any Chrome work; include legacy posts."""
         utc = _aware(when)
         if not all(isinstance(x, str) and x for x in (video_id, channel_id, title, body_hash, approval_hash, profile)):
@@ -270,6 +354,8 @@ class Store:
                 (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,reserved_at,status)
                 VALUES(?,?,?,?,?,?,?,?,?,'RESERVED')""",
                 (attempt_id, video_id, channel_id, title, body_hash, approval_hash, profile, day, _stamp(utc)))
+            if body:
+                self.db.execute("INSERT INTO dashboard_post_bodies VALUES(?,?)", (attempt_id, body))
             self.db.execute("COMMIT")
             return attempt_id
         except BaseException:
@@ -291,6 +377,19 @@ class Store:
         except BaseException:
             self.db.execute("ROLLBACK")
             raise
+
+    def dashboard_history(self, limit: int = 50) -> list[dict]:
+        """Newest-first posting attempts for the dashboard history panel."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be 1..500")
+        rows = self.db.execute(
+            "SELECT r.*, b.body FROM dashboard_post_reservations r "
+            "LEFT JOIN dashboard_post_bodies b ON b.attempt_id = r.attempt_id "
+            "ORDER BY r.reserved_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def dashboard_posts_on(self, day: str) -> int:
+        return self._dashboard_count(day)
 
     def finish_dashboard_post(self, attempt_id: str, status: str, *, reason_code: str | None = None,
                               screenshot_path: str | None = None, verified_at: datetime | None = None) -> None:

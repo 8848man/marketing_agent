@@ -1,6 +1,6 @@
 # 원본 PDF와 기존 MD의 차이
 
-> 이 문서는 최초 전환 당시의 **이력 비교**다. 현행 SDD 원본·판본은 [`SOURCE_OF_TRUTH.md`](../../SOURCE_OF_TRUTH.md), 현재 구현·미완료 판정은 `tasks.md`와 `validation-protocol.md`를 따른다.
+> 이 문서는 최초 전환 당시의 **이력 비교**다. 현행 SDD 원본·판본은 [`.ucompany/sdd/source-of-truth.md`](../../../source-of-truth.md), 현재 구현·미완료 판정은 `tasks.md`와 `validation-protocol.md`를 따른다.
 
 기준: `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf` 1~6쪽. 비교 대상: 수정 전 `C:/Users/LG/Downloads/track-2-marketing-agent.md`. **PDF가 최상위 요구사항**이다. 기존 MD는 PDF의 단순 축약본이 아니라 다른 과제를 서술했다.
 

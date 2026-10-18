@@ -1,21 +1,20 @@
-"""One guarded path from an owned test video to a Chrome comment click."""
+"""Visible app-profile Chrome automation for the dashboard comment flow.
+
+The legacy poster that attached to a user-launched Chrome over CDP was removed on
+2026-10-18 (IMP-2026-10-18 / SEC-02, ARCH-02); the dashboard button is the only
+posting entry point."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
 from pathlib import Path
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .post_events import PostEvent, event
 
-from .dry_run import save_comment
-from .guard import check_ownership, normalize_video_id
-from .storage import ReservationBlocked
-from .profile_emails import EMAIL
+VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
 
 
 @dataclass(frozen=True)
@@ -130,13 +129,20 @@ class VisibleChromePoster:
             return ""
 
     @staticmethod
-    def _on_youtube_home(url: str) -> bool:
+    def _on_watch_page(url: str, video_id: str) -> bool:
         location = urlparse(url)
         return (location.scheme == "https" and location.netloc == "www.youtube.com"
-                and location.path in {"", "/"})
+                and location.path == "/watch" and parse_qs(location.query).get("v") == [video_id])
 
-    def inspect_account_email(self) -> str:
-        """Read only the active account header on the fixed YouTube home page."""
+    def check_signed_in(self, video_id: str) -> str:
+        """Classify sign-in state on an allowed watch page only (ADR-0003).
+
+        The page is never clicked and no account menu or email is read: a visible
+        avatar means signed in (returns ""), a visible sign-in link raises
+        PROFILE_SIGNED_OUT, anything else raises PROFILE_ACCOUNT_UNKNOWN.
+        """
+        if not VIDEO_ID_PATTERN.fullmatch(video_id or ""):
+            raise ValueError("INVALID_VIDEO_ID")
         if self.held_window_open():
             raise ProfileLocked("PROFILE_LOCKED")
         if (not self.PROFILE_NAME.fullmatch(self.profile_directory or "")
@@ -147,6 +153,7 @@ class VisibleChromePoster:
         if factory is None:
             from playwright.sync_api import sync_playwright
             factory = sync_playwright
+        url = f"https://www.youtube.com/watch?v={video_id}&hl=ko"
         try:
             with factory() as playwright:
                 with playwright.chromium.launch_persistent_context(
@@ -158,12 +165,10 @@ class VisibleChromePoster:
                     page = next((p for p in context.pages if p.url == "about:blank"), None)
                     if page is None:
                         page = context.new_page()
-                    page.goto("https://www.youtube.com/",
-                              wait_until="domcontentloaded", timeout=30000)
-                    if not self._on_youtube_home(page.url):
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    if not self._on_watch_page(page.url, video_id):
                         raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
                     # YouTube renders its account controls after DOMContentLoaded.
-                    # Wait for either outcome before classifying the session.
                     try:
                         page.wait_for_function("""() => {
                           const avatar = document.querySelector('button#avatar-btn');
@@ -175,68 +180,24 @@ class VisibleChromePoster:
                     except Exception:
                         pass
                     avatar = page.locator("button#avatar-btn")
-                    if avatar.count() != 1 or not avatar.first.is_visible():
-                        login = page.locator(
-                            "a[href*='accounts.google.com/ServiceLogin'], "
-                            "a[href*='accounts.google.com/v3/signin'], "
-                            "a[href*='youtube.com/signin']"
-                        )
-                        visible_login = any(login.nth(index).is_visible()
-                                            for index in range(min(login.count(), 5)))
-                        if visible_login:
-                            raise ValueError("PROFILE_SIGNED_OUT")
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    avatar.first.click(timeout=15000)
-                    active = page.locator("ytd-active-account-header-renderer #email")
-                    try:
-                        active.first.wait_for(state="visible", timeout=5000)
-                    except Exception:
-                        pass
-                    if active.count() == 1 and active.first.is_visible():
-                        email = active.first.inner_text(timeout=5000).strip()
-                    else:
-                        active_header = page.locator("ytd-active-account-header-renderer")
-                        account_name = page.locator("ytd-active-account-header-renderer #account-name")
-                        channel_handle = page.locator("ytd-active-account-header-renderer #channel-handle")
-                        if (active_header.count() == 1 and active_header.first.is_visible()
-                                and account_name.count() == 1 and account_name.first.is_visible()
-                                and account_name.first.inner_text(timeout=5000).strip()
-                                and channel_handle.count() == 1 and channel_handle.first.is_visible()
-                                and channel_handle.first.inner_text(timeout=5000).strip()):
-                            email = ""  # A signed-in channel can hide its Google email.
-                        else:
-                            email = None
-                    switch = page.get_by_text("계정 전환", exact=True)
-                    if (not email and switch.count() == 1 and switch.first.is_visible()):
-                        email = None
-                    if email is None:
-                        try:
-                            switch.first.wait_for(state="visible", timeout=5000)
-                        except Exception as exc:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN") from exc
-                        if switch.count() != 1:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                        switch.click(timeout=5000)
-                        current = page.locator("ytd-google-account-header-renderer #email")
-                        try:
-                            current.first.wait_for(state="visible", timeout=5000)
-                        except Exception as exc:
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN") from exc
-                        if current.count() != 1 or not current.first.is_visible():
-                            raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                        email = current.first.inner_text(timeout=5000).strip()
-                    if not self._on_youtube_home(page.url):
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    if email and not EMAIL.fullmatch(email):
-                        raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
-                    return email
+                    if avatar.count() == 1 and avatar.first.is_visible():
+                        return ""
+                    login = page.locator(
+                        "a[href*='accounts.google.com/ServiceLogin'], "
+                        "a[href*='accounts.google.com/v3/signin'], "
+                        "a[href*='youtube.com/signin']"
+                    )
+                    if any(login.nth(index).is_visible() for index in range(min(login.count(), 5))):
+                        raise ValueError("PROFILE_SIGNED_OUT")
+                    raise ValueError("PROFILE_ACCOUNT_UNKNOWN")
         except (ValueError, ProfileLocked, ProfilePathError):
             raise
         except Exception as exc:
             detail = str(exc).lower()
             if any(word in detail for word in ("singletonlock", "processsingleton", "profile in use", "already running")):
                 raise ProfileLocked("PROFILE_LOCKED") from exc
-            raise ValueError("PROFILE_EMAIL_CHECK_FAILED") from exc
+            raise ValueError("PROFILE_ACCOUNT_CHECK_FAILED") from exc
+
     @staticmethod
     def _author_href(page) -> str:
         avatar = page.locator("ytd-comment-simplebox-renderer #avatar a").first
@@ -399,216 +360,3 @@ class VisibleChromePoster:
         finally:
             if not held:
                 manager.__exit__(None, None, None)
-
-
-def validate_cdp_url(url: str) -> str:
-    parsed = urlparse(url)
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("CDP_URL_BLOCKED") from exc
-    if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"}
-            or not port or parsed.username or parsed.password or parsed.path not in {"", "/"}
-            or parsed.query or parsed.fragment):
-        raise ValueError("CDP_URL_BLOCKED")
-    return url
-
-
-class ChromeBrowser:
-    """Uses the existing logged-in CDP context; never launches a profile."""
-
-    def __init__(self, cdp_url: str):
-        from playwright.sync_api import sync_playwright
-
-        validate_cdp_url(cdp_url)
-        self._playwright = sync_playwright().start()
-        try:
-            self._browser = self._playwright.chromium.connect_over_cdp(cdp_url)
-            if not self._browser.contexts:
-                raise RuntimeError("NO_EXISTING_CHROME_CONTEXT")
-            self._page = self._browser.contexts[0].new_page()
-        except BaseException:
-            self._playwright.stop()
-            raise
-
-    def open_video(self, video_id: str) -> None:
-        self._page.goto(f"https://www.youtube.com/watch?v={video_id}", wait_until="domcontentloaded")
-        self._page.locator("ytd-comments#comments").scroll_into_view_if_needed(timeout=15000)
-
-    def author_channel_id(self) -> str:
-        box = self._page.locator("ytd-comment-simplebox-renderer")
-        box.wait_for(timeout=15000)
-        if not box.locator("#placeholder-area").is_visible():
-            raise RuntimeError("LOGIN_REQUIRED")
-        href = box.locator("#avatar a").get_attribute("href")
-        if not href or not href.startswith("/channel/"):
-            raise RuntimeError("AUTHOR_CHANNEL_UNVERIFIED")
-        return href.split("/")[2].split("?")[0]
-
-    def fill_comment(self, body: str) -> None:
-        self._page.locator("ytd-comment-simplebox-renderer #placeholder-area").click()
-        editor = self._page.locator("ytd-comment-simplebox-renderer #contenteditable-root")
-        editor.fill(body)
-        if editor.inner_text().strip() != body.strip():
-            raise RuntimeError("COMMENT_INPUT_MISMATCH")
-
-    def click_submit(self) -> None:
-        self._page.locator("ytd-comment-simplebox-renderer #submit-button").click()
-
-    def find_comment(self, body: str, author_channel_id: str) -> bool:
-        for comment in self._page.locator("ytd-comment-view-model").all():
-            if comment.locator("#content-text").inner_text().strip() != body.strip():
-                continue
-            href = comment.locator("#author-text").get_attribute("href")
-            if href and href.split("?")[0].rstrip("/") == f"/channel/{author_channel_id}":
-                return True
-        return False
-
-    def screenshot(self, path: str) -> str:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._page.screenshot(path=path)
-        return path
-
-    def close(self) -> None:
-        self._page.close()
-        self._playwright.stop()
-
-
-def _api_owner(video_id: str, lookup) -> str | None:
-    """Accept a channel ID or a videos.list(part=snippet) response."""
-    result = lookup(video_id)
-    if isinstance(result, str):
-        return result or None
-    if isinstance(result, dict):
-        items = result.get("items", [])
-        if len(items) == 1 and items[0].get("id") == video_id:
-            return items[0].get("snippet", {}).get("channelId")
-    return None
-
-
-def _capture(browser, screenshot_dir: str | Path, video_id: str, reason: str) -> str | None:
-    if browser is None:
-        return None
-    path = str(Path(screenshot_dir) / f"{video_id}-{reason}.png")
-    try:
-        return browser.screenshot(path)
-    except Exception:
-        return None
-
-
-def submit_comment(*, store, config, video: str, body: str, comment_id: str,
-                   run_id: str, input_source: str, api_channel_lookup,
-                   dry_run_path: str | Path, screenshot_dir: str | Path,
-                   dry_run: bool = False, browser_factory=ChromeBrowser,
-                   now: datetime | None = None) -> PostResult:
-    """The only function allowed to fill or click; every exit is per-video."""
-    when = now or datetime.now(timezone.utc)
-    try:
-        video_id = normalize_video_id(video)
-    except ValueError:
-        save_comment(dry_run_path, video_id=str(video), body=body, reason="INVALID_VIDEO_ID", run_id=run_id, input_source=input_source)
-        return PostResult("BLOCKED", "INVALID_VIDEO_ID", str(video))
-
-    existing = store.attempt(video_id)
-    if existing:
-        if existing["status"] in {"POST_PENDING", "POST_OUTCOME_UNKNOWN"}:
-            return reconcile_pending(store=store, attempt=existing, config=config,
-                                     browser_factory=browser_factory, screenshot_dir=screenshot_dir)
-        return PostResult(existing["status"], "ALREADY_ATTEMPTED", video_id, existing["attempt_id"])
-
-    decision = check_ownership(video_id, config.allowed_videos, store.ownership(video_id))
-    if not decision.allowed or dry_run:
-        reason = decision.reason if not decision.allowed else "DRY_RUN"
-        save_comment(dry_run_path, video_id=video_id, body=body, reason=reason, run_id=run_id, input_source=input_source)
-        return PostResult("BLOCKED" if not decision.allowed else "DRY_RUN_SAVED", reason, video_id)
-
-    browser = None
-    attempt_id = None
-    clicked = False
-    try:
-        # Ownership must be established before Chrome can receive any input.
-        api_owner = _api_owner(video_id, api_channel_lookup)
-        decision = check_ownership(video_id, config.allowed_videos, store.ownership(video_id), api_owner)
-        if not api_owner or not decision.allowed:
-            raise RuntimeError(decision.reason if not decision.allowed else "OWNERSHIP_BLOCKED")
-        validate_cdp_url(config.chrome_debug_url)
-        browser = browser_factory(config.chrome_debug_url)
-        browser.open_video(video_id)
-        author = browser.author_channel_id()
-        if not author:
-            raise RuntimeError("LOGIN_REQUIRED")
-        browser.fill_comment(body)
-        attempt_id = store.reserve_post(
-            video_id=video_id, comment_id=comment_id, run_id=run_id,
-            input_source=input_source, body_hash=sha256(body.encode("utf-8")).hexdigest(),
-            author_channel_id=author, target_channel_id=api_owner, when=when,
-            daily_limit=config.limits.daily_max_comments,
-            cooldown_hours=config.limits.channel_cooldown_hours)
-        # The durable reservation exists before this final, click-adjacent check.
-        api_owner = _api_owner(video_id, api_channel_lookup)
-        decision = check_ownership(video_id, config.allowed_videos, store.ownership(video_id), api_owner)
-        if not api_owner or not decision.allowed:
-            raise RuntimeError(decision.reason if not decision.allowed else "OWNERSHIP_BLOCKED")
-        # A thrown click may still have reached Chrome, so treat it as uncertain.
-        clicked = True
-        browser.click_submit()
-        if not browser.find_comment(body, author):
-            raise RuntimeError("COMMENT_NOT_CONFIRMED")
-        store.set_post_status(attempt_id, "POSTED", verified_at=datetime.now(timezone.utc))
-        return PostResult("POSTED", "CONFIRMED", video_id, attempt_id)
-    except Exception as exc:
-        reason = exc.reason if isinstance(exc, ReservationBlocked) else str(exc).splitlines()[0][:120]
-        reason = reason or type(exc).__name__
-        shot = _capture(browser, screenshot_dir, video_id, "failure")
-        if attempt_id:
-            status = "POST_OUTCOME_UNKNOWN" if clicked else "POST_FAILED"
-            try:
-                store.set_post_status(attempt_id, status, reason_code=reason, screenshot_path=shot)
-            except Exception:
-                # A durable POST_PENDING still forbids another click on restart.
-                status = "POST_PENDING"
-            if reason in {"ALLOWLIST_BLOCKED", "OWNERSHIP_BLOCKED"}:
-                save_comment(dry_run_path, video_id=video_id, body=body, reason=reason, run_id=run_id, input_source=input_source)
-        else:
-            status = "POST_PRECHECK_FAILED"
-            try:
-                store.record_precheck_failure(video_id, run_id, reason, when, screenshot_path=shot)
-            except Exception:
-                pass
-            save_comment(dry_run_path, video_id=video_id, body=body, reason=reason, run_id=run_id, input_source=input_source)
-        return PostResult(status, reason, video_id, attempt_id, shot)
-    finally:
-        if browser is not None:
-            try:
-                browser.close()
-            except Exception:
-                pass
-
-
-def reconcile_pending(*, store, attempt, config, browser_factory=ChromeBrowser,
-                      screenshot_dir: str | Path) -> PostResult:
-    """On restart, inspect an uncertain attempt; never fill or click."""
-    video_id, attempt_id = attempt["video_id"], attempt["attempt_id"]
-    if attempt["status"] == "POST_PENDING":
-        store.set_post_status(attempt_id, "POST_OUTCOME_UNKNOWN", reason_code="RESTART_PENDING")
-    browser = None
-    try:
-        validate_cdp_url(config.chrome_debug_url)
-        browser = browser_factory(config.chrome_debug_url)
-        browser.open_video(video_id)
-        comment = store.comment(video_id)
-        if (comment and sha256(comment["body"].encode("utf-8")).hexdigest() == attempt["body_hash"]
-                and browser.find_comment(comment["body"], attempt["author_channel_id"])):
-            store.set_post_status(attempt_id, "POSTED", verified_at=datetime.now(timezone.utc))
-            return PostResult("POSTED", "RECONCILED", video_id, attempt_id)
-        return PostResult("POST_OUTCOME_UNKNOWN", "NOT_CONFIRMED", video_id, attempt_id)
-    except Exception as exc:
-        reason = str(exc).splitlines()[0][:120] or type(exc).__name__
-        shot = _capture(browser, screenshot_dir, video_id, "reconcile")
-        return PostResult("POST_OUTCOME_UNKNOWN", reason, video_id, attempt_id, shot)
-    finally:
-        if browser is not None:
-            try:
-                browser.close()
-            except Exception:
-                pass

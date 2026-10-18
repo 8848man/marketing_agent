@@ -15,10 +15,10 @@ e3e45907c2b123affd2b70a47aa851dffd1d589836161f700682d474653d0bf3
 ## 권위 순서와 역할
 
 1. **외부 PDF:** 과제 요구의 최초 출처. 2026-10-17에 페이지 수와 주요 제목을 열어 확인했다. PDF에 없는 후속 사용자 결정은 결정 이력에서 관리한다.
-2. **[`docs/track2-agent/spec.md`](docs/track2-agent/spec.md):** 제품 안에서 관리하는 현행 요구사항. PDF 조항과 후속 사용자 결정을 ID·쪽수·날짜로 연결한다. 충돌이 있으면 조용히 수정하지 않고 변경 결정과 수락 기준을 남긴다.
-3. **[`docs/track2-agent/plan.md`](docs/track2-agent/plan.md) / [`tasks.md`](docs/track2-agent/tasks.md) / [`validation-protocol.md`](docs/track2-agent/validation-protocol.md):** 각각 구현 방침, 남은 작업, 시험 방법 및 증거. 과거 계획은 현재 요구사항보다 우선하지 않는다.
-4. **[`.ucompany/sdd/00_index.md`](.ucompany/sdd/00_index.md):** 문서 ID·관계·탐색 순서의 원본. [`.ucompany/sdd/graph.json`](.ucompany/sdd/graph.json)은 파생 색인이고, [`SDD.md`](SDD.md)는 진입 안내다.
-5. **[`README.md`](README.md) / [`PROCESS.md`](PROCESS.md):** 사용법과 제작 기록. 현재 구현·검증 상태를 설명하지만 요구사항 변경을 단독으로 승인하지 않는다.
+2. **[`.ucompany/sdd/features/track2-dashboard/spec.md`](features/track2-dashboard/spec.md):** 제품 안에서 관리하는 현행 요구사항. PDF 조항과 후속 사용자 결정을 ID·쪽수·날짜로 연결한다. 충돌이 있으면 조용히 수정하지 않고 변경 결정과 수락 기준을 남긴다.
+3. **[`.ucompany/sdd/features/track2-dashboard/plan.md`](features/track2-dashboard/plan.md) / [`tasks.md`](features/track2-dashboard/tasks.md) / [`validation-protocol.md`](features/track2-dashboard/validation-protocol.md):** 각각 구현 방침, 남은 작업, 시험 방법 및 증거. 과거 계획은 현재 요구사항보다 우선하지 않는다.
+4. **[`.ucompany/sdd/00_index.md`](00_index.md):** 문서 ID·관계·탐색 순서의 원본. [`.ucompany/sdd/graph.json`](graph.json)은 파생 색인이다. 작업 절차는 [`workflow.md`](workflow.md), 루트 진입 안내는 [`AGENTS.md`](../../AGENTS.md)다(2026-10-18 `SDD.md` 삭제, ADR-0001).
+5. **[`README.md`](../../README.md) / [`PROCESS.md`](../../PROCESS.md):** 사용법과 제작 기록. 현재 구현·검증 상태를 설명하지만 요구사항 변경을 단독으로 승인하지 않는다.
 
 ## 변경과 상태 표시
 

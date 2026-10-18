@@ -19,15 +19,16 @@ import webbrowser
 import xml.etree.ElementTree as ET
 
 from .ai_client import test_ai_connection
-from .captions import VideoEvidence
+from .captions import EvidenceResult, VideoEvidence
 from .dashboard_contracts import (
     AIReadService, AITestService, AIWriteService, BAD_REQUEST, ChannelEntryReadService,
     BrandReadService, BrandWriteService,
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
-    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview,
+    DashboardService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
+    HistoryService, SetupStatusService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
-    PostStatus, ProfileAddService, ProfileEmailService, ProfileOpenService,
+    PostStatus, ProfileAddService, ProfileMemoService, ProfileOpenService,
     ProfileOptionsService, ProfileReadService, ProfileVerifyService,
     ProfileWriteService, SettingsReadService, SettingsWriteService,
     VideoCard, VideoList, VideoStateService, YouTubeKeyService,
@@ -35,10 +36,11 @@ from .dashboard_contracts import (
 from .dashboard_ui import FeedDraftService
 from .dashboard_settings import DashboardSettings
 from .dashboard_page import render_page as _page
-from .drafts import approve as approve_draft, save_generated, _load_record
+from .drafts import approve as approve_draft, quality_failure, save_generated, _load_record
 from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
-from .prompt_policy import build_draft_prompt
+from .prompt_policy import build_draft_prompt, build_revision_prompt
+from .draft_review import MAX_REVISIONS, other_comments, review_problems
 from .rss_feed import CHANNELS, fetch_channel, list_videos, parse_channel, recheck_video
 from .storage import Store
 
@@ -82,18 +84,34 @@ def _installed_chrome() -> Path | None:
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
-GOOGLE_LOGIN_URL = ("https://accounts.google.com/AccountChooser?"
-                    "continue=https%3A%2F%2Fmyaccount.google.com%2F&hl=ko")
+# PDF p.2 example videos, one per "our channel". Used only as the watch page for
+# account checks and the manual login window when no RSS video is loaded yet
+# (ADR-0003). The program never opens YouTube home or Google account pages.
+PDF_EXAMPLE_VIDEOS = {
+    "UCxlc0Ky0aWoD8uI09ad44Tg": "akn-AvCeHBI",
+    "UC-ee_ziASM251TMXe3P3VZA": "JjY09DSdzx0",
+    "UC09L3JxGVcn7SKLa-pjTEmw": "DvxMfC_KjX0",
+    "UCVdtDW-HF4KluixGaBAcI4w": "3K82-PjUeP0",
+    "UCkGl2jieOVhGiHPdXF77Yyw": "WxXINTXQSd4",
+}
 
 
-def _open_login_window(root: Path) -> subprocess.Popen:
+def watch_url(video_id: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+        raise ValueError("INVALID_VIDEO_ID")
+    return f"https://www.youtube.com/watch?v={video_id}&hl=ko"
+
+
+def _open_login_window(root: Path, video_id: str) -> subprocess.Popen:
+    """Plain (non-automated) Chrome on an allowed watch page; the person signs in."""
+    url = watch_url(video_id)
     chrome = _installed_chrome()
     if chrome is None:
         raise ValueError("CHROME_NOT_FOUND")
     try:
         return subprocess.Popen([str(chrome), f"--user-data-dir={root}",
                           "--profile-directory=Default", "--no-first-run",
-                          "--no-default-browser-check", "--new-window", GOOGLE_LOGIN_URL],
+                          "--no-default-browser-check", "--new-window", url],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, close_fds=True)
     except OSError as exc:
@@ -161,9 +179,17 @@ class ConfiguredPostingService(PostingService):
         self._posting_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chrome-post")
         self._login_window_process: subprocess.Popen | None = None
         self._login_window_root: Path | None = None
-        self._verified_emails: dict[str, tuple[str, str]] = {}
+        self._verified_at: dict[str, str] = {}
         self._account_states: dict[str, str] = {}
+        self._ai_test: tuple[bool, str] | None = None      # (ok, code) of the last explicit test
+        self._youtube_key_invalid = False                   # set when a draft run reports a bad key
+        self._last_feed_errors: dict[str, str] | None = None
         if settings is not None:
+            with Store(self.db_path) as store:
+                for label, status in store.profile_status().items():
+                    if status["active"]:
+                        self._account_states[label] = "SIGNED_IN"
+                        self._verified_at[label] = status["confirmed_at"]
             selected = settings.profile_public()
             self.profile = str(selected["label"])
             root, directory = str(selected["user_data_dir"]), str(selected["profile_directory"])
@@ -215,13 +241,14 @@ class ConfiguredPostingService(PostingService):
         return self.settings.comment_generation_public()
 
     def save_comment_generation(self, name: str, description: str, reference_url: str,
-                                min_chars: int, max_chars: int) -> dict[str, str | int]:
+                                min_chars: int, max_chars: int,
+                                review_filter: bool = True) -> dict[str, str | int | bool]:
         if self.settings is None:
             raise ValueError("COMMENT_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
             previous = self.settings.comment_generation_public()
             result = self.settings.save_comment_generation(
-                name, description, reference_url, min_chars, max_chars)
+                name, description, reference_url, min_chars, max_chars, review_filter)
             relevant = ("name", "description", "min_chars", "max_chars")
             if any(result[key] != previous[key] for key in relevant):
                 self._selected.clear()
@@ -244,6 +271,152 @@ class ConfiguredPostingService(PostingService):
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         return self.settings.profile_public()
 
+    def setup_status(self) -> dict[str, object]:
+        """IMP-17: one local overview of what this PC has configured. No network calls."""
+        if self.settings is None:
+            raise ValueError("SETTINGS_UNAVAILABLE")
+        items: list[dict[str, object]] = []
+
+        def add(key, label, required, state, value, detail, target="", focus=""):
+            items.append({"id": key, "label": label, "required": required, "state": state,
+                          "value": value, "detail": detail, "target": target, "focus": focus})
+
+        with self._settings_lock:
+            entries = self.settings.channel_entries()
+            bad = [e["channel_id"] for e in entries if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", e["channel_id"])]
+            names = ", ".join(e["channel_name"] or e["channel_id"] for e in entries[:5])
+            failed = self._last_feed_errors or {}
+            if bad or not 5 <= len(entries) <= 20:
+                add("channels", "YouTube 채널 ID", True, "missing", f"{len(entries)}개",
+                    "UC로 시작하는 24자리 ID를 5~20개 등록해야 합니다.", "channel", "#channel-rows input")
+            elif failed:
+                add("channels", "YouTube 채널 ID", True, "warn", f"{len(entries)}개 · {names}",
+                    "최근 영상 불러오기에서 실패한 채널: " + ", ".join(f"{k}({v.split(' ')[0]})" for k, v in failed.items()),
+                    "channel", "#channel-rows input")
+            else:
+                add("channels", "YouTube 채널 ID", True, "ok", f"{len(entries)}개 · {names}",
+                    "형식 확인 완료" + (" · 최근 불러오기 성공" if self._last_feed_errors is not None
+                                     else " · 아직 영상 불러오기 전"), "channel", "#channel-rows input")
+            chrome = _installed_chrome()
+            add("chrome", "Google Chrome 설치", True, "ok" if chrome else "missing",
+                "설치됨" if chrome else "찾을 수 없음",
+                "댓글 게시와 계정 확인에 사용합니다." if chrome else "Google Chrome을 설치한 뒤 대시보드를 다시 시작하세요.")
+            options = self.settings.profile_options_public()["options"]
+            for index, option in enumerate(options):
+                label = option["label"]
+                state = self._account_states.get(label, "UNKNOWN")
+                prepared = option["configured"] and option["connected"]
+                status = ("ok" if state == "SIGNED_IN" else "missing" if state == "SIGNED_OUT" or not prepared
+                          else "warn")
+                value = {"SIGNED_IN": "로그인됨", "SIGNED_OUT": "로그아웃"}.get(state,
+                         "준비됨 · 로그인 미확인" if prepared else "프로필 미준비")
+                if option.get("memo"):
+                    value += f" · 메모: {option['memo']}"
+                detail = ("필수: 이 프로필로 댓글을 게시합니다. 다른 프로필보다 먼저 로그인을 확인합니다." if index == 0 else
+                          "선택(가점): 로그인이 확인되면 아직 댓글을 달지 않은 영상이 이 프로필에도 돌아가며 다시 배정됩니다."
+                          + ("" if self._account_states.get(options[0]["label"]) == "SIGNED_IN"
+                             else f" {options[0]['label']} 로그인을 먼저 확인해야 설정할 수 있습니다."))
+                add(f"profile:{label}", f"Chrome 프로필 {label}", index == 0, status, value,
+                    detail + " '현재 계정 확인'을 누르면 상태가 갱신됩니다.", "profile", "#profile-list button")
+            approved = 0
+            try:
+                for path in self.drafts_dir.glob("*.json"):
+                    record = _load_record(self.drafts_dir, path.stem) if VIDEO_ID.fullmatch(path.stem) else None
+                    if record and record.get("approval_hash") and not quality_failure(record):
+                        approved += 1
+            except (OSError, ValueError):
+                pass
+            add("drafts", "승인된 댓글 초안", True, "ok" if approved else "missing", f"{approved}개",
+                "AI 키 없이도 ②에서 바로 쓸 수 있는 사람 승인 초안입니다." if approved else
+                "영상을 불러와 AI 초안을 만들고 검토·승인하세요.", "load", "#load")
+            brand = self.settings.brand_public()
+            limits = self.settings.comment_limits()
+            add("comment", "댓글 생성 설정", True, "ok" if brand["name"] and brand["description"] else "missing",
+                f"{brand['name']} · {limits['min_chars']}~{limits['max_chars']}자",
+                "브랜드명·설명과 글자 수 범위(없으면 40~120자).", "brand", "#brand-name")
+            ai = self.settings.ai_public()
+            if not ai["has_key"]:
+                state, detail = "missing", "없으면 저장된 승인 초안만 쓸 수 있습니다(새 영상 즉석 초안 불가)."
+            elif self._ai_test is None:
+                state, detail = "warn", "키 입력됨 · 이번 실행에서 연결 테스트 전입니다."
+            elif self._ai_test[0]:
+                state, detail = "ok", "연결 테스트 성공."
+            else:
+                state, detail = "warn", f"연결 테스트 실패({self._ai_test[1]}). 키와 모델을 확인하세요."
+            add("ai", "AI API 키", False, state, f"{ai['provider']} · {ai['model']} · " +
+                ("키 있음" if ai["has_key"] else "키 없음"), detail, "ai", "#ai-key")
+            has_youtube = bool(self.settings.youtube_api_key())
+            add("youtube", "YouTube Data API 키", False,
+                "missing" if not has_youtube else "warn" if self._youtube_key_invalid else "ok",
+                "키 있음" if has_youtube else "키 없음",
+                ("최근 초안 생성에서 키가 유효하지 않았습니다." if self._youtube_key_invalid else
+                 "AI 초안 근거에 인기 댓글을 더할 때만 씁니다.") if has_youtube else
+                "없어도 됩니다. 인기 댓글 없이 자막·제목·설명으로 초안을 만듭니다.", "ai", "#youtube-key")
+            enabled = self.settings.review_filter_enabled()
+            add("filter", "2차 필터", False, "ok" if enabled else "warn", "켜짐" if enabled else "꺼짐",
+                "AI 초안을 검사하고 문제가 있으면 다시 쓰게 합니다.", "brand", "#comment-review-filter")
+            add("test_videos", "본인 테스트 영상", False, "ok" if self.test_videos else "missing",
+                f"{len(self.test_videos)}개 등록",
+                "개발·시연용. README 부록 A의 명령으로 등록합니다(심사에는 필요 없음).")
+        required = [item for item in items if item["required"]]
+        return {"items": items, "required_total": len(required),
+                "required_ok": sum(item["state"] == "ok" for item in required)}
+
+    def _probe_video_id(self) -> str:
+        """An allowed watch page for account checks (ADR-0003): loaded RSS first."""
+        allowed = set(self.settings.channels()) if self.settings is not None else set()
+        for card in self._videos.values():
+            if card.channel_id in allowed:
+                return card.video_id
+        for channel_id in (self.settings.channels() if self.settings is not None else []):
+            if channel_id in PDF_EXAMPLE_VIDEOS:
+                return PDF_EXAMPLE_VIDEOS[channel_id]
+        raise ValueError("PROBE_VIDEO_UNAVAILABLE")
+
+    def _primary_profile(self) -> str:
+        options = self.settings.profile_options_public()["options"]
+        return options[0]["label"] if options else ""
+
+    def _active_profiles(self) -> set[str]:
+        with Store(self.db_path) as store:
+            return {label for label, status in store.profile_status().items() if status["active"]}
+
+    def _assignment_candidates(self) -> list[str]:
+        """IMP-09/IMP-19: the first profile alone until it is confirmed signed in,
+        then every confirmed profile in settings order."""
+        all_options = self.settings.profile_options_public()["options"]
+        usable = [item["label"] for item in all_options if item["configured"] and item["connected"]]
+        primary = all_options[0]["label"] if all_options else ""
+        active = self._active_profiles()
+        if primary in usable and primary in active:
+            return [label for label in usable if label in active]
+        if primary in usable:
+            return [primary]
+        return usable[:1]
+
+    def _require_primary(self, label: str) -> None:
+        primary = self._primary_profile()
+        if label != primary and primary not in self._active_profiles():
+            raise ValueError("PROFILE_PRIMARY_REQUIRED")
+
+    def _set_profile_active(self, label: str, active: bool) -> int:
+        """Persist the confirmed state, then re-spread unattempted videos if candidates changed."""
+        with Store(self.db_path) as store:
+            store.set_profile_active(label, active, datetime.now(timezone.utc))
+        return self._sync_assignments()
+
+    def _sync_assignments(self, cards=None) -> int:
+        if self.settings is None:
+            return 0
+        cards = list(self._videos.values()) if cards is None else list(cards)
+        candidates = self._assignment_candidates()
+        with Store(self.db_path) as store:
+            if cards:
+                store.assign_dashboard_videos(cards, candidates, datetime.now(timezone.utc))
+            if not cards or store.assignment_candidates_key() == json.dumps(candidates, ensure_ascii=False):
+                return 0
+            return store.rebalance_dashboard_assignments(cards, candidates, datetime.now(timezone.utc))
+
     def profile_options_public(self) -> dict[str, object]:
         if self.settings is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
@@ -252,23 +425,21 @@ class ConfiguredPostingService(PostingService):
             window_open = (self._login_window_process is not None and
                            self._login_window_process.poll() is None)
             for option in result["options"]:
-                verified = self._verified_emails.get(option["label"])
-                option["verified_email"] = verified[0] if verified else ""
-                option["verified_at"] = verified[1] if verified else ""
+                option["verified_at"] = self._verified_at.get(option["label"], "")
                 option["account_state"] = self._account_states.get(option["label"], "UNKNOWN")
                 option["login_window_open"] = bool(window_open and
                     self._login_window_root == self.settings.app_profile_root(option["label"]))
             return result
 
-    def verify_profile_email(self, label: str) -> dict[str, object]:
-        return self._posting_worker.submit(self._verify_profile_email_on_worker, label).result()
+    def verify_profile(self, label: str) -> dict[str, object]:
+        return self._posting_worker.submit(self._verify_profile_on_worker, label).result()
 
-    def _verify_profile_email_on_worker(self, label: str) -> dict[str, object]:
+    def _verify_profile_on_worker(self, label: str) -> dict[str, object]:
         with self._settings_lock:
             if self.settings is None or self.poster is None:
                 raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-            self._verified_emails.pop(label, None)
-            self._account_states[label] = "UNKNOWN"
+            self._require_primary(label)
+            previous = (self._account_states.get(label, "UNKNOWN"), self._verified_at.get(label, ""))
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
                     self._login_window_root == root and
@@ -285,21 +456,28 @@ class ConfiguredPostingService(PostingService):
             if reason:
                 raise ValueError(reason)
             try:
-                email = self.poster.inspect_account_email()
+                self.poster.check_signed_in(self._probe_video_id())
             except ValueError as exc:
                 if str(exc) == "PROFILE_SIGNED_OUT":
                     self._account_states[label] = "SIGNED_OUT"
+                    self._verified_at.pop(label, None)
+                    self._set_profile_active(label, False)
                 else:
-                    self._account_states[label] = "UNKNOWN"
+                    # Not a clear answer (network, slow page): keep the last known state.
+                    self._account_states[label], self._verified_at[label] = previous
                 raise
-            self._verified_emails[label] = (email, datetime.now(timezone.utc).isoformat())
+            self._verified_at[label] = datetime.now(timezone.utc).isoformat()
             self._account_states[label] = "SIGNED_IN"
-            return self.profile_options_public()
+            reassigned = self._set_profile_active(label, True)
+            return {**self.profile_options_public(), "reassigned": reassigned,
+                    "states": self.video_states() if self._videos else {}}
 
-    def save_profile_email(self, label: str, email: str) -> dict[str, object]:
+    def save_profile_memo(self, label: str, memo: str) -> dict[str, object]:
         if self.settings is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-        return self.settings.save_profile_email(label, email)
+        with self._settings_lock:
+            self.settings.save_profile_memo(label, memo)
+        return self.profile_options_public()
 
     def save_profile(self, label: str) -> dict[str, object]:
         if self.settings is None or self.poster is None:
@@ -328,28 +506,26 @@ class ConfiguredPostingService(PostingService):
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
-            self._verified_emails.pop(label, None)
-            self._account_states[label] = "UNKNOWN"
+            self._require_primary(label)
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
                     self._login_window_process.poll() is None):
                 raise ValueError("PROFILE_LOCKED")
+            # The account may change in this window: stop assigning to it until re-checked.
+            self._verified_at.pop(label, None)
+            self._account_states[label] = "UNKNOWN"
+            reassigned = self._set_profile_active(label, False)
             root.mkdir(parents=True, exist_ok=True)
             profile = root / "Default"
             if not profile.resolve(strict=False).is_relative_to(root.resolve()):
                 raise ValueError("PROFILE_PATH_UNSAFE")
             profile.mkdir(exist_ok=True)
-            process = _open_login_window(root)
+            process = _open_login_window(root, self._probe_video_id())
             saved = self.settings.connect_profile(label)
             self._selected.clear()
-            if self._videos:
-                candidates = [item["label"] for item in self.settings.profile_options_public()["options"]
-                              if item["configured"] and item["connected"]]
-                with Store(self.db_path) as store:
-                    store.assign_dashboard_videos(self._videos.values(), candidates, datetime.now(timezone.utc))
             self._login_window_process = process
             self._login_window_root = root
-            return {**saved, "login_window_opened": True,
+            return {**saved, "login_window_opened": True, "reassigned": reassigned,
                     "states": self.video_states() if self._videos else {}}
 
     def save_ai(self, provider: str, model: str, api_key: str,
@@ -369,7 +545,12 @@ class ConfiguredPostingService(PostingService):
         provider, model, key = self.settings.ai_credentials()
         if not key:
             raise ValueError("AI_KEY_MISSING")
-        test_ai_connection(provider, model, key)
+        try:
+            test_ai_connection(provider, model, key)
+        except Exception as exc:
+            self._ai_test = (False, str(exc) if str(exc).isupper() else type(exc).__name__)
+            raise
+        self._ai_test = (True, "")
         return {"connected": True, "provider": provider, "model": model}
 
     def generate_draft(self, video_id: str) -> dict[str, object]:
@@ -385,16 +566,96 @@ class ConfiguredPostingService(PostingService):
             if not key:
                 raise ValueError("AI_KEY_MISSING")
             evidence = self.evidence_provider.collect(card)
+            self._youtube_key_invalid = "키가 유효하지" in (evidence.notice or "")
             brand = self.settings.brand_public()
             limits = self.settings.comment_limits()
             prompt = build_draft_prompt(evidence, brand_name=brand["name"],
                                         brand_description=brand["description"], **limits)
             result = self.draft_generator.generate(provider, model, key, prompt)
+            enabled = self.settings.review_filter_enabled()
+            rounds = []
+            if enabled:
+                result, rounds = self._review_loop(provider, model, key, prompt, result,
+                                                   evidence.text, brand, limits, video_id)
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile,
                                     brand_name=brand["name"], brand_description=brand["description"],
+                                    review_rounds=rounds, prompt_version=prompt.version,
                                     **limits)
-            return {key: record[key] for key in ("video_id", "worry_summary", "cited_detail", "comment", "evidence_sources", "source_text", "min_chars", "max_chars")} | {"evidence_notice": evidence.notice}
+            return self._draft_view(record, brand, limits, video_id) | {
+                "evidence_notice": evidence.notice, "review_filter": enabled, "changed": bool(rounds)}
+
+    def _candidate(self, values: dict, source_text: str, brand: dict, limits: dict) -> dict:
+        return {**{k: str(values.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
+                "source_text": source_text, "brand_name": brand["name"], **limits}
+
+    def _review_loop(self, provider, model, key, prompt, result, source_text, brand, limits, video_id):
+        """IMP-15 second pass: deterministic review, then AI rewrite with concrete feedback."""
+        others = other_comments(self.drafts_dir, video_id)
+        rounds = []
+        for _ in range(MAX_REVISIONS):
+            problems = review_problems(self._candidate(result, source_text, brand, limits), others)
+            if not problems:
+                break
+            rounds.append({"comment": str(result.get("comment", "")), "problems": problems})
+            try:
+                revised = self.draft_generator.generate(
+                    provider, model, key, build_revision_prompt(prompt, result, problems))
+            except ValueError:
+                break  # keep the previous draft; the person still reviews it
+            if isinstance(revised, dict):
+                result = revised
+        if rounds:
+            final = self._candidate(result, source_text, brand, limits)
+            rounds.append({"comment": final["comment"], "problems": review_problems(final, others)})
+        return result, rounds
+
+    def _draft_view(self, record: dict, brand: dict, limits: dict, video_id: str) -> dict:
+        view = {key: record.get(key, "") for key in ("video_id", "worry_summary", "cited_detail", "comment",
+                                                     "evidence_sources", "source_text", "min_chars", "max_chars")}
+        current = review_problems(self._candidate(record, record.get("source_text", ""), brand, limits),
+                                  other_comments(self.drafts_dir, video_id))
+        return view | {"review_rounds": record.get("review_rounds", []), "problems": current,
+                       "approved": bool(record.get("approval_hash")),
+                       "prompt_version": record.get("prompt_version", "")}
+
+    def refine_draft(self, video_id: str, rewrite: bool = False) -> dict[str, object]:
+        """IMP-16: open a saved draft for review, optionally re-running the second-pass filter."""
+        if self.settings is None:
+            raise ValueError("AI_SETTINGS_UNAVAILABLE")
+        with self._settings_lock:
+            card = self._videos.get(video_id)
+            if card is None:
+                raise ValueError("VIDEO_NOT_FOUND")
+            record = _load_record(self.drafts_dir, video_id)
+            if not record:
+                raise ValueError("DRAFT_MISSING")
+            brand = self.settings.brand_public()
+            limits = self.settings.comment_limits()
+            view = self._draft_view(record, brand, limits, video_id) | {
+                "review_filter": self.settings.review_filter_enabled(), "changed": False}
+            if not rewrite or not view["problems"]:
+                return view
+            provider, model, key = self.settings.ai_credentials()
+            if not key:
+                raise ValueError("AI_KEY_MISSING")
+            source = str(record.get("source_text") or card.title)
+            sources = tuple(record.get("evidence_sources") or ())
+            prompt = build_draft_prompt(EvidenceResult(source, sources), brand_name=brand["name"],
+                                        brand_description=brand["description"], **limits)
+            start = {k: str(record.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")}
+            result, rounds = self._review_loop(provider, model, key, prompt, start, source,
+                                               brand, limits, video_id)
+            if result == start:
+                return view | {"review_rounds": view["review_rounds"] + rounds}
+            profile = str(record.get("generated_profile") or self._assigned_profile(video_id))
+            saved = save_generated(card, result, self.drafts_dir, source_text=source,
+                                   evidence_sources=sources, profile=profile,
+                                   brand_name=brand["name"], brand_description=brand["description"],
+                                   review_rounds=list(record.get("review_rounds", [])) + rounds,
+                                   prompt_version=prompt.version + "+refine", **limits)
+            return self._draft_view(saved, brand, limits, video_id) | {
+                "review_filter": self.settings.review_filter_enabled(), "changed": True}
 
     def approve_draft(self, video_id: str, values: dict) -> dict[str, object]:
         with self._settings_lock:
@@ -441,11 +702,9 @@ class ConfiguredPostingService(PostingService):
     def list_videos(self) -> VideoList:
         with self._settings_lock:
             result = super().list_videos()
+            self._last_feed_errors = dict(result.errors)
             if self.settings is not None:
-                candidates = [item["label"] for item in self.settings.profile_options_public()["options"]
-                              if item["configured"] and item["connected"]]
-                with Store(self.db_path) as store:
-                    store.assign_dashboard_videos(result.videos, candidates, datetime.now(timezone.utc))
+                self._sync_assignments(result.videos)
             return result
 
     def video_states(self) -> dict[str, dict[str, str]]:
@@ -558,7 +817,12 @@ class ConfiguredPostingService(PostingService):
             reason = self._profile_reason()
             if reason:
                 return PostStatus("blocked", reason)
-            return super().post_video(video_id)
+            result = super().post_video(video_id)
+            if result.reason_code == "LOGIN_REQUIRED" and self.settings is not None and self.profile:
+                self._account_states[self.profile] = "SIGNED_OUT"
+                self._verified_at.pop(self.profile, None)
+                self._set_profile_active(str(self.profile), False)
+            return result
 
 
 def _capture_url(path: str, capture_dir: Path | None) -> str:
@@ -706,6 +970,29 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._json(200, asdict(service.select_video(match.group(1))))
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
+            if self.path == "/api/setup-status":
+                if not self._session_ok():
+                    return self._reject(403, FORBIDDEN)
+                if not isinstance(service, SetupStatusService):
+                    return self._json(200, {"items": [], "required_total": 0, "required_ok": 0,
+                                            "unavailable": True})
+                try:
+                    return self._json(200, service.setup_status())
+                except Exception:
+                    return self._reject(503, INTERNAL_ERROR)
+            if self.path == "/api/history":
+                if not self._session_ok():
+                    return self._reject(403, FORBIDDEN)
+                if not isinstance(service, HistoryService):
+                    return self._json(200, {"items": [], "posted_today": 0, "daily_limit": 0,
+                                            "unavailable": True})
+                try:
+                    result = service.history()
+                except Exception:
+                    return self._reject(503, INTERNAL_ERROR)
+                for item in result["items"]:
+                    item["screenshot_url"] = _capture_url(item.pop("screenshot_path", ""), captures)
+                return self._json(200, result)
             if self.path == "/api/progress":
                 if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
                     return self._reject(403, FORBIDDEN)
@@ -739,7 +1026,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
                                  "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/comment-settings", "/api/youtube-key",
-                                 "/api/profile", "/api/profile/add", "/api/profile/email", "/api/profile/verify-email", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve"}:
+                                 "/api/profile", "/api/profile/add", "/api/profile/memo", "/api/profile/verify", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine"}:
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
                 return self._reject_early_post(403, FORBIDDEN)
@@ -764,8 +1051,10 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                             or any(not isinstance(data[key], str) for key in data)):
                         raise ValueError
                 elif self.path == "/api/comment-settings":
+                    base = {"name", "description", "reference_url", "min_chars", "max_chars"}
                     if (not isinstance(data, dict)
-                            or set(data) != {"name", "description", "reference_url", "min_chars", "max_chars"}
+                            or set(data) not in (base, base | {"review_filter"})
+                            or not isinstance(data.get("review_filter", True), bool)
                             or any(not isinstance(data[key], str) for key in ("name", "description", "reference_url"))
                             or any(type(data[key]) is not int for key in ("min_chars", "max_chars"))):
                         raise ValueError
@@ -775,11 +1064,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 elif self.path == "/api/profile/add":
                     if not isinstance(data, dict) or set(data) != {"label"} or not isinstance(data["label"], str):
                         raise ValueError
-                elif self.path == "/api/profile/email":
-                    if (not isinstance(data, dict) or set(data) != {"label", "email"}
-                            or not isinstance(data["label"], str) or not isinstance(data["email"], str)):
+                elif self.path == "/api/profile/memo":
+                    if (not isinstance(data, dict) or set(data) != {"label", "memo"}
+                            or not isinstance(data["label"], str) or not isinstance(data["memo"], str)):
                         raise ValueError
-                elif self.path == "/api/profile/verify-email":
+                elif self.path == "/api/profile/verify":
                     if (not isinstance(data, dict) or set(data) != {"label"}
                             or not isinstance(data["label"], str)):
                         raise ValueError
@@ -809,6 +1098,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                         raise ValueError
                     value = data.get("entries", data.get("channels"))
                     if not isinstance(value, list):
+                        raise ValueError
+                elif self.path == "/api/drafts/refine":
+                    if (not isinstance(data, dict) or set(data) != {"video_id", "rewrite"}
+                            or not isinstance(data["video_id"], str) or not VIDEO_ID.fullmatch(data["video_id"])
+                            or not isinstance(data["rewrite"], bool)):
                         raise ValueError
                 elif self.path == "/api/drafts/approve":
                     if (not isinstance(data, dict) or set(data) != {"video_id", "draft"}
@@ -861,7 +1155,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = str(exc)
                     if reason == "PROFILE_SETTINGS_INVALID":
                         return self._reject(400, reason)
-                    return self._reject(503, reason if reason in {"CHROME_NOT_FOUND", "BROWSER_LAUNCH_FAILED", "PROFILE_PATH_UNSAFE", "PROFILE_LOCKED"} else "PROFILE_SETUP_FAILED")
+                    return self._reject(503, reason if reason in {"CHROME_NOT_FOUND", "BROWSER_LAUNCH_FAILED", "PROFILE_PATH_UNSAFE", "PROFILE_LOCKED", "PROBE_VIDEO_UNAVAILABLE"} else "PROFILE_SETUP_FAILED")
                 except OSError:
                     return self._reject(503, "PROFILE_SETUP_FAILED")
             if self.path == "/api/profile/add":
@@ -884,27 +1178,27 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     return self._reject(400, reason if reason.startswith("PROFILE_") or reason.startswith("USER_") else BAD_REQUEST)
                 except OSError:
                     return self._reject(503, "SETTINGS_WRITE_FAILED")
-            if self.path == "/api/profile/email":
-                if not isinstance(service, ProfileEmailService):
+            if self.path == "/api/profile/memo":
+                if not isinstance(service, ProfileMemoService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    return self._json(200, service.save_profile_email(data["label"], data["email"]))
+                    return self._json(200, service.save_profile_memo(data["label"], data["memo"]))
                 except ValueError as exc:
                     return self._reject(400, str(exc) if str(exc).startswith("PROFILE_") else BAD_REQUEST)
                 except OSError:
-                    return self._reject(503, "PROFILE_EMAIL_WRITE_FAILED")
-            if self.path == "/api/profile/verify-email":
+                    return self._reject(503, "SETTINGS_WRITE_FAILED")
+            if self.path == "/api/profile/verify":
                 if not isinstance(service, ProfileVerifyService):
                     return self._reject(404, BAD_REQUEST)
                 try:
-                    return self._json(200, service.verify_profile_email(data["label"]))
+                    return self._json(200, service.verify_profile(data["label"]))
                 except ValueError as exc:
                     reason = str(exc)
                     return self._reject(400 if reason == "PROFILE_SETTINGS_INVALID"
                                         else 409 if reason == "PROFILE_SIGNED_OUT" else 503,
-                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_")) else "PROFILE_EMAIL_CHECK_FAILED")
+                                        reason if reason.startswith(("PROFILE_", "BROWSER_", "USER_", "PROBE_")) else "PROFILE_ACCOUNT_CHECK_FAILED")
                 except Exception as exc:
-                    reason = getattr(exc, "code", "PROFILE_EMAIL_CHECK_FAILED")
+                    reason = getattr(exc, "code", "PROFILE_ACCOUNT_CHECK_FAILED")
                     return self._reject(503, reason)
             if self.path == "/api/channels/test":
                 if not isinstance(service, ChannelReadService):
@@ -945,7 +1239,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 try:
                     return self._json(200, service.save_comment_generation(
                         data["name"], data["description"], data["reference_url"],
-                        data["min_chars"], data["max_chars"]))
+                        data["min_chars"], data["max_chars"], data.get("review_filter", True)))
                 except ValueError as exc:
                     reason = str(exc)
                     return self._reject(400, reason if reason.startswith(("BRAND_", "COMMENT_")) else BAD_REQUEST)
@@ -980,6 +1274,17 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     reason = str(exc)
                     return self._reject(409 if reason == "AI_KEY_MISSING" else 503,
                                         reason if reason.isupper() else "DRAFT_GENERATION_FAILED")
+                except OSError:
+                    return self._reject(503, "DRAFT_WRITE_FAILED")
+            if self.path == "/api/drafts/refine":
+                if not isinstance(service, DraftRefineService):
+                    return self._reject(404, BAD_REQUEST)
+                try:
+                    return self._json(200, service.refine_draft(data["video_id"], data["rewrite"]))
+                except ValueError as exc:
+                    reason = str(exc)
+                    return self._reject(409 if reason in {"AI_KEY_MISSING", "DRAFT_MISSING"} else 503,
+                                        reason if reason.isupper() else "DRAFT_REFINE_FAILED")
                 except OSError:
                     return self._reject(503, "DRAFT_WRITE_FAILED")
             if self.path == "/api/drafts/approve":

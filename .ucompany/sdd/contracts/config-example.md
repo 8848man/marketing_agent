@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `profiles` | 1~20개 고유 표시 이름. 기본 3개 이름은 전용 Chrome 프로필에 대응하며 경로가 아니다. | `dashboard_settings.py`의 `_validate`, 프로필 목록·선택 |
 | `channels` | 중복 없는 `UC` 채널 ID 5~20개. RSS와 게시 대상 범위를 제한한다. | `dashboard_settings.py`의 `_validate`, `rss_feed.py`, `posting_service.py` |
+| `comment.review_filter` | 선택. 없으면 `true`(2차 필터 켬). 댓글 생성 관리의 체크박스로 저장한다. | `dashboard_settings.py`의 `review_filter_enabled`, `dashboard.py`의 `generate_draft`·`refine_draft` |
 | `comment.min_chars`, `comment.max_chars`, `comment.brand` | 글자 수 범위가 없으면 `40`, `120`; 관리 화면에서 1~1000자, 최소≤최대로 변경한다. `brand`는 기존 YAML 편집 호환값 `운명원`을 유지하며 실제 댓글 브랜드는 아래 필드를 사용한다. | `dashboard_settings.py`의 `_validate`·`comment_limits`, `prompt_policy.py`, `drafts.py`, 검토 UI |
 | `brand_settings.name`, `description`, `reference_url` | 이름·설명은 필수, URL은 선택이다. 기존 설정에 없으면 안전한 기본값을 사용한다. URL은 설명 수정용 참고로만 저장한다. | `dashboard_settings.py`의 `brand_public`, `save_brand`; `prompt_policy.py`는 이름·설명만 사용 |
 | `limits.daily_max_comments` | `10`으로 고정. | `dashboard_settings.py`의 `_validate`, `posting_service.py` |
@@ -18,6 +19,7 @@
 | `ai.provider`, `ai.model` | 기본 OpenAI·기본 모델 예시. 비밀 키 필드는 넣지 않는다. | `dashboard_settings.py`의 `_ai_data`, `save_ai` |
 | `chrome_profiles` | 기본 빈 맵. 프로필 연결 시 해당 PC의 앱 전용 절대 경로와 `Default`를 자동 저장한다. 예시에 다른 PC의 경로를 복사하지 않는다. | `dashboard_settings.py`의 `profile_options_public`, `connect_profile` |
 | `selected_chrome_profile` | 기본 첫 프로필 이름. 현재 선택을 저장한다. | `dashboard_settings.py`의 `_selected_profile`, `save_profile` |
+| `profile_memos` | 선택. 프로필 이름 → 40자 이내 메모(별칭). `@`가 든 값은 저장하지 않는다(이메일 금지). 비우면 키를 지운다. | `dashboard_settings.py`의 `save_profile_memo`, `profile_options_public` |
 | `profile_ids` | 기본 빈 맵. 추가 프로필의 내부 ID를 자동 저장하며 기본 3개는 내장 ID를 쓴다. | `dashboard_settings.py`의 `app_profile_root`, `add_profile` |
 
 이전 프로젝트의 `config.yaml`에는 `topic`, `keywords`, `trigger`, `chrome_debug_url` 등 보조 CLI 필드가 함께 남아 있을 수 있다. 대시보드가 사용하는 현재 예시에 이를 다시 합치지 않는다. 보조 CLI의 예시는 아래 별도 파일을 따른다.
@@ -49,4 +51,4 @@
 | `XAI_API_KEY` | Grok 어댑터 |
 | `YOUTUBE_API_KEY` | YouTube Data API 인기 댓글 근거 |
 
-실제 `.env`, `config.yaml`, `data/`, `drafts/`는 Git에 넣지 않는다. 예시의 로더 시험과 최신 수락 결과는 [적용 상태](IMPLEMENTATION_STATUS_2026-10-17.md)를 따른다.
+실제 `.env`, `config.yaml`, `data/`, `drafts/`는 Git에 넣지 않는다. 예시의 로더 시험과 최신 수락 결과는 [적용 상태](../improvements/2026-10-17/03-implementation-status.md)를 따른다.

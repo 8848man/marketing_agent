@@ -163,6 +163,36 @@ class PostingService:
             return "TEST_VIDEO_CHANGED"
         return ""
 
+    def dev_guard_enabled(self) -> bool:
+        """Developer-only switch (IMP-10): a marker file in the ignored work folder."""
+        return (Path(self.db_path).parent / "DEV_BLOCK_OUR_CHANNELS").is_file()
+
+    def history(self, limit: int = 50) -> dict[str, object]:
+        """Chronological posting record for the dashboard (R-LOG-01)."""
+        now = self.clock()
+        day = now.astimezone(self.local_tz).date().isoformat()
+        with Store(self.db_path) as store:
+            rows = store.dashboard_history(limit)
+            posted_today = store.dashboard_posts_on(day)
+        items = []
+        for row in rows:
+            body = row.get("body") or ""
+            if not body:
+                try:
+                    record = _load_record(self.drafts_dir, row["video_id"]) or {}
+                except (OSError, ValueError, TypeError):
+                    record = {}
+                if record.get("approval_hash") == row["approval_hash"]:
+                    body = str(record.get("comment", ""))
+            items.append({
+                "reserved_at": row["reserved_at"], "video_id": row["video_id"],
+                "title": row["title"], "channel_id": row["channel_id"],
+                "profile": row["profile"], "comment": body, "status": row["status"],
+                "reason_code": row["reason_code"] or "", "verified_at": row["verified_at"] or "",
+                "screenshot_path": row["screenshot_path"] or "",
+            })
+        return {"items": items, "posted_today": posted_today, "daily_limit": self.daily_limit}
+
     def post_video(self, video: str) -> PostStatus:
         try:
             video_id = normalize_video_id(video)
@@ -173,6 +203,10 @@ class PostingService:
         if selection is None or video != video_id:
             return PostStatus("blocked", "VIDEO_NOT_SELECTED")
         card = selection.card
+        if video_id not in self.test_videos and self.dev_guard_enabled():
+            return PostStatus("blocked", "DEV_OUR_CHANNEL_BLOCKED",
+                              "개발용 차단 파일이 있어 우리 채널 영상에는 게시하지 않습니다. "
+                              "본인 테스트 영상만 게시할 수 있습니다.")
         if video_id in self.test_videos:
             if not self._test_ownership(card):
                 return PostStatus("blocked", "OWNERSHIP_UNVERIFIED")
@@ -210,7 +244,7 @@ class PostingService:
                     body_hash=sha256(selection.body.encode("utf-8")).hexdigest(),
                     approval_hash=selection.approval_hash,
                     profile=self.profile, when=self.clock(), daily_limit=self.daily_limit,
-                    local_tz=self.local_tz)
+                    local_tz=self.local_tz, body=selection.body)
             except ReservationBlocked as exc:
                 return PostStatus("blocked", exc.reason)
             clicked = False
@@ -234,7 +268,8 @@ class PostingService:
             except Exception as exc:
                 reason = exc.reason if isinstance(exc, ReservationBlocked) else getattr(exc, "code", type(exc).__name__)
                 status = "OUTCOME_UNKNOWN" if clicked else "PRECHECK_FAILED"
-                store.finish_dashboard_post(attempt_id, status, reason_code=reason)
                 screenshot = getattr(self.poster, "last_screenshot_path", "")
+                store.finish_dashboard_post(attempt_id, status, reason_code=reason,
+                                            screenshot_path=screenshot or None)
                 return PostStatus("uncertain" if clicked else "blocked", reason,
                                   message=status, screenshot_url=screenshot)

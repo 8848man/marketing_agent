@@ -153,13 +153,13 @@ class ProfileAddService(Protocol):
 
 
 @runtime_checkable
-class ProfileEmailService(Protocol):
-    def save_profile_email(self, label: str, email: str) -> dict[str, object]: ...
+class ProfileMemoService(Protocol):
+    def save_profile_memo(self, label: str, memo: str) -> dict[str, object]: ...
 
 
 @runtime_checkable
 class ProfileVerifyService(Protocol):
-    def verify_profile_email(self, label: str) -> dict[str, object]: ...
+    def verify_profile(self, label: str) -> dict[str, object]: ...
 
 
 @runtime_checkable
@@ -175,6 +175,21 @@ class YouTubeKeyService(Protocol):
 @runtime_checkable
 class DraftGenerationService(Protocol):
     def generate_draft(self, video_id: str) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class DraftRefineService(Protocol):
+    def refine_draft(self, video_id: str, rewrite: bool = False) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class SetupStatusService(Protocol):
+    def setup_status(self) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class HistoryService(Protocol):
+    def history(self, limit: int = 50) -> dict[str, object]: ...
 
 
 @runtime_checkable

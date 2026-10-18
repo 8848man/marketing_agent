@@ -8,7 +8,7 @@ status: active
 
 ## 제품과 근거
 
-- 원본 요구사항은 `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf`이고, 저장소에서 관리하는 요구사항 원본은 `docs/track2-agent/spec.md`다. 구현 방침·작업·검증 상태는 각각 같은 폴더의 `plan.md`·`tasks.md`·`validation-protocol.md`에서 확인한다.
+- 원본 요구사항은 `C:/Users/LG/Downloads/track-2-marketing-agent (1).pdf`이고, 저장소에서 관리하는 요구사항 원본은 `.ucompany/sdd/features/track2-dashboard/spec.md`다. 구현 방침·작업·검증 상태는 각각 같은 폴더의 `plan.md`·`tasks.md`·`validation-protocol.md`에서 확인한다. 모든 SDD 문서는 `.ucompany/sdd/` 한 곳에 둔다(ADR-0001).
 - 제품은 `marketing_agent/` 한 곳에서 실행하는 로컬 웹 대시보드다. 기본 흐름은 영상 불러오기 → 영상 선택과 승인 초안 확인 → 사용자의 명시적 댓글 게시 클릭이다. 오프라인 데모의 성공은 실제 YouTube 게시 증거가 아니다.
 - PDF의 다섯 채널 ID를 초기 설정값으로 사용한다. 웹 설정을 바꾸면 이후 RSS 목록과 게시 직전 소속 재조회 모두 저장된 채널 목록을 사용한다.
 
@@ -25,3 +25,8 @@ status: active
 - Chrome 프로필은 지정된 Mac 환경에서 보이는 브라우저로 열되, 앱 코드가 프로필의 쿠키·비밀번호 파일을 직접 읽거나 복사하지 않는다. 프로필 경로·로그인·잠금 실패는 게시 차단 사유다.
 - Windows 회귀 시험, 오프라인 데모, 실제 5채널 RSS 응답, Mac 프로필/한국어 화면, 실제 댓글 게시를 서로 다른 증거로 기록한다. 검증하지 못한 관문은 통과로 표시하지 않는다.
 - 문서 상태를 바꿀 때 `AGENTS.md`의 단계 확인 규칙을 따르고 `tasks.md`·`00_index.md`·`graph.json`·`handoff.md`를 함께 갱신한다.
+
+## 작업 절차
+
+- 모든 변경은 [workflow.md](workflow.md)의 Spec → 구현 → 검증 → GitHub → 마감 관문을 지난다. `main`에는 PR과 CI(V1 `check_sdd.py`·`safety_scan.py`, V2 pytest) 통과 후에만 합친다.
+- `safety_scan.py`의 FAIL은 즉시 수정한다. 제출 직전에는 `--strict`로 WARN(허용 범위 밖 외부 호스트)까지 0으로 만든다.

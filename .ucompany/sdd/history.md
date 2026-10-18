@@ -1,8 +1,8 @@
 # 날짜별 작업 이력
 
-아래 문장은 작성 당시 판단과 시험 기록이다. 현재 구현·수락 상태는 [적용 상태](../../IMPLEMENTATION_STATUS_2026-10-17.md)와 [공백 감사](../../REMEDIATION_GAP_AUDIT_2026-10-17.md)를 따른다.
+아래 문장은 작성 당시 판단과 시험 기록이다. 현재 구현·수락 상태는 [적용 상태](improvements/2026-10-17/03-implementation-status.md)와 [공백 감사](improvements/2026-10-17/04-remediation-gap-audit.md)를 따른다.
 
-2026-10-17부터 이 폴더와 `docs/track2-agent`가 제품 SDD의 원본이다. 상위 샘플프로젝트 경로를 참조하지 않는다. Windows 자동 회귀는 통과했으며 macOS 실기기 설치·계정 확인·게시 검수는 남아 있다.
+2026-10-17부터 이 폴더와 `.ucompany/sdd/features/track2-dashboard`가 제품 SDD의 원본이다. 상위 샘플프로젝트 경로를 참조하지 않는다. Windows 자동 회귀는 통과했으며 macOS 실기기 설치·계정 확인·게시 검수는 남아 있다.
 
 2026-10-17 U40 감사: README의 안전 규칙 표와 PROCESS 제작 노트가 현재 판정의 진입점이다. `marketing_agent/`를 대시보드 폴더로 해석하므로 앱 루트의 설정·초안 파일은 그 폴더 내부다. Google 로그인 URL과 외부 프로필 옵션 등 남은 경계는 검토가 필요하다.
 
@@ -40,7 +40,7 @@ Gemini의 실제 초안 생성에서 일반 문장이 와 `AI_RESPONSE_INVALID`�
 
 같은 날짜 Windows의 실제 게시 시작에서 Playwright 기본 인수가 설치된 Chrome에 `--no-sandbox`를 붙여 보안 경고·빈 탭을 띄우는 것을 확인했다. persistent 실행에서 이 기본 인수만 제외하고 프로필 인수는 유지했다. 모의 게시·프로필·대시보드 회귀 46개가 통과했고 8770을 재시작했다. 새 창의 실제 YouTube 탐색·로그인·게시 검증은 수행하지 않았으므로 G2와 실게시 수락은 미완료다.
 
-새 기능은 `features/<기능>/feature.md`로 진입점을 만들고 요구사항·계획·작업 문서와 그래프 관계를 연결한다. Track 2는 이미 작성된 `docs/track2-agent/`를 원본으로 참조한다. 새 결정은 `decisions/ADR-####.md`에 남긴다.
+새 기능은 `features/<기능>/feature.md`로 진입점을 만들고 요구사항·계획·작업 문서와 그래프 관계를 연결한다. Track 2는 이미 작성된 `.ucompany/sdd/features/track2-dashboard/`를 원본으로 참조한다. 새 결정은 `decisions/ADR-####.md`에 남긴다.
 
 2026-10-16 B03-A에서 Gemini 실제 초안의 `MAX_TOKENS` 잘림을 확인했다. Gemini 3은 낮은 생각 수준과 4096 토큰 상한을 요청하며, OpenAI·xAI·Claude는 512 출력 토큰 상한을 명시한다. 코드 펜스/설명문 속 단일 JSON도 복원하되 세 필드 계약 외 결과는 저장하지 않는다. Windows에서 실제 Gemini 초안 생성·사람 검토 화면과 39개 관련 회귀를 확인했다. 다른 제공사의 실키 및 Mac 수락은 미완료다.
 

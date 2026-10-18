@@ -2,14 +2,14 @@
 
 기준일: 2026-10-17. 이 문서는 저장소 코드의 계약을 설명하며 각 제공사의 현재 가격·정책·모델 접근권을 인증하지 않는다.
 
-호스트·키 전달·리다이렉트·응답 크기·오류 정책은 [외부 요청 정책](EXTERNAL_IO_POLICY.md)에 기록한다.
+호스트·키 전달·리다이렉트·응답 크기·오류 정책은 [외부 요청 정책](external-io-policy.md)에 기록한다.
 
 ## 공통 계약
 
-- 초안 생성은 [`AIClient.complete_json`](src/marketing_agent/ai_client.py)으로 `system`, `prompt`, 선택적 `response_schema`를 전달한다. 반환값은 JSON 객체다.
+- 초안 생성은 [`AIClient.complete_json`](../../../src/marketing_agent/ai_client.py)으로 `system`, `prompt`, 선택적 `response_schema`를 전달한다. 반환값은 JSON 객체다.
 - 제공사별 어댑터는 인증·요청 형식·응답 파싱을 맡는다. 선택한 제공사와 모델, 키 변수, 화면 선택지는 `PROVIDER_DETAILS`와 등록 함수에서 나온다.
-- 대시보드의 [`prompt_policy.py`](src/marketing_agent/prompt_policy.py)는 제공사와 별개로 시스템 지시, 입력 JSON, 응답 스키마, 버전(`draft-v2`)을 정의한다. 외부 자막·댓글은 지시가 아닌 비신뢰 근거로 취급한다.
-- [`captions.py`](src/marketing_agent/captions.py)는 자막/제목·설명 최대 12,000자, 인기 댓글 최대 10개·각 500자로 AI에 보내는 양을 제한한다. 생성 결과는 즉시 게시되지 않고 [`drafts.py`](src/marketing_agent/drafts.py)의 품질 검사와 사람 승인이 필요하다.
+- 대시보드의 [`prompt_policy.py`](../../../src/marketing_agent/prompt_policy.py)는 제공사와 별개로 시스템 지시, 입력 JSON, 응답 스키마, 버전(`draft-v2`)을 정의한다. 외부 자막·댓글은 지시가 아닌 비신뢰 근거로 취급한다.
+- [`captions.py`](../../../src/marketing_agent/captions.py)는 자막/제목·설명 최대 12,000자, 인기 댓글 최대 10개·각 500자로 AI에 보내는 양을 제한한다. 생성 결과는 즉시 게시되지 않고 [`drafts.py`](../../../src/marketing_agent/drafts.py)의 품질 검사와 사람 승인이 필요하다.
 - 제공사 추가는 신뢰된 코드에서 `register_ai_provider(name, label, default_model, key_env, presets, factory)`를 호출한다. 새 어댑터는 `complete_json` 계약과 실패 코드·비밀정보 비노출 시험을 통과해야 한다. 임의 사용자 입력으로 API 호스트를 등록하지 않는다.
 
 ## 현재 어댑터의 차이

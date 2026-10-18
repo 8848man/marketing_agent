@@ -198,6 +198,29 @@ def test_comment_length_link_and_hashtag_rules():
     assert quality_failure(dict(draft, comment=draft["comment"].replace("운명원", "다른 곳"))) == "BRAND_CONTEXT_MISSING"
 
 
+def test_brand_used_as_common_noun_or_past_visit_is_rejected():
+    """Regression for 2026-10-16 drafts that treated 운명원 as 'destined partner'."""
+    draft = approved()
+    base = "답장이 늦어지는 장면 너무 공감돼요. 나도 인연이 언제 오는지 궁금하다. "
+    misused = ("혹시 여기서 저의 운명원을 만날 수 있을까요? 진짜 궁금해요",
+               "올해는 운명원을 만날 좋은 기회라고 하던데 용기를 내봐야겠어요",
+               "제 운명원은 어디에 있을지 궁금해지는 밤이네요 정말로요")
+    for tail in misused:
+        assert quality_failure(dict(draft, comment=base + tail)) == "BRAND_MISUSED", tail
+    visited = base + "운명원에서 사주 봤더니 올해 인연 들어온다고 했어요"
+    assert quality_failure(dict(draft, comment=visited)) == "FABRICATED_TESTIMONIAL"
+    ongoing = base + "요즘 운명원은 물론 사주까지 보면서 짝을 찾는 중이에요"
+    assert quality_failure(dict(draft, comment=ongoing)) == "FABRICATED_TESTIMONIAL"
+    result = base + "운명원이나 사주에서 제 연애운이 안 좋았던 이유가 있었네요"
+    assert quality_failure(dict(draft, comment=result)) == "FABRICATED_TESTIMONIAL"
+    intent = base + "언젠가 운명원에서 제 연애운도 한번 봐보고 싶어요"
+    assert quality_failure(dict(draft, comment=intent)) == ""
+    negative = base + "사주나 운명원에 의지하기 전에 내 행동부터 바꿔야겠어요"
+    assert quality_failure(dict(draft, comment=negative)) == "BRAND_NEGATIVE_FRAMING"
+    curious = base + "운명원 연애사주가 그렇게 잘 본다던데 한번 보고 싶다"
+    assert quality_failure(dict(draft, comment=curious)) == ""
+
+
 def test_ui_selection_has_no_post_or_chrome_action():
     html = page("token").decode("utf-8")
     assert all(label in html for label in ("① 영상 불러오기", "② 영상 선택", "③ 댓글 달기"))

@@ -17,4 +17,4 @@ chrome_profile/
 data/screenshots/
 screenshots/
 
-drafts/
+# drafts/ is tracked: PDF requires pre-approved drafts in the repository (IMP-05)

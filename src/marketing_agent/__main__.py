@@ -62,9 +62,86 @@ def _register_owned_test_video(db_path: Path, work_dir: Path, entries: list[dict
                                    str(evidence.relative_to(work_dir)))
 
 
+def _draft_service(work_dir: Path, drafts_dir: Path):
+    """Same service the dashboard uses, without a poster: it cannot open Chrome."""
+    from .dashboard import ConfiguredPostingService, DashboardSettings
+    from .rss_feed import list_videos, recheck_video
+    settings = DashboardSettings(_app_path("config.yaml"))
+    return ConfiguredPostingService(
+        work_dir / "posts.db", drafts_dir, poster=None, settings=settings,
+        feed_loader=lambda: list_videos(channels=settings.channels(), cache_dir=work_dir / "rss_cache"),
+        recheck=lambda video_id, channel_id: recheck_video(
+            video_id, channel_id, channels=settings.channels()))
+
+
+def _approved(card, drafts_dir: Path) -> bool:
+    from .drafts import preview
+    try:
+        return bool(preview(card, drafts_dir).can_post)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _keep_previous_draft(drafts_dir: Path, work_dir: Path, video_id: str) -> None:
+    """Copy an existing draft to work_dir/draft_history before it is overwritten."""
+    current = drafts_dir / f"{video_id}.json"
+    if current.is_file() and not current.is_symlink():
+        history = work_dir / "draft_history"
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        (history / f"{video_id}.{stamp}.json").write_bytes(current.read_bytes())
+
+
+def _drafts_command(argv: list[str]) -> int:
+    """IMP-11: batch-generate UNAPPROVED drafts for the newest videos; never posts."""
+    parser = argparse.ArgumentParser(prog="marketing_agent drafts",
+                                     description="Generate unapproved AI drafts for the latest videos")
+    parser.add_argument("--latest", type=int, default=3, help="videos per channel (1-15)")
+    parser.add_argument("--drafts-dir", default="drafts")
+    parser.add_argument("--work-dir", default="data/dashboard")
+    parser.add_argument("--include-approved", action="store_true",
+                        help="also regenerate videos that already have an approved draft (becomes unapproved)")
+    args = parser.parse_args(argv)
+    if not 1 <= args.latest <= 15:
+        print("drafts error: --latest must be 1..15", file=sys.stderr)
+        return 2
+    try:
+        drafts_dir = _app_path(args.drafts_dir)
+        work_dir = _app_path(args.work_dir)
+        service = _draft_service(work_dir, drafts_dir)
+        result = service.list_videos()
+    except (OSError, ValueError) as exc:
+        print(f"drafts error: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    by_channel: dict[str, list] = {}
+    for card in result.videos:
+        by_channel.setdefault(card.channel_id, []).append(card)
+    counts = {"GENERATED": 0, "SKIP_APPROVED": 0, "FAILED": 0}
+    for channel_id, cards in by_channel.items():
+        for card in sorted(cards, key=lambda c: c.published_at, reverse=True)[:args.latest]:
+            if _approved(card, drafts_dir) and not args.include_approved:
+                status = "SKIP_APPROVED"
+            else:
+                try:
+                    _keep_previous_draft(drafts_dir, work_dir, card.video_id)
+                    service.generate_draft(card.video_id)
+                    status = "GENERATED"
+                except ValueError as exc:
+                    status = f"FAILED {exc}" if str(exc).isupper() else "FAILED"
+            counts[status.split()[0]] += 1
+            print(f"{card.video_id} {status} [{card.channel}]")
+    for channel, error in getattr(result, "errors", {}).items():
+        print(f"RSS {channel}: {error}")
+    print("summary " + " ".join(f"{key}={value}" for key, value in counts.items())
+          + " (approve in the dashboard before posting)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+    if argv and argv[0] == "drafts":
+        return _drafts_command(argv[1:])
     if argv and argv[0] == "dashboard":
         dashboard_parser = argparse.ArgumentParser(description="Run the local dashboard")
         dashboard_parser.add_argument("--port", type=int, default=8765)
@@ -76,9 +153,6 @@ def main(argv: list[str] | None = None) -> int:
                                       help="Record your manually verified ownership, then exit without posting")
         dashboard_parser.add_argument("--ownership-evidence",
                                       help="Existing evidence file inside --work-dir, required for registration")
-        dashboard_parser.add_argument("--chrome-user-data-dir",
-                                      default=str(Path.home() / "Library/Application Support/Google/Chrome"))
-        dashboard_parser.add_argument("--chrome-profile-directory", default="")
         dashboard_args = dashboard_parser.parse_args(argv[1:])
         from .dashboard import ConfiguredPostingService, DashboardSettings, DemoService, run_dashboard
         from .poster import VisibleChromePoster
@@ -105,22 +179,16 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("OWNERSHIP_EVIDENCE_REQUIRES_REGISTRATION")
             capture_dir = work_dir / "screenshots"
             settings = DashboardSettings(_app_path("config.yaml"))
-            poster = VisibleChromePoster(
-                dashboard_args.chrome_user_data_dir,
-                dashboard_args.chrome_profile_directory,
-                screenshot_dir=capture_dir,
-            )
+            # No Chrome path is accepted from the command line: the poster starts
+            # unconfigured inside the app folder and the service applies the saved
+            # app-dedicated profile (data/dashboard/chrome-profile-*) selection.
+            poster = VisibleChromePoster(work_dir, "", screenshot_dir=capture_dir)
             service = ConfiguredPostingService(work_dir / "posts.db", drafts_dir,
                                                poster=poster, profile="유튜브1",
                                                test_videos=entries, settings=settings,
-                                               feed_loader=lambda: list_videos(channels=settings.channels()),
+                                               feed_loader=lambda: list_videos(channels=settings.channels(), cache_dir=work_dir / "rss_cache"),
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
-            # A command-line profile is an explicit one-run override; otherwise
-            # the locally saved dashboard selection is applied by the service.
-            if dashboard_args.chrome_profile_directory:
-                poster.user_data_dir = Path(dashboard_args.chrome_user_data_dir)
-                poster.profile_directory = dashboard_args.chrome_profile_directory
             run_dashboard(port=dashboard_args.port, service=service,
                           capture_dir=capture_dir)
             return 0
