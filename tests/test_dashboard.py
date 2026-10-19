@@ -861,6 +861,8 @@ def test_brand_prompt_uses_description_but_never_reference_url(tmp_path):
     settings.save_brand("별빛", "연애 고민을 대화로 살펴보는 브랜드", "https://brand.example/updated-reference")
     assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"
     settings.save_brand("별빛", "새로운 설명", "https://brand.example/private-reference")
+    assert service.select_video(VIDEO_ID).reason_code != "BRAND_CHANGED_REGENERATE"   # IMP-26: tone only
+    settings.save_brand("달빛", "새로운 설명", "https://brand.example/private-reference")
     assert service.select_video(VIDEO_ID).reason_code == "BRAND_CHANGED_REGENERATE"
 
 

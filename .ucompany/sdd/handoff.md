@@ -1,5 +1,7 @@
 # Handoff
 
+- IMP-26 (2026-10-19): `ma_review_2`(submitment 새로 받기)에서 "초안 승인에 실패했습니다" 제보. 원인은 예시 설정의 브랜드 설명과 초안의 설명이 달라 `BRAND_CHANGED_REGENERATE`. 설명은 비교에서 빼고(이름·글자 수만), 예시 설명을 제출 초안과 맞췄다. `submitment`를 수정본으로 다시 고정.
+
 - IMP-22~25 제출 마무리 (2026-10-19): 2026-10-19 02시대 시연 녹화 중 `ma_review` 폴더(개발 가드 없음)에서 우리 채널 3건(`ZmEIpurPTCA`·`k_0c0m0Hk5k`·`c-QzU4kuu90`)이 게시됐고 사용자가 같은 날 아침 모두 삭제했다(누적 10건 모두 삭제, PROCESS 실패 5). 심사 모드(`--review`, '테스트용' 추천)와 더블클릭 실행 파일, 제출 초안 세트(15건: 승인 5·승인 전 10), HOW_TO_SETTING·오픈소스 출처·PROCESS 재구성, SDD 커버리지 검사를 반영했다. 제출 버전은 `submitment` 브랜치·`submission-20261019` 태그. 검증: V1 check_sdd 0·safety 0, V2 pytest, V3 Linux 실행 파일·헤드리스 화면, mac-smoke(실행 파일 단계 포함). V4 Mac 실기기 미수행.
 
 - IMP-21 제작 노트 (2026-10-18): 안내판+사람용·AI용으로 나눴다가(PR #6) 심사자만 읽는 문서라 `PROCESS.md` 한 파일(사람용 서술형)로 되돌렸다. Mac은 GitHub Actions 스모크만 했다고 명시. 프롬프트를 바꾸면 `PROCESS.md` 원문도 고쳐야 `tests/test_process_docs.py`가 통과한다. IMP-12(mac-smoke)는 실행 통과로 닫음.

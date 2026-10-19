@@ -14,7 +14,7 @@ comment:
   brand: 운명원  # 이전 YAML 편집 호환 필드; 실제 댓글 브랜드는 brand_settings.name
 brand_settings:
   name: 운명원  # 댓글에 자연스럽게 포함할 브랜드명
-  description: 연애 고민을 사주 관점에서 살펴보는 서비스  # AI 초안의 브랜드 맥락
+  description: 연애 사주를 잘 봐주는 곳으로 유명한 사주 상담 업체 이름(고유명사). 시청자가 언젠가 한번 연애운이나 인연 시기를 봐 보고 싶어지는 곳.  # AI 초안의 브랜드 맥락(제출 초안과 같은 설명)
   reference_url: ""  # 선택: 추후 설명 수정 시 참고만 함; URL은 열거나 AI에 전송하지 않음
 limits:
   daily_max_comments: 10
