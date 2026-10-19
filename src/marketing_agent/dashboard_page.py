@@ -40,7 +40,7 @@ const reasonText={
   PROFILE_NAME_DUPLICATE:'이미 사용 중인 프로필 이름입니다.',
   PROFILE_NAME_INVALID:'프로필 이름은 1~30자로 입력하고 경로 문자는 제외하세요.',
   PROFILE_LIMIT_REACHED:'프로필은 최대 20개까지 등록할 수 있습니다.',
-  BRAND_CHANGED_REGENERATE:'브랜드명·설명 또는 글자 수 범위가 바뀌었습니다. AI 초안을 다시 만들고 검토·승인하세요.',
+  BRAND_CHANGED_REGENERATE:'브랜드명 또는 글자 수 범위가 바뀌었습니다. AI 초안을 다시 만들고 검토·승인하세요.',
   BROWSER_LAUNCH_FAILED:'Chrome을 열지 못했습니다. 앱 전용 Chrome 창을 모두 정상 종료한 뒤 영상을 다시 선택해 시도하세요. 계속 실패하면 Chrome 실행 상태를 확인하세요.',
   DEMO_NO_POST:'실제 게시 없음'
 };

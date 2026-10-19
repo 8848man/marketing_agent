@@ -256,14 +256,14 @@ class ConfiguredPostingService(PostingService):
             return result
 
     def _draft_brand_matches(self, video_id: str) -> bool:
+        """H21/IMP-26: a draft stays valid while the brand name and length range are
+        unchanged. The description only steers AI tone, so (like the URL) it is not compared."""
         if self.settings is None:
             return True
         record = _load_record(self.drafts_dir, video_id) or {}
         brand = self.settings.brand_public()
         limits = self.settings.comment_limits()
         return (record.get("brand_name", "운명원") == brand["name"]
-                and record.get("brand_description", "연애 고민을 사주 관점에서 살펴보는 서비스")
-                == brand["description"]
                 and record.get("min_chars", 40) == limits["min_chars"]
                 and record.get("max_chars", 120) == limits["max_chars"])
 
