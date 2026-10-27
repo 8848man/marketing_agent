@@ -333,3 +333,7 @@ HTTP가 제공 여부를 문자열 기반 `hasattr`로 추측하는 대신 읽�
 ## 2026-10-27 IMP-34~37 개선 라운드 3 (운영 안정성)
 
 계약서는 `improve_plan/05_rounds/round3_operations/`. IMP-34는 `ConfiguredPostingService`의 락 구조만 바꾸고 게시 순서·단일 워커는 유지한다(락 순서: 브라우저 → 설정). IMP-35는 새 해소 테이블과 해소 메서드를 더하고 기존 상태 전이 함수는 바꾸지 않는다. IMP-36은 `logging.py`에 요청 로거를 더하고 레거시 `EventLogger`는 그대로 둔다. IMP-37은 `PostingService.local_tz` 기본값과 `_load_record` 조회 순서만 바꾼다.
+
+## 2026-10-27 IMP-38~40 개선 라운드 4 (구조 개선 A)
+
+계약서는 `improve_plan/05_rounds/round4_structure_a/`. 모두 동작 보존 변경이다. IMP-38은 새 모듈 `http_client.py`(그래프 노드 등록)로 4곳의 중복을 없애고 오류 코드는 각 모듈이 그대로 매핑한다. IMP-39는 시험과 `legacy-scope.md`만 바꾼다. IMP-40은 `Store.__init__`의 스키마 생성을 버전별 마이그레이션으로 감싼다. 라운드 3 검토 권고 2건(로그 회전 잠금, 검토자 이름 제어문자)을 함께 처리한다(R4-T4).
