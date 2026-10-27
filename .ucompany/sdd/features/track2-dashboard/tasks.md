@@ -180,6 +180,9 @@ T11의 README·PROCESS를 현재 코드와 확인된 증거에 맞춰 갱신했�
 - [x] IMP-15 2차 필터(검사 → AI 재작성 최대 2회, 감사 기록)와 프롬프트 v7. 자동 시험 통과. 사용자 PC 재생성으로 효과 확인 필요.
 - [x] IMP-16 2차 필터 설정 토글(기본 켬)·검토·승인 화면 열기·2차 필터 다시 적용·`SAME_QUOTE` 검사. 자동 시험 통과, 실제 화면 확인은 사용자 PC.
 - [x] IMP-17 필수 설정 n/m 버튼·점검 화면·설정하기 포커스 이동. 자동 시험과 헤드리스 화면 확인(데스크톱·390px, 채널 ID 입력 포커스 이동) 완료.
+- [ ] IMP-41 `dashboard.py` 분리·토큰 검사 단일화 (R5-T1).
+- [ ] IMP-42 스크립트 CSP nonce (R5-T2).
+- [ ] IMP-43 과제 고정값·모델 기본값·앱 루트 검증 (R5-T3).
 - [x] IMP-38 `http_client.py`(NoRedirectHandler·read_limited)로 4곳 통합, 모듈별 오류 코드 동일. 자동 시험(로컬 서버).
 - [x] IMP-39 제품·레거시 import 경계 시험, 발견된 위반(`drafts.py`→`writer`) 해소: `LINK`를 `drafts.py`로 이동. `legacy-scope.md` 갱신.
 - [x] IMP-40 `PRAGMA user_version` 마이그레이션(버전 1 = 현 스키마 + IMP-35 재구성, 단일 트랜잭션, 새 버전 DB 거부). 원래 main·라운드 3 DB 승격 검증.
