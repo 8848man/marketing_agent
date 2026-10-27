@@ -1,5 +1,7 @@
 # Handoff
 
+- IMP-34~37 개선 라운드 3 (2026-10-27): 운영 안정성. 게시·AI 생성 중 화면 멈춤 해소(브라우저 락 분리로 게시 중 다른 계정 전환도 차단), 결과 불명 게시의 사람 해소, 요청 구조화 로그, KST 날짜·개별 초안 우선. 기존 DB의 예약 테이블은 시작 시 한 번 재구성된다(DISMISSED 허용). 검증: V1 0·0, V2 250 passed, V3·V4 미수행. 다음: 라운드 4.
+
 - IMP-31~33 개선 라운드 2 (2026-10-27): 보안·승인 무결성. [ADR-0004](decisions/ADR-0004-pairing-and-key-storage.md)(제안)대로 보고서의 HMAC 대신 페어링으로 다른 OS 사용자의 토큰 획득 경로를 막고, Windows는 DPAPI 키 저장소, 같은 채널 60분 간격([ADR-0005](decisions/ADR-0005-youtube-policy-review.md) 정책 검토, 제안). 검토 차단 2건·메인 정독 결함 2건 반영. 검증: V1 0·0, V2 233 passed, V3·V4 미수행(Windows DPAPI·mac-smoke·실제 페어링 화면). 다음: 라운드 3.
 
 - IMP-27~30 개선 라운드 1 (2026-10-27): 코드베이스 분석 보고서의 즉시 조치 항목. 계획·방법론·기록은 `improve_plan/`(라운드 1: `improve_plan/05_rounds/round1_immediate/`). 메인(Opus)이 계약서를 쓰고 하위 에이전트(Sonnet)가 구현, `scripts/round_gate.py`로 작업마다 범위·동결·커밋·비밀 검사, 별도 에이전트가 검토(차단 4건 반영). 설정 채널 게시 결함(H2) 수정, 자막 라이브러리 선언(M6), 추적 파일 기반 배포 패키징(H4). 검증: V1 check_sdd 0·safety 0, V2 206 passed, V3·V4 미수행. 다음: 라운드 2(페어링·Windows 키 저장·채널 간격), 사용자 push·PR.
