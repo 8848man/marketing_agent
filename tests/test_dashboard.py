@@ -214,6 +214,14 @@ def test_profile_memo_http_requires_local_token_and_valid_body(tmp_path):
         assert settings.profile_options_public()["options"][0]["memo"] == "운명원 2호"
 
 
+def test_configured_service_uses_settings_channels(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    assert set(service.allowed_channels()) == set(settings.channels())
+
+
 def test_account_check_needs_no_video_and_never_posts(tmp_path):
     import pytest
     (tmp_path / "config.example.yaml").write_text(

@@ -16,9 +16,10 @@ BODY = "상대가 답장을 늦게 한 장면에서 마음이 불안해지는 �
 TEST_CHANNEL = "UCabcdefghijklmnopqrstuv"
 
 
-def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lambda: NOW):
-    card = VideoCard(video_id, CHANNEL, "외롭여", "답장이 늦는 날", "2026-10-15", "")
-    draft = dict(video_id=video_id, channel_id=CHANNEL, title=card.title,
+def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lambda: NOW,
+                    channel=CHANNEL, **service_kwargs):
+    card = VideoCard(video_id, channel, "외롭여", "답장이 늦는 날", "2026-10-15", "")
+    draft = dict(video_id=video_id, channel_id=channel, title=card.title,
                  worry_summary="답장을 기다리는 불안", comment=BODY,
                  cited_detail="답장을 늦게 한 장면", source_text="답장을 늦게 한 장면",
                  reviewer="human", reviewed_at="2026-10-15T10:00:00+09:00")
@@ -28,10 +29,20 @@ def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lamb
     (drafts / f"{video_id}.json").write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
     service = PostingService(tmp_path / "state.sqlite", drafts, poster=poster,
                              feed_loader=lambda: VideoList((card,)),
-                             recheck=lambda vid, channel: card, clock=clock)
+                             recheck=lambda vid, ch: card, clock=clock, **service_kwargs)
     service.list_videos()
     assert service.select_video(video_id).can_post
     return service, card, draft
+
+
+def test_post_video_allows_configured_channel_outside_fixed_list(tmp_path):
+    custom = "UCzzzzzzzzzzzzzzzzzzzzzz"
+    opened = []
+    service, card, _ = prepare_service(tmp_path, channel=custom, poster=lambda *args: opened.append(1),
+                                       allowed_channels=lambda: {custom: "설정 채널"})
+    result = service.post_video(card.video_id)
+    assert result.reason_code != "CHANNEL_NOT_ALLOWED"
+    assert opened
 
 
 def test_pre_chrome_blocks_rss_and_changed_approval(tmp_path):

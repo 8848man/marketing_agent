@@ -170,6 +170,8 @@ class ConfiguredPostingService(PostingService):
     def __init__(self, *args, settings: DashboardSettings | None = None,
                  evidence_provider: VideoEvidence | None = None,
                  draft_generator: DraftGenerator | None = None, review_mode: bool = False, **kwargs):
+        if settings is not None:
+            kwargs.setdefault("allowed_channels", settings.channels)
         super().__init__(*args, **kwargs)
         self.settings = settings
         self.review_mode = review_mode

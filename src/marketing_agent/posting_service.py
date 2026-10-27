@@ -88,7 +88,7 @@ class PostingService:
                  poster: Callable | None = None, profile: str = "유튜브1",
                  daily_limit: int = 10, feed_loader=list_videos,
                  recheck=recheck_video, clock=None, test_videos=(),
-                 test_recheck=recheck_test_video):
+                 test_recheck=recheck_test_video, allowed_channels=None):
         self.db_path = Path(db_path)
         self.drafts_dir = Path(drafts_dir)
         self.poster = poster
@@ -97,6 +97,7 @@ class PostingService:
         self.feed_loader = feed_loader
         self.recheck = recheck
         self.test_recheck = test_recheck
+        self.allowed_channels = allowed_channels
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.test_videos = _test_cards(test_videos)
         self.local_tz = datetime.now().astimezone().tzinfo
@@ -219,7 +220,9 @@ class PostingService:
                 fresh = self.recheck(video_id, card.channel_id)
             except Exception:
                 fresh = None
-            decision = check_rss_membership(video_id, card.channel_id, recheck=lambda *_: fresh)
+            decision = check_rss_membership(
+                video_id, card.channel_id, recheck=lambda *_: fresh,
+                allowed_channels=self.allowed_channels() if self.allowed_channels else None)
             if not decision.allowed:
                 return PostStatus("blocked", decision.reason)
             if fresh is None or fresh.video_id != card.video_id or fresh.channel_id != card.channel_id or fresh.title != card.title:
