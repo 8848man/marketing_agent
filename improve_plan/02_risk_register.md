@@ -11,8 +11,8 @@
 | M1 | 중간 | 정책 리스크, 대시보드 경로에 쿨다운 없음 | **완화 (IMP-33 간격, ADR-0005 정책 판단은 사용자)** 이전: [코드 확인] `channel_cooldowns`는 레거시 `reserve_post`에만 적용 | 2 |
 | M2 | 중간 | 락 범위가 넓어 UI 멈춤 | **해소 (IMP-34)** 재확인 필요 [보고서] `dashboard.py`에 `_settings_lock` 사용 20곳 | 3 |
 | M3 | 중간 | `OUTCOME_UNKNOWN` 복구 경로 없음 | **해소 (IMP-35)** 유효 [코드 확인] `finish_dashboard_post` 호출은 `posting_service.py` 게시 경로뿐 | 3 |
-| M4 | 중간 | 레거시 CLI와 이중 데이터 모델 | 재확인 필요 [보고서] 레거시 모듈(`pipeline`, `watcher` 등) 존재. `poster.py`는 362줄로 줄어 CDP 구간 잔존 여부 확인 필요 | 4 |
-| M5 | 중간 | `_NoRedirect` 중복, 공통 HTTP 계층 없음 | 유효 [코드 확인] `ai_client`·`captions`·`pipeline`·`rss_feed` 4곳 | 4 |
+| M4 | 중간 | 레거시 CLI와 이중 데이터 모델 | **해소 (IMP-39, 경계 고정·위반 1건 해소)** 재확인 필요 [보고서] 레거시 모듈(`pipeline`, `watcher` 등) 존재. `poster.py`는 362줄로 줄어 CDP 구간 잔존 여부 확인 필요 | 4 |
+| M5 | 중간 | `_NoRedirect` 중복, 공통 HTTP 계층 없음 | **해소 (IMP-38)** 유효 [코드 확인] `ai_client`·`captions`·`pipeline`·`rss_feed` 4곳 | 4 |
 | M6 | 중간 | 자막 라이브러리 미선언 | **해소 (IMP-29)** 이전: [코드 확인] `pyproject.toml`·`requirements.txt`에 없음 | 1 |
 | M7 | 중간 | `dashboard.py` 비대 | 악화 [코드 확인] 1,028줄 → 1,372줄 | 5 |
 | M8 | 중간 | JS가 Python 문자열 안, CSP `unsafe-inline` | 재확인 필요 [보고서] | 5 |
@@ -20,7 +20,7 @@
 | L2 | 낮음 | `latest.json`이 개별 초안을 가림 | **해소 (IMP-37)** 재확인 필요 [코드 확인] 목록에서는 제외(83행), 로딩 경로(158행) 확인 필요 | 3 |
 | L3 | 낮음 | "PDF 고정" 값이 설정을 장식으로 만듦 | 재확인 필요 [보고서] | 5 |
 | L4 | 낮음 | 대시보드 경로 로깅 없음 | **해소 (IMP-36)** 유효 [코드 확인] `log_message` no-op, `EventLogger` 미사용 | 3 |
-| L5 | 낮음 | DB 마이그레이션 체계 없음 | 유효 [코드 확인] `user_version` 사용 0곳 | 4 |
+| L5 | 낮음 | DB 마이그레이션 체계 없음 | **해소 (IMP-40)** 유효 [코드 확인] `user_version` 사용 0곳 | 4 |
 | L6 | 낮음 | 모델명 하드코딩 | 재확인 필요 [보고서] | 5 |
 | L7 | 낮음 | 저장소 위생 | 대부분 해소 [코드 확인] git·`.gitignore` 존재, 이중 구현본 없음. 줄바꿈 정규화 완료(D-002) | — |
 | L8 | 낮음 | 경로 이식성 | 재확인 필요 [추정] | 5 |
