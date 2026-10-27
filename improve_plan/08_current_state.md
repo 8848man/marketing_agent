@@ -5,26 +5,26 @@
 | 항목 | 값 |
 | --- | --- |
 | 갱신 시각 | 2026-10-27 15:40 KST |
-| 브랜치 / HEAD | `fix/IMP-31-33-round2-approval-integrity` / `git log -1`로 확인 |
-| 현재 라운드 · 단계 | 라운드 2 · 재검토 |
-| 테스트 기준선 | 라운드 2 시작 206 passed (`$HOME/venv-ma`, Python 3.11.17) |
+| 브랜치 / HEAD | `fix/IMP-34-37-round3-operations` / `git log -1`로 확인 |
+| 현재 라운드 · 단계 | 라운드 3 · 구현 · R3-T1 |
+| 테스트 기준선 | 라운드 3 시작 233 passed (`$HOME/venv-ma`, Python 3.11.17) |
 | 게이트 실행 | 작업 트리를 깨끗하게 두기 위해 보고·계약서 사본·게이트 기록은 `$HOME/gate-logs/`에 먼저 두고, 판정 후 `logs/`로 복사해 커밋 |
 | V1 정적 검사 | `check_sdd.py` 0 error, `safety_scan.py --strict` 0 fail |
 
-## 작업별 상태 (라운드 2)
+## 작업별 상태 (라운드 3)
 
-상세는 [05_rounds/round2_approval_integrity/index.md](05_rounds/round2_approval_integrity/index.md). 라운드 1은 완료(브랜치 `fix/IMP-27-30-round1-immediate`).
+상세는 [05_rounds/round3_operations/index.md](05_rounds/round3_operations/index.md). 라운드 1·2 완료.
 
 | ID | IMP | 상태 | 마지막 보고 |
 | --- | --- | --- | --- |
-| R2-T1 | IMP-31 | 완료 (31e3fe6, 게이트 PASS, 재작업 0) | logs/r2/R2-T1-gate-1.md |
-| R2-T2 | IMP-32 | 완료 (cba7c75, 게이트 PASS, 재작업 1) | logs/r2/R2-T2-gate-2.md |
-| R2-T4 | IMP-31·32·33 | 완료 (aa28275, 게이트 PASS, 재작업 0) | logs/r2/R2-T4-gate-1.md |
-| R2-T3 | IMP-33 | 완료 (b43a347, 게이트 PASS, 재작업 0) | logs/r2/R2-T3-gate-1.md |
+| R3-T1 | IMP-34 | **구현 에이전트 실행 중** | — |
+| R3-T2 | IMP-35 | 계획 (계약서 작성 완료) | — |
+| R3-T3 | IMP-36 | 계획 (계약서 작성 완료) | — |
+| R3-T4 | IMP-37 | 계획 (계약서 작성 완료) | — |
 
 ## 다음 행동
 
-**라운드 2 재검토 결과를 확인합니다.** 범위 `git diff 9a8fddf..aa28275`. 차단 0이면 라운드 2 마감 후 라운드 3 착수(초안 `$HOME/r3/`).
+**R3-T1 구현 에이전트 결과를 확인합니다.** 작업 트리가 깨끗하고 R3-T1 커밋이 없으면 에이전트를 다시 실행합니다(07_resume_protocol.md 5절). R3-T1은 메인 diff 정독 대상. 라운드 4·5 계약서 초안은 `$HOME/r4/`, `$HOME/r5/`(저장소 밖, 없으면 다시 작성).
 
 ## 진행 중이던 것
 
@@ -32,5 +32,6 @@
 
 ## 미결 질문 (최종 보고서로)
 
-- 브랜치 push·병합 순서: `chore/normalize-eol` → 라운드 1 → 라운드 2 … (D-014, 쌓인 브랜치)
+- 브랜치 push·병합 순서: `chore/normalize-eol` → 라운드 1 → 2 → 3 … (D-014)
 - ADR-0004·0005 수락 여부, 자동화 게시의 정책 적합성(ADR-0005)
+- 영구 복호화 불가 키 저장소의 수동 복구(파일 삭제 후 키 재입력)
