@@ -21,9 +21,9 @@
 
 ## 브랜치 전략
 
-1. 라운드 시작 시 최신 `main`에서 `improve/rN-주제` 브랜치를 만듭니다.
-   - 예: `improve/r1-immediate`, `improve/r2-approval-integrity`
-2. 작업마다 커밋 하나를 남깁니다. 메시지는 `<type>(<영역>): <요약> (RN-TM)` 형식입니다.
+1. 라운드 시작 시 최신 `main`에서 `<유형>/IMP-<처음>-<끝>-roundN-<주제>` 브랜치를 만듭니다([repo_conventions.md](04_agent_workflow/repo_conventions.md)).
+   - 예: `fix/IMP-27-30-round1-immediate`
+2. 작업마다 커밋 하나를 남깁니다. 메시지는 저장소 규칙(Spec·Verify 줄 포함)을 따릅니다.
 3. 라운드 게이트를 통과하면 사용자에게 병합 여부를 확인받습니다.
 4. 병합은 사용자가 기존 PR 흐름으로 진행합니다. 에이전트는 push·병합을 하지 않습니다.
 

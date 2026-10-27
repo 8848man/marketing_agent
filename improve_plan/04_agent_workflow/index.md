@@ -11,6 +11,8 @@
 | [verification_gates.md](verification_gates.md) | 성공·실패를 기계적으로 판정하는 게이트 |
 | [review_checklist.md](review_checklist.md) | 검토 에이전트 체크리스트와 지적 등급 |
 | [escalation_and_metrics.md](escalation_and_metrics.md) | 재시도·에스컬레이션 규칙, 모델 구성 재평가 지표 |
+| [repo_conventions.md](repo_conventions.md) | 저장소 자체 절차(SDD WF-1)와의 대응, 커밋·브랜치 규칙, 안전 규칙 |
+| [agent_briefing.md](agent_briefing.md) | 하위 에이전트에 계약서와 함께 넘기는 공통 지시문 |
 
 ## 핵심 원칙
 

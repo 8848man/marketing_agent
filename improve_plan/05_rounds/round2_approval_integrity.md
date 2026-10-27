@@ -1,7 +1,7 @@
 # 라운드 2 — 보안·승인 무결성
 
 - 상태: 대기
-- 브랜치: `improve/r2-approval-integrity`
+- 브랜치: 계획 단계에서 IMP 번호 확정 후 결정
 - 모델: 계획 메인 / 구현 Sonnet / 검토 Sonnet + **메인 diff 정독**
 
 ## 1. 목표

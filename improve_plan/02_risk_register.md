@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | H1 | 높음 | 로컬 프로세스가 사람 승인 없이 생성→승인→게시 가능 | 유효 [코드 확인] 토큰이 `/` HTML에 포함(`dashboard.py` `_page(token, …)`), 승인 해시는 비밀 없는 `content_hash` | 2 |
 | H2 | 높음 | 설정 채널과 게시 가드 불일치 | 유효 [코드 확인] `guard.py`가 하드코딩 `rss_feed.CHANNELS`만 허용 | 1 |
-| H3 | 높음 | API 키가 평문 `.env` | 유효 [코드 확인] `dashboard_settings._write_ai_env` + `chmod 0o600`(Windows에서 효과 미미) | 2 |
+| H3 | 높음 | API 키가 평문 `.env` | 유효 [코드 확인] `dashboard_settings._write_ai_env` + `chmod 0o600`(Windows에서 효과 미미). 보고서의 개선안(`profile_emails` DPAPI 재사용)은 불가: IMP-18에서 해당 모듈 삭제됨 → 2라운드에서 새로 설계 | 2 |
 | H4 | 높음 | 로그인 정보가 배포물에 섞일 위험 | 대상 변경 [코드 확인] 보고서의 `keep-window-probe`는 없음. 대신 `data/dashboard/chrome-profile-*`에 `Cookies`·`Login Data` 존재. git에는 `data/` 제외로 안 올라가지만 폴더 압축 배포 시 위험 | 1 |
 | M1 | 중간 | 정책 리스크, 대시보드 경로에 쿨다운 없음 | 유효 [코드 확인] `channel_cooldowns`는 레거시 `reserve_post`에만 적용 | 2 |
 | M2 | 중간 | 락 범위가 넓어 UI 멈춤 | 재확인 필요 [보고서] `dashboard.py`에 `_settings_lock` 사용 20곳 | 3 |
