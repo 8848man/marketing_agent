@@ -180,6 +180,9 @@ class ConfiguredPostingService(PostingService):
         self.evidence_provider = evidence_provider or VideoEvidence(
             key_provider=settings.youtube_api_key if settings is not None else None)
         self.draft_generator = draft_generator or ProviderDraftGenerator()
+        # Lock order is always browser -> settings. The browser lock covers everything that
+        # reads or changes the Chrome profile in use; the settings lock only guards state.
+        self._browser_lock = RLock()
         self._settings_lock = RLock()
         self._posting_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chrome-post")
         self._login_window_process: subprocess.Popen | None = None
@@ -440,42 +443,46 @@ class ConfiguredPostingService(PostingService):
         return self._posting_worker.submit(self._verify_profile_on_worker, label).result()
 
     def _verify_profile_on_worker(self, label: str) -> dict[str, object]:
-        with self._settings_lock:
-            if self.settings is None or self.poster is None:
-                raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-            self._require_primary(label)
-            previous = (self._account_states.get(label, "UNKNOWN"), self._verified_at.get(label, ""))
-            root = self.settings.app_profile_root(label)
-            if (self._login_window_process is not None and
-                    self._login_window_root == root and
-                    self._login_window_process.poll() is None):
-                raise ValueError("PROFILE_LOCKED")
-            option = next(item for item in self.settings.profile_options_public()["options"]
-                          if item["label"] == label)
-            if not option["configured"] or not option["connected"]:
-                raise ValueError("PROFILE_NOT_CONFIGURED")
-            self.poster.user_data_dir = root
-            self.poster.profile_directory = "Default"
-            self.profile = label
-            reason = self._profile_reason()
-            if reason:
-                raise ValueError(reason)
+        with self._browser_lock:
+            with self._settings_lock:
+                if self.settings is None or self.poster is None:
+                    raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
+                self._require_primary(label)
+                previous = (self._account_states.get(label, "UNKNOWN"), self._verified_at.get(label, ""))
+                root = self.settings.app_profile_root(label)
+                if (self._login_window_process is not None and
+                        self._login_window_root == root and
+                        self._login_window_process.poll() is None):
+                    raise ValueError("PROFILE_LOCKED")
+                option = next(item for item in self.settings.profile_options_public()["options"]
+                              if item["label"] == label)
+                if not option["configured"] or not option["connected"]:
+                    raise ValueError("PROFILE_NOT_CONFIGURED")
+                self.poster.user_data_dir = root
+                self.poster.profile_directory = "Default"
+                self.profile = label
+                reason = self._profile_reason()
+                if reason:
+                    raise ValueError(reason)
+                probe = self._probe_video_id()
             try:
-                self.poster.check_signed_in(self._probe_video_id())
+                self.poster.check_signed_in(probe)
             except ValueError as exc:
-                if str(exc) == "PROFILE_SIGNED_OUT":
-                    self._account_states[label] = "SIGNED_OUT"
-                    self._verified_at.pop(label, None)
-                    self._set_profile_active(label, False)
-                else:
-                    # Not a clear answer (network, slow page): keep the last known state.
-                    self._account_states[label], self._verified_at[label] = previous
+                with self._settings_lock:
+                    if str(exc) == "PROFILE_SIGNED_OUT":
+                        self._account_states[label] = "SIGNED_OUT"
+                        self._verified_at.pop(label, None)
+                        self._set_profile_active(label, False)
+                    else:
+                        # Not a clear answer (network, slow page): keep the last known state.
+                        self._account_states[label], self._verified_at[label] = previous
                 raise
-            self._verified_at[label] = datetime.now(timezone.utc).isoformat()
-            self._account_states[label] = "SIGNED_IN"
-            reassigned = self._set_profile_active(label, True)
-            return {**self.profile_options_public(), "reassigned": reassigned,
-                    "states": self.video_states() if self._videos else {}}
+            with self._settings_lock:
+                self._verified_at[label] = datetime.now(timezone.utc).isoformat()
+                self._account_states[label] = "SIGNED_IN"
+                reassigned = self._set_profile_active(label, True)
+                return {**self.profile_options_public(), "reassigned": reassigned,
+                        "states": self.video_states() if self._videos else {}}
 
     def save_profile_memo(self, label: str, memo: str) -> dict[str, object]:
         if self.settings is None:
@@ -487,7 +494,7 @@ class ConfiguredPostingService(PostingService):
     def save_profile(self, label: str) -> dict[str, object]:
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-        with self._settings_lock:
+        with self._browser_lock, self._settings_lock:
             result = self.settings.save_profile(label)
             self.poster.user_data_dir = Path(result["user_data_dir"])
             self.poster.profile_directory = str(result["profile_directory"])
@@ -510,7 +517,7 @@ class ConfiguredPostingService(PostingService):
         """Open one app-owned profile for manual login; never inspect its files."""
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_SETTINGS_UNAVAILABLE")
-        with self._settings_lock:
+        with self._browser_lock, self._settings_lock:
             self._require_primary(label)
             root = self.settings.app_profile_root(label)
             if (self._login_window_process is not None and
@@ -559,7 +566,10 @@ class ConfiguredPostingService(PostingService):
         return {"connected": True, "provider": provider, "model": model}
 
     def generate_draft(self, video_id: str) -> dict[str, object]:
-        """Call the selected provider only after an explicit local UI request."""
+        """Call the selected provider only after an explicit local UI request.
+
+        The settings lock is held only to snapshot the inputs and to save; evidence collection
+        and the AI calls run outside it so the dashboard stays responsive."""
         if self.settings is None:
             raise ValueError("AI_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
@@ -570,18 +580,21 @@ class ConfiguredPostingService(PostingService):
             provider, model, key = self.settings.ai_credentials()
             if not key:
                 raise ValueError("AI_KEY_MISSING")
-            evidence = self.evidence_provider.collect(card)
-            self._youtube_key_invalid = "키가 유효하지" in (evidence.notice or "")
             brand = self.settings.brand_public()
             limits = self.settings.comment_limits()
-            prompt = build_draft_prompt(evidence, brand_name=brand["name"],
-                                        brand_description=brand["description"], **limits)
-            result = self.draft_generator.generate(provider, model, key, prompt)
             enabled = self.settings.review_filter_enabled()
-            rounds = []
-            if enabled:
-                result, rounds = self._review_loop(provider, model, key, prompt, result,
-                                                   evidence.text, brand, limits, video_id)
+        evidence = self.evidence_provider.collect(card)
+        key_invalid = "키가 유효하지" in (evidence.notice or "")
+        prompt = build_draft_prompt(evidence, brand_name=brand["name"],
+                                    brand_description=brand["description"], **limits)
+        result = self.draft_generator.generate(provider, model, key, prompt)
+        rounds = []
+        if enabled:
+            result, rounds = self._review_loop(provider, model, key, prompt, result,
+                                               evidence.text, brand, limits, video_id)
+        with self._settings_lock:
+            self._youtube_key_invalid = key_invalid
+            self._require_unchanged(video_id, card, brand, limits)
             record = save_generated(card, result, self.drafts_dir, source_text=evidence.text,
                                     evidence_sources=evidence.sources, profile=profile,
                                     brand_name=brand["name"], brand_description=brand["description"],
@@ -589,6 +602,13 @@ class ConfiguredPostingService(PostingService):
                                     **limits)
             return self._draft_view(record, brand, limits, video_id) | {
                 "evidence_notice": evidence.notice, "review_filter": enabled, "changed": bool(rounds)}
+
+    def _require_unchanged(self, video_id: str, card, brand: dict, limits: dict) -> None:
+        """Call with the settings lock held: drop a result made for other inputs than today's."""
+        if (self._videos.get(video_id) != card
+                or self.settings.brand_public()["name"] != brand["name"]
+                or self.settings.comment_limits() != limits):
+            raise ValueError("BRAND_CHANGED_REGENERATE")
 
     def _candidate(self, values: dict, source_text: str, brand: dict, limits: dict) -> dict:
         return {**{k: str(values.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")},
@@ -625,7 +645,9 @@ class ConfiguredPostingService(PostingService):
                        "prompt_version": record.get("prompt_version", "")}
 
     def refine_draft(self, video_id: str, rewrite: bool = False) -> dict[str, object]:
-        """IMP-16: open a saved draft for review, optionally re-running the second-pass filter."""
+        """IMP-16: open a saved draft for review, optionally re-running the second-pass filter.
+
+        Like generate_draft, the AI rewrite runs outside the settings lock."""
         if self.settings is None:
             raise ValueError("AI_SETTINGS_UNAVAILABLE")
         with self._settings_lock:
@@ -637,30 +659,33 @@ class ConfiguredPostingService(PostingService):
                 raise ValueError("DRAFT_MISSING")
             brand = self.settings.brand_public()
             limits = self.settings.comment_limits()
+            enabled = self.settings.review_filter_enabled()
             view = self._draft_view(record, brand, limits, video_id) | {
-                "review_filter": self.settings.review_filter_enabled(), "changed": False}
+                "review_filter": enabled, "changed": False}
             if not rewrite or not view["problems"]:
                 return view
             provider, model, key = self.settings.ai_credentials()
             if not key:
                 raise ValueError("AI_KEY_MISSING")
-            source = str(record.get("source_text") or card.title)
-            sources = tuple(record.get("evidence_sources") or ())
-            prompt = build_draft_prompt(EvidenceResult(source, sources), brand_name=brand["name"],
-                                        brand_description=brand["description"], **limits)
-            start = {k: str(record.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")}
-            result, rounds = self._review_loop(provider, model, key, prompt, start, source,
-                                               brand, limits, video_id)
-            if result == start:
-                return view | {"review_rounds": view["review_rounds"] + rounds}
             profile = str(record.get("generated_profile") or self._assigned_profile(video_id))
+        source = str(record.get("source_text") or card.title)
+        sources = tuple(record.get("evidence_sources") or ())
+        prompt = build_draft_prompt(EvidenceResult(source, sources), brand_name=brand["name"],
+                                    brand_description=brand["description"], **limits)
+        start = {k: str(record.get(k, "")) for k in ("worry_summary", "cited_detail", "comment")}
+        result, rounds = self._review_loop(provider, model, key, prompt, start, source,
+                                           brand, limits, video_id)
+        if result == start:
+            return view | {"review_rounds": view["review_rounds"] + rounds}
+        with self._settings_lock:
+            self._require_unchanged(video_id, card, brand, limits)
             saved = save_generated(card, result, self.drafts_dir, source_text=source,
                                    evidence_sources=sources, profile=profile,
                                    brand_name=brand["name"], brand_description=brand["description"],
                                    review_rounds=list(record.get("review_rounds", [])) + rounds,
                                    prompt_version=prompt.version + "+refine", **limits)
             return self._draft_view(saved, brand, limits, video_id) | {
-                "review_filter": self.settings.review_filter_enabled(), "changed": True}
+                "review_filter": enabled, "changed": True}
 
     def approve_draft(self, video_id: str, values: dict) -> dict[str, object]:
         with self._settings_lock:
@@ -768,7 +793,8 @@ class ConfiguredPostingService(PostingService):
             raise ValueError("PROFILE_UNASSIGNED")
         return profile
 
-    def _use_assigned_profile(self, video_id: str) -> None:
+    def _assigned_profile_root(self, video_id: str) -> tuple[str, Path]:
+        """Validate the video's profile without touching the poster."""
         if self.settings is None or self.poster is None:
             raise ValueError("PROFILE_NOT_CONFIGURED")
         label = self._assigned_profile(video_id)
@@ -777,6 +803,11 @@ class ConfiguredPostingService(PostingService):
         option = next(item for item in saved if item["label"] == label)
         if not option["configured"] or not option["connected"]:
             raise ValueError("PROFILE_NOT_CONFIGURED")
+        return label, root
+
+    def _use_assigned_profile(self, video_id: str) -> None:
+        """Point the poster at the video's profile. Call with the browser lock held."""
+        label, root = self._assigned_profile_root(video_id)
         self.poster.user_data_dir = root
         self.poster.profile_directory = "Default"
         self.profile = label
@@ -807,53 +838,69 @@ class ConfiguredPostingService(PostingService):
         return ""
 
     def select_video(self, video_id: str) -> DraftPreview:
-        with self._settings_lock:
-            result = super().select_video(video_id)
-            if self.settings is not None:
-                result = replace(result, **self.settings.comment_limits())
-            if result.can_post and self.settings is not None:
-                if not self._draft_brand_matches(video_id):
-                    return replace(result, can_post=False, reason_code="BRAND_CHANGED_REGENERATE")
-            if not result.can_post and result.reason_code == "APPROVAL_MISSING":
-                # IMP-22: a draft awaiting human approval shows the approval step first;
-                # profile checks apply once it is approved.
-                return result
-            if video_id in self._videos:
-                try:
-                    self._assigned_profile(video_id)
-                    if result.can_post:
+        # Selecting must not wait for Chrome. When a post, account check or login window holds
+        # the browser lock, only validate: the poster's profile is left untouched and the post
+        # itself repeats every profile check under the browser lock.
+        own_browser = self._browser_lock.acquire(blocking=False)
+        try:
+            with self._settings_lock:
+                return self._select_video_locked(video_id, own_browser)
+        finally:
+            if own_browser:
+                self._browser_lock.release()
+
+    def _select_video_locked(self, video_id: str, own_browser: bool) -> DraftPreview:
+        result = super().select_video(video_id)
+        if self.settings is not None:
+            result = replace(result, **self.settings.comment_limits())
+        if result.can_post and self.settings is not None:
+            if not self._draft_brand_matches(video_id):
+                return replace(result, can_post=False, reason_code="BRAND_CHANGED_REGENERATE")
+        if not result.can_post and result.reason_code == "APPROVAL_MISSING":
+            # IMP-22: a draft awaiting human approval shows the approval step first;
+            # profile checks apply once it is approved.
+            return result
+        if video_id in self._videos:
+            try:
+                self._assigned_profile(video_id)
+                if result.can_post:
+                    if own_browser:
                         self._use_assigned_profile(video_id)
-                except ValueError as exc:
-                    return replace(result, can_post=False, reason_code=str(exc))
-            reason = self._profile_reason() if result.can_post else ""
-            return replace(result, can_post=False, reason_code=reason) if result.can_post and reason else result
+                    else:
+                        self._assigned_profile_root(video_id)
+            except ValueError as exc:
+                return replace(result, can_post=False, reason_code=str(exc))
+        reason = self._profile_reason() if result.can_post and own_browser else ""
+        return replace(result, can_post=False, reason_code=reason) if result.can_post and reason else result
 
     def post_video(self, video_id: str, *, keep_window_open: bool = False) -> PostStatus:
         return self._posting_worker.submit(self._post_video_on_worker, video_id, keep_window_open).result()
 
     def _post_video_on_worker(self, video_id: str, keep_window_open: bool) -> PostStatus:
-        with self._settings_lock:
-            if video_id in self._videos and self.settings is not None:
-                if not self._draft_brand_matches(video_id):
-                    return PostStatus("blocked", "BRAND_CHANGED_REGENERATE")
-            if video_id in self._videos:
-                try:
-                    self._use_assigned_profile(video_id)
-                except ValueError as exc:
-                    return PostStatus("blocked", str(exc))
-            if self.poster is not None:
-                self.poster.events.clear()
-                if self.poster.held_window_open():
-                    return PostStatus("blocked", "PROFILE_LOCKED", "이전 댓글 창을 닫은 뒤 다시 시도하세요.")
-                self.poster.keep_window_open = keep_window_open
-            reason = self._profile_reason()
-            if reason:
-                return PostStatus("blocked", reason)
-            result = super().post_video(video_id)
-            if result.reason_code == "LOGIN_REQUIRED" and self.settings is not None and self.profile:
-                self._account_states[self.profile] = "SIGNED_OUT"
-                self._verified_at.pop(self.profile, None)
-                self._set_profile_active(str(self.profile), False)
+        with self._browser_lock:
+            with self._settings_lock:
+                if video_id in self._videos and self.settings is not None:
+                    if not self._draft_brand_matches(video_id):
+                        return PostStatus("blocked", "BRAND_CHANGED_REGENERATE")
+                if video_id in self._videos:
+                    try:
+                        self._use_assigned_profile(video_id)
+                    except ValueError as exc:
+                        return PostStatus("blocked", str(exc))
+                if self.poster is not None:
+                    self.poster.events.clear()
+                    if self.poster.held_window_open():
+                        return PostStatus("blocked", "PROFILE_LOCKED", "이전 댓글 창을 닫은 뒤 다시 시도하세요.")
+                    self.poster.keep_window_open = keep_window_open
+                reason = self._profile_reason()
+                if reason:
+                    return PostStatus("blocked", reason)
+            result = super().post_video(video_id)  # Chrome: browser lock only
+            with self._settings_lock:
+                if result.reason_code == "LOGIN_REQUIRED" and self.settings is not None and self.profile:
+                    self._account_states[self.profile] = "SIGNED_OUT"
+                    self._verified_at.pop(self.profile, None)
+                    self._set_profile_active(str(self.profile), False)
             return result
 
 

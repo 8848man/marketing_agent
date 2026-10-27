@@ -1499,3 +1499,137 @@ def test_configured_service_uses_60_minute_cooldown(tmp_path):
     settings = DashboardSettings(tmp_path / "config.yaml")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
     assert service.channel_cooldown_minutes == 60
+
+
+# --- R3-T1 (IMP-34): the settings lock and the browser lock are separate ---------------
+
+def _lock_service(tmp_path, generator=None, posting=True):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    for label in ("유튜브1", "유튜브2"):
+        (settings.app_profile_root(label) / "Default").mkdir(parents=True)
+        settings.save_profile(label)
+    settings.save_profile("유튜브1")
+    root = settings.app_profile_root("유튜브1")
+    poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult(
+        "답장이 늦어질 때 자막 장면", ("자막",))})()
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       poster=poster, evidence_provider=evidence,
+                                       draft_generator=generator,
+                                       feed_loader=lambda: VideoList((card,)))
+    service.list_videos()
+    return service, settings, poster
+
+
+@contextmanager
+def _blocked_post(service):
+    """Hold a posting run inside the (faked) Chrome step until the test releases it."""
+    started, release, seen = threading.Event(), threading.Event(), {}
+
+    def slow_post(_self, video_id):
+        seen["during"] = service.poster.user_data_dir
+        started.set()
+        release.wait(5)
+        seen["after"] = service.poster.user_data_dir
+        return PostStatus("posted")
+
+    result = {}
+    with patch("marketing_agent.dashboard.PostingService.post_video", slow_post):
+        thread = threading.Thread(target=lambda: result.update(
+            status=service.post_video(VIDEO_ID)), daemon=True)
+        thread.start()
+        try:
+            assert started.wait(5)
+            yield seen, release
+        finally:
+            release.set()
+            thread.join(5)
+    assert not thread.is_alive()
+
+
+def _finishes_within(seconds, func):
+    done, out = threading.Event(), {}
+
+    def run():
+        try:
+            out["value"] = func()
+        except Exception as exc:  # surfaced to the assertion below
+            out["error"] = exc
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return done.wait(seconds), out
+
+
+def test_reads_do_not_wait_for_posting(tmp_path):
+    service, _settings, _poster = _lock_service(tmp_path)
+    with _blocked_post(service):
+        for call in (service.video_states, lambda: service.select_video(VIDEO_ID),
+                     service.list_videos):
+            finished, out = _finishes_within(1, call)
+            assert finished and "error" not in out
+
+
+def test_verify_profile_waits_for_posting(tmp_path):
+    service, settings, poster = _lock_service(tmp_path)
+    service._set_profile_active("유튜브1", True)
+    assigned_root = settings.app_profile_root(service._assigned_profile(VIDEO_ID))
+    other = "유튜브2" if assigned_root == settings.app_profile_root("유튜브1") else "유튜브1"
+    checked = threading.Event()
+    with patch.object(poster, "check_signed_in", side_effect=lambda _id: checked.set() or ""):
+        with _blocked_post(service) as (seen, release):
+            verify = threading.Thread(target=lambda: service.verify_profile(other), daemon=True)
+            save = threading.Thread(target=lambda: service.save_profile(other), daemon=True)
+            verify.start()
+            save.start()
+            assert not checked.wait(0.5)
+            assert poster.user_data_dir == assigned_root
+            release.set()
+            verify.join(5)
+            save.join(5)
+        assert not verify.is_alive() and not save.is_alive()
+    assert seen["during"] == assigned_root and seen["after"] == assigned_root
+    assert checked.is_set()
+
+
+def test_generate_draft_does_not_hold_settings_lock(tmp_path):
+    started, release = threading.Event(), threading.Event()
+
+    class SlowGenerator:
+        def generate(self, provider, model, key, prompt):
+            started.set()
+            release.wait(5)
+            return {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
+                    "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
+
+    service, _settings, _poster = _lock_service(tmp_path, SlowGenerator())
+    worker = threading.Thread(target=lambda: service.generate_draft(VIDEO_ID), daemon=True)
+    worker.start()
+    try:
+        assert started.wait(5)
+        finished, out = _finishes_within(1, service.video_states)
+        assert finished and "error" not in out
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+
+
+def test_generate_draft_discards_when_brand_changed(tmp_path):
+    holder = {}
+
+    class ChangingGenerator:
+        def generate(self, provider, model, key, prompt):
+            holder["service"].save_brand("다른브랜드", "설명", "")
+            return {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
+                    "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
+
+    service, _settings, _poster = _lock_service(tmp_path, ChangingGenerator())
+    holder["service"] = service
+    with pytest.raises(ValueError, match="BRAND_CHANGED_REGENERATE"):
+        service.generate_draft(VIDEO_ID)
+    assert not (tmp_path / "drafts" / f"{VIDEO_ID}.json").exists()
