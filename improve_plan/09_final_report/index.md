@@ -19,4 +19,4 @@
 | 정적 검사 | `check_sdd.py` 0, `safety_scan.py --strict` 0 |
 | 커밋 | `main` 이후 66개 (작업 커밋 22 + 기록·문서) |
 | 브랜치 | 6개가 순서대로 쌓여 있음 (1번 체크리스트 A 참고) |
-| GitHub | 통합 브랜치 `improve/IMP-27-43-rounds-1-5`로 PR |
+| GitHub | 통합 브랜치 `fix/IMP-27-43-improvement-rounds-1-5`로 PR |
