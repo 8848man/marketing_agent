@@ -329,3 +329,7 @@ HTTP가 제공 여부를 문자열 기반 `hasattr`로 추측하는 대신 읽�
 ## 2026-10-27 IMP-31~33 개선 라운드 2 (보안·승인 무결성)
 
 계약서는 `improve_plan/05_rounds/round2_approval_integrity/`. IMP-31은 `dashboard.py`의 `create_server`·`run_dashboard`와 mac-smoke만 바꾸고 API 토큰 검사·승인 해시는 유지한다. IMP-32는 새 모듈 `secret_store.py`와 `dashboard_settings.py`의 키 읽기·쓰기 경로만 바꾼다(그래프 노드 등록). IMP-33은 `storage.reserve_reviewed_post`에 선택 인자 `cooldown_minutes`를 더하고 제품 서비스만 60분을 쓴다. 상태 전이·유일 인덱스·일일 한도는 바꾸지 않는다.
+
+## 2026-10-27 IMP-34~37 개선 라운드 3 (운영 안정성)
+
+계약서는 `improve_plan/05_rounds/round3_operations/`. IMP-34는 `ConfiguredPostingService`의 락 구조만 바꾸고 게시 순서·단일 워커는 유지한다(락 순서: 브라우저 → 설정). IMP-35는 새 해소 테이블과 해소 메서드를 더하고 기존 상태 전이 함수는 바꾸지 않는다. IMP-36은 `logging.py`에 요청 로거를 더하고 레거시 `EventLogger`는 그대로 둔다. IMP-37은 `PostingService.local_tz` 기본값과 `_load_record` 조회 순서만 바꾼다.
