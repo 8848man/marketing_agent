@@ -49,6 +49,8 @@ def check() -> list[str]:
                 continue
             if not (folder / target).exists():
                 problems.append(f"{index.relative_to(ROOT)}: 깨진 링크 {target}")
+        if folder == ROOT / LOG_DIR:
+            continue  # 기록 보관 폴더: 하위 항목을 개별 링크하지 않음
         for child in sorted(folder.iterdir()):
             if child == index or child.name.startswith("."):
                 continue
@@ -60,8 +62,6 @@ def check() -> list[str]:
                     continue
                 if f"{child.name}/index.md" not in links:
                     problems.append(f"{index.relative_to(ROOT)}: 하위 폴더 {child.name}/index.md 링크 없음")
-            elif folder.name == LOG_DIR and folder.parent == ROOT:
-                continue
             elif child.suffix == ".md" and child.name not in links:
                 problems.append(f"{index.relative_to(ROOT)}: {child.name} 링크 없음")
     return problems
