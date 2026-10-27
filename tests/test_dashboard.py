@@ -1468,3 +1468,11 @@ def test_run_dashboard_prints_pair_url(capsys, monkeypatch):
         if "server" in holder:
             holder["server"].shutdown()
         thread.join(timeout=5)
+
+
+def test_configured_service_uses_60_minute_cooldown(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    assert service.channel_cooldown_minutes == 60

@@ -290,3 +290,17 @@ def test_post_video_blocks_when_channel_config_empty(tmp_path):
     result = service.post_video(card.video_id)
     assert result.reason_code == "CHANNEL_NOT_ALLOWED"
     assert not opened
+
+
+def test_post_video_channel_cooldown_blocks_before_poster(tmp_path):
+    calls = []
+    def poster(card, body, mark):
+        calls.append(card.video_id)
+        mark()
+        return True
+    first, card1, _ = prepare_service(tmp_path, "AbCdEfGhI12", poster=poster, channel_cooldown_minutes=60)
+    assert first.post_video(card1.video_id).state == "posted"
+    second, card2, _ = prepare_service(tmp_path, "ZyXwVuTsR98", poster=poster, channel_cooldown_minutes=60)
+    result = second.post_video(card2.video_id)
+    assert (result.state, result.reason_code) == ("blocked", "CHANNEL_COOLDOWN")
+    assert calls == ["AbCdEfGhI12"]

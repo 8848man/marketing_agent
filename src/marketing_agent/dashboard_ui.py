@@ -150,7 +150,7 @@ $('post-state').textContent=[result.state,result.reason_code,result.message].fil
 if(result.screenshot_url)await loadCapture(result.screenshot_url);if(result.reason_code==='LOGIN_REQUIRED'&&typeof openLoginAfterPost==='function')await openLoginAfterPost();
 }}catch(error){{$('post-state').classList.add('error');$('post-state').textContent='게시 결과를 확인하지 못했습니다: '+error.message+' · 자동 재시도하지 않습니다.';}}}}
 const HIST_STATUS={{POSTED:['게시 완료','ok'],PRECHECK_FAILED:['게시 전 중단','fail'],OUTCOME_UNKNOWN:['결과 확인 필요','warn'],RESERVED:['진행 중','warn'],SUBMITTING:['진행 중','warn']}};
-const REASON_KO={{LOGIN_REQUIRED:'로그인 필요',PROFILE_LOCKED:'프로필 창이 열려 있음',BROWSER_LAUNCH_FAILED:'Chrome 실행 실패',ChromeLaunchFailed:'Chrome 실행 실패',YOUTUBE_NAVIGATION_FAILED:'YouTube 화면 이동 실패',COMMENT_EDITOR_MISSING:'댓글 입력창 없음',COMMENT_NOT_CONFIRMED:'게시 후 내 댓글 확인 실패',SERVER_RESTART_BEFORE_SUBMIT:'게시 전 서버 재시작',DAILY_LIMIT:'하루 상한 도달',ALREADY_ATTEMPTED:'이미 시도한 영상'}};
+const REASON_KO={{LOGIN_REQUIRED:'로그인 필요',PROFILE_LOCKED:'프로필 창이 열려 있음',BROWSER_LAUNCH_FAILED:'Chrome 실행 실패',ChromeLaunchFailed:'Chrome 실행 실패',YOUTUBE_NAVIGATION_FAILED:'YouTube 화면 이동 실패',COMMENT_EDITOR_MISSING:'댓글 입력창 없음',COMMENT_NOT_CONFIRMED:'게시 후 내 댓글 확인 실패',SERVER_RESTART_BEFORE_SUBMIT:'게시 전 서버 재시작',DAILY_LIMIT:'하루 상한 도달',ALREADY_ATTEMPTED:'이미 시도한 영상',CHANNEL_COOLDOWN:'같은 채널에는 60분 간격으로만 댓글을 달 수 있습니다. 다른 채널 영상을 선택하거나 잠시 뒤 다시 시도하세요.'}};
 async function loadHistory(){{const list=$('history-list');try{{const data=await json(await fetch('/api/history',{{headers:{{'X-Session-Token':token}}}}));
  $('history-meter').textContent=data.unavailable?'연습 모드에는 기록이 없습니다.':'오늘 게시 '+data.posted_today+' / '+data.daily_limit;
  if(!data.items.length){{list.replaceChildren();line(list,'p','아직 게시 기록이 없습니다.').className='empty';return;}}

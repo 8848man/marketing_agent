@@ -88,12 +88,14 @@ class PostingService:
                  poster: Callable | None = None, profile: str = "유튜브1",
                  daily_limit: int = 10, feed_loader=list_videos,
                  recheck=recheck_video, clock=None, test_videos=(),
-                 test_recheck=recheck_test_video, allowed_channels=None):
+                 test_recheck=recheck_test_video, allowed_channels=None,
+                 channel_cooldown_minutes: int = 0):
         self.db_path = Path(db_path)
         self.drafts_dir = Path(drafts_dir)
         self.poster = poster
         self.profile = profile
         self.daily_limit = daily_limit
+        self.channel_cooldown_minutes = channel_cooldown_minutes
         self.feed_loader = feed_loader
         self.recheck = recheck
         self.test_recheck = test_recheck
@@ -251,7 +253,8 @@ class PostingService:
                     body_hash=sha256(selection.body.encode("utf-8")).hexdigest(),
                     approval_hash=selection.approval_hash,
                     profile=self.profile, when=self.clock(), daily_limit=self.daily_limit,
-                    local_tz=self.local_tz, body=selection.body)
+                    local_tz=self.local_tz, body=selection.body,
+                    cooldown_minutes=self.channel_cooldown_minutes)
             except ReservationBlocked as exc:
                 return PostStatus("blocked", exc.reason)
             clicked = False

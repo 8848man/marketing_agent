@@ -173,6 +173,7 @@ class ConfiguredPostingService(PostingService):
                  draft_generator: DraftGenerator | None = None, review_mode: bool = False, **kwargs):
         if settings is not None:
             kwargs.setdefault("allowed_channels", settings.channels)
+        kwargs.setdefault("channel_cooldown_minutes", 60)
         super().__init__(*args, **kwargs)
         self.settings = settings
         self.review_mode = review_mode

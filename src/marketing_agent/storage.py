@@ -335,13 +335,15 @@ class Store:
     def reserve_reviewed_post(self, *, video_id: str, channel_id: str, title: str,
                               body_hash: str, approval_hash: str, profile: str,
                               when: datetime, daily_limit: int = 10, local_tz=KST,
-                              body: str = "") -> str:
+                              body: str = "", cooldown_minutes: int = 0) -> str:
         """Reserve across processes before any Chrome work; include legacy posts."""
         utc = _aware(when)
         if not all(isinstance(x, str) and x for x in (video_id, channel_id, title, body_hash, approval_hash, profile)):
             raise ValueError("reservation fields cannot be empty")
         if isinstance(daily_limit, bool) or not isinstance(daily_limit, int) or daily_limit <= 0:
             raise ValueError("daily_limit must be positive")
+        if isinstance(cooldown_minutes, bool) or not isinstance(cooldown_minutes, int) or cooldown_minutes < 0:
+            raise ValueError("cooldown_minutes must be a non-negative integer")
         day = utc.astimezone(local_tz).date().isoformat()
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -349,6 +351,13 @@ class Store:
                 raise ReservationBlocked("ALREADY_ATTEMPTED")
             if self._dashboard_count(day) >= daily_limit:
                 raise ReservationBlocked("DAILY_LIMIT")
+            if cooldown_minutes:
+                # reserved_at is always a fixed-width UTC _stamp, so compare in the same form.
+                since = _stamp(utc - timedelta(minutes=cooldown_minutes))
+                if self.db.execute("SELECT 1 FROM dashboard_post_reservations WHERE channel_id=? "
+                                   "AND status != 'PRECHECK_FAILED' AND reserved_at > ? LIMIT 1",
+                                   (channel_id, since)).fetchone():
+                    raise ReservationBlocked("CHANNEL_COOLDOWN")
             attempt_id = uuid4().hex
             self.db.execute("""INSERT INTO dashboard_post_reservations
                 (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,reserved_at,status)
