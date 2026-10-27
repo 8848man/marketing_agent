@@ -18,7 +18,7 @@
 | R1-T2 | IMP-27 | 게이트 도구 `scripts/round_gate.py` | 방법론 | [R1-T2_gate_tool.md](R1-T2_gate_tool.md) | 완료 (6604f3e, 게이트 PASS) |
 | R1-T3 | IMP-28 | 게시 가드가 설정 채널 사용 | H2 | [R1-T3_channel_guard.md](R1-T3_channel_guard.md) | 완료 (d6a1065, 게이트 PASS) |
 | R1-T4 | IMP-29 | 자막 라이브러리 선언·누락 안내 | M6 | [R1-T4_captions_dependency.md](R1-T4_captions_dependency.md) | 완료 (21abd03, 게이트 PASS) |
-| R1-T5 | IMP-30 | 추적 파일 기반 배포 패키징 | H4 | [R1-T5_packaging.md](R1-T5_packaging.md) | 계획 |
+| R1-T5 | IMP-30 | 추적 파일 기반 배포 패키징 | H4 | [R1-T5_packaging.md](R1-T5_packaging.md) | 완료 (57629b0, 게이트 PASS) |
 
 실행 순서: T2 → T3 → T4 → T5. T2가 이후 작업의 게이트를 판정합니다.
 T2는 자기 자신을 판정할 수 없으므로, T2 커밋 이후의 `round_gate.py`로 T2 커밋을 판정하고 메인이 결과를 직접 검토합니다.
