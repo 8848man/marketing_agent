@@ -49,7 +49,7 @@ python scripts/round_gate.py --contract <계약서.md> --base <커밋> --head <�
 - [ ] 전체 테스트 실패 0, V1 0·0
 - [ ] 커밋 1개: `chore(gate): 라운드 작업 게이트 도구 (R1-T2)`, 본문 `Spec: IMP-27  Task: IMP-27` + Verify 줄
 
-### 게이트 입력
+## 게이트 입력
 ```json
 {"task_id": "R1-T2", "spec": "IMP-27",
  "allowed_files": ["scripts/round_gate.py", "tests/test_round_gate.py"],

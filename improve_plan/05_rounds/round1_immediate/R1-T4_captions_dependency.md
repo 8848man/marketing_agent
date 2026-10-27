@@ -39,7 +39,7 @@
 - [ ] 전체 테스트 실패 0, V1 0·0
 - [ ] 커밋 1개: `fix(captions): 자막 라이브러리 선언과 누락 사유 안내 (R1-T4)`, 본문 `Spec: IMP-29  Task: IMP-29` + Verify 줄
 
-### 게이트 입력
+## 게이트 입력
 ```json
 {"task_id": "R1-T4", "spec": "IMP-29",
  "allowed_files": ["pyproject.toml", "requirements.txt", "src/marketing_agent/captions.py", "tests/test_captions.py", "README.md"],

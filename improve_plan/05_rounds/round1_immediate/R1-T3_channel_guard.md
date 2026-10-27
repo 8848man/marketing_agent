@@ -38,7 +38,7 @@
 - [ ] 전체 테스트 실패 0, V1 0·0
 - [ ] 커밋 1개: `fix(guard): 게시 가드가 설정 채널 목록을 사용 (R1-T3)`, 본문 `Spec: IMP-28  Task: IMP-28` + Verify 줄
 
-### 게이트 입력
+## 게이트 입력
 ```json
 {"task_id": "R1-T3", "spec": "IMP-28",
  "allowed_files": ["src/marketing_agent/guard.py", "src/marketing_agent/posting_service.py", "src/marketing_agent/dashboard.py",

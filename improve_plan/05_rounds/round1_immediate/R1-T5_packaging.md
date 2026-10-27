@@ -47,7 +47,7 @@ python scripts/package.py [--ref HEAD] [--out dist/marketing_agent-<짧은해시
 - [ ] 전체 테스트 실패 0, V1 0·0
 - [ ] 커밋 1개: `feat(package): 추적 파일만 담는 배포 패키징과 금지 항목 검사 (R1-T5)`, 본문 `Spec: IMP-30  Task: IMP-30` + Verify 줄
 
-### 게이트 입력
+## 게이트 입력
 ```json
 {"task_id": "R1-T5", "spec": "IMP-30",
  "allowed_files": ["scripts/package.py", "tests/test_package.py", ".gitignore", "README.md"],
