@@ -147,3 +147,32 @@ def test_examples_match_both_loaders_without_secret_values(tmp_path):
                   if line and not line.startswith("#"))
     assert set(values) == {"YOUTUBE_API_KEY", *(details[1] for details in ai_client.PROVIDERS.values())}
     assert all(value == "" for value in values.values())
+
+
+def test_request_logger_writes_safe_fields(tmp_path):
+    from marketing_agent.logging import RequestLogger
+    path = tmp_path / "logs" / "req.jsonl"
+    RequestLogger(path).emit(request_id="abc123def456", method="POST", route="/api/videos/AbCdEfGhI12/post",
+                             status=409, reason_code="ALREADY_POSTED", duration_ms=12)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert set(record) == {"timestamp", "request_id", "method", "route", "status", "reason_code",
+                           "duration_ms", "error_type"}
+    assert record["route"] == "/api/videos/{video_id}/post"
+    assert "AbCdEfGhI12" not in lines[0]
+    assert record["status"] == 409 and record["error_type"] == ""
+
+
+def test_request_logger_rejects_unsafe_codes_and_rotates(tmp_path):
+    from marketing_agent.logging import RequestLogger
+    path = tmp_path / "req.jsonl"
+    logger = RequestLogger(path)
+    logger.emit(request_id="r1", method="GET", route="/", status=500, reason_code="bad code!",
+                duration_ms=1, error_type="Err or\n")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["reason_code"] == "INVALID" and record["error_type"] == "INVALID"
+    path.write_bytes(b"x" * (5 * 1024 * 1024 + 1))
+    logger.emit(request_id="r2", method="GET", route="/", status=200, duration_ms=1)
+    assert (tmp_path / "req.jsonl.1").stat().st_size == 5 * 1024 * 1024 + 1
+    assert json.loads(path.read_text(encoding="utf-8"))["request_id"] == "r2"

@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import sys
+import time
+import uuid
 from pathlib import Path
 import re
 import secrets
@@ -41,6 +43,7 @@ from .drafts import approve as approve_draft, awaiting_approval, quality_failure
 from .draft_generation import DraftGenerator, ProviderDraftGenerator
 from .posting_service import CHANNEL_ID, PostingService
 from .prompt_policy import build_draft_prompt, build_revision_prompt
+from .logging import RequestLogger, request_route
 from .draft_review import MAX_REVISIONS, other_comments, review_problems
 from .rss_feed import CHANNELS, fetch_channel, list_videos, parse_channel, recheck_video
 from .storage import Store
@@ -941,7 +944,8 @@ _CSP = ("default-src 'self'; img-src 'self' https://i.ytimg.com; script-src 'uns
 
 
 def create_server(service: DashboardService | None = None, *, port: int = 0,
-                  capture_dir: str | Path | None = None) -> ThreadingHTTPServer:
+                  capture_dir: str | Path | None = None,
+                  request_log: RequestLogger | None = None) -> ThreadingHTTPServer:
     """Bind to loopback and call the poster only after request checks."""
     service = service if service is not None else FeedDraftService()
     token = secrets.token_urlsafe(32)
@@ -952,6 +956,40 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
             pass
+
+        _request_id = ""
+        _status = 0
+        _reason = ""
+        _error_type = ""
+
+        def send_response(self, code: int, message: str | None = None) -> None:
+            super().send_response(code, message)
+            self._status = int(code)
+            if self._request_id:
+                self.send_header("X-Request-Id", self._request_id)
+
+        def _logged(self, handler) -> None:
+            self._request_id = uuid.uuid4().hex[:12]
+            self._status, self._reason, self._error_type = 0, "", ""
+            started = time.monotonic()
+            try:
+                handler()
+            finally:
+                if request_log is not None:
+                    try:
+                        request_log.emit(
+                            request_id=self._request_id, method=self.command or "",
+                            route=request_route(urlsplit(self.path).path), status=self._status,
+                            reason_code=self._reason, error_type=self._error_type,
+                            duration_ms=int((time.monotonic() - started) * 1000))
+                    except Exception:  # a log failure must never change the response
+                        pass
+
+        def do_GET(self) -> None:
+            self._logged(self._handle_get)
+
+        def do_POST(self) -> None:
+            self._logged(self._handle_post)
 
         def _headers(self, status: int, content_type: str, size: int) -> None:
             self.send_response(status)
@@ -965,6 +1003,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             self.end_headers()
 
         def _json(self, status: int, payload: object) -> None:
+            if isinstance(payload, dict) and isinstance(payload.get("reason_code"), str):
+                self._reason = payload["reason_code"]
+                active = sys.exc_info()[1]
+                if status >= 500 and active is not None:
+                    self._error_type = type(active).__name__
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self._headers(status, "application/json; charset=utf-8", len(body))
             self.wfile.write(body)
@@ -1008,7 +1051,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             self._headers(403, "text/html; charset=utf-8", len(body))
             self.wfile.write(body)
 
-        def do_GET(self) -> None:
+        def _handle_get(self) -> None:
             if not self._host_ok():
                 return self._reject(403, FORBIDDEN)
             if urlsplit(self.path).path == "/pair":
@@ -1155,7 +1198,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject(405, METHOD_NOT_ALLOWED)
             return self._reject(404, BAD_REQUEST)
 
-        def do_POST(self) -> None:
+        def _handle_post(self) -> None:
             if not self._host_ok():
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
@@ -1472,11 +1515,12 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
 
 def run_dashboard(*, port: int = 8765, service: DashboardService | None = None,
                   capture_dir: str | Path | None = None,
-                  open_browser: bool = True, port_tries: int = 1) -> None:
+                  open_browser: bool = True, port_tries: int = 1,
+                  request_log: RequestLogger | None = None) -> None:
     server = None
     for candidate in range(port, port + max(1, min(int(port_tries), 20))):
         try:
-            server = create_server(service, port=candidate, capture_dir=capture_dir)
+            server = create_server(service, port=candidate, capture_dir=capture_dir, request_log=request_log)
             break
         except OSError:
             continue

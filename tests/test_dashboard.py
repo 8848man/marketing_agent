@@ -1689,3 +1689,55 @@ def test_history_ui_has_resolve_controls(tmp_path):
     js.write_text("\n".join(scripts), encoding="utf-8")
     result = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def _wait_log(path, ready):
+    """The handler logs after it responds, so poll for the expected records."""
+    deadline = time.monotonic() + 3
+    records = []
+    while time.monotonic() < deadline:
+        if path.exists():
+            records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if ready(records):
+                break
+        time.sleep(0.02)
+    return records
+
+
+def test_server_logs_requests_without_secrets(tmp_path):
+    log = tmp_path / "logs" / "req.jsonl"
+    from marketing_agent.logging import RequestLogger
+    with running_server(FakeService(), request_log=RequestLogger(log)) as port:
+        secret = "SECRET-TOKEN-VALUE-123"
+        status, _, headers = _raw_request(port, "POST", "/api/post", token=secret,
+                                          origin=f"http://{HOST}:{port}", body=json.dumps({"video_id": VIDEO_ID}))
+        assert status == 403
+        request_id = next(v for k, v in headers if k.lower() == "x-request-id")
+        _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        records = _wait_log(log, lambda rs: any(r["request_id"] == request_id for r in rs)
+                            and any(r["route"] == "/pair" for r in rs))
+    text = log.read_text(encoding="utf-8")
+    assert secret not in text and port.pair_code not in text and VIDEO_ID not in text
+    post = next(r for r in records if r["request_id"] == request_id)
+    assert (post["method"], post["route"], post["status"]) == ("POST", "/api/post", 403)
+    assert post["reason_code"] == "FORBIDDEN" and post["error_type"] == ""
+    assert any(r["route"] == "/pair" and r["status"] == 303 for r in records)
+
+
+def test_server_logs_error_type_on_503(tmp_path):
+    class Boom(FakeService):
+        def post_video(self, video_id):
+            raise RuntimeError("private detail xyz")
+
+    log = tmp_path / "req.jsonl"
+    from marketing_agent.logging import RequestLogger
+    with running_server(Boom(), request_log=RequestLogger(log)) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        status, _ = request(port, "POST", "/api/post", origin=f"http://{HOST}:{port}", token=token,
+                            body=json.dumps({"video_id": VIDEO_ID}))
+        assert status == 503
+        records = _wait_log(log, lambda rs: any(r["status"] == 503 for r in rs))
+    assert "private detail" not in log.read_text(encoding="utf-8")
+    record = next(r for r in records if r["status"] == 503)
+    assert record["status"] == 503 and record["error_type"] == "RuntimeError"

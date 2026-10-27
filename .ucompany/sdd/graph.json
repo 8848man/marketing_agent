@@ -284,6 +284,11 @@
       "status": "in_progress"
     },
     {
+      "id": "CODE-LOGGING",
+      "path": "src/marketing_agent/logging.py",
+      "type": "code"
+    },
+    {
       "id": "CODE-SETTINGS",
       "path": "src/marketing_agent/dashboard_settings.py",
       "type": "code"

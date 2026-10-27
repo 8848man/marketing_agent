@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                                       help="Existing evidence file inside --work-dir, required for registration")
         dashboard_args = dashboard_parser.parse_args(argv[1:])
         from .dashboard import ConfiguredPostingService, DashboardSettings, DemoService, run_dashboard
+        from .logging import RequestLogger
         from .drafts import approved_draft_cards
         from .poster import VisibleChromePoster
         from .rss_feed import list_videos, recheck_video
@@ -200,7 +201,8 @@ def main(argv: list[str] | None = None) -> int:
                                                recheck=lambda video_id, channel_id: recheck_video(
                                                    video_id, channel_id, channels=settings.channels()))
             run_dashboard(port=dashboard_args.port, service=service,
-                          capture_dir=capture_dir, port_tries=dashboard_args.port_tries)
+                          capture_dir=capture_dir, port_tries=dashboard_args.port_tries,
+                          request_log=RequestLogger(work_dir / "logs" / "dashboard-requests.jsonl"))
             return 0
         except (OSError, ValueError) as exc:
             detail = str(exc) if str(exc).startswith("PORT_IN_USE") else type(exc).__name__
