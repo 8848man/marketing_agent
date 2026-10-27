@@ -5,15 +5,15 @@
 | ID | 심각도 | 내용 | 현재 상태 | 라운드 |
 | --- | --- | --- | --- | --- |
 | H1 | 높음 | 로컬 프로세스가 사람 승인 없이 생성→승인→게시 가능 | 유효 [코드 확인] 토큰이 `/` HTML에 포함(`dashboard.py` `_page(token, …)`), 승인 해시는 비밀 없는 `content_hash` | 2 |
-| H2 | 높음 | 설정 채널과 게시 가드 불일치 | 유효 [코드 확인] `guard.py`가 하드코딩 `rss_feed.CHANNELS`만 허용 | 1 |
+| H2 | 높음 | 설정 채널과 게시 가드 불일치 | **해소 (IMP-28)** 이전: [코드 확인] `guard.py`가 하드코딩 `rss_feed.CHANNELS`만 허용 | 1 |
 | H3 | 높음 | API 키가 평문 `.env` | 유효 [코드 확인] `dashboard_settings._write_ai_env` + `chmod 0o600`(Windows에서 효과 미미). 보고서의 개선안(`profile_emails` DPAPI 재사용)은 불가: IMP-18에서 해당 모듈 삭제됨 → 2라운드에서 새로 설계 | 2 |
-| H4 | 높음 | 로그인 정보가 배포물에 섞일 위험 | 대상 변경 [코드 확인] 보고서의 `keep-window-probe`는 없음. 대신 `data/dashboard/chrome-profile-*`에 `Cookies`·`Login Data` 존재. git에는 `data/` 제외로 안 올라가지만 폴더 압축 배포 시 위험 | 1 |
+| H4 | 높음 | 로그인 정보가 배포물에 섞일 위험 | **완화 (IMP-30, 패키징 스크립트)** 대상 변경 [코드 확인] 보고서의 `keep-window-probe`는 없음. 대신 `data/dashboard/chrome-profile-*`에 `Cookies`·`Login Data` 존재. git에는 `data/` 제외로 안 올라가지만 폴더 압축 배포 시 위험 | 1 |
 | M1 | 중간 | 정책 리스크, 대시보드 경로에 쿨다운 없음 | 유효 [코드 확인] `channel_cooldowns`는 레거시 `reserve_post`에만 적용 | 2 |
 | M2 | 중간 | 락 범위가 넓어 UI 멈춤 | 재확인 필요 [보고서] `dashboard.py`에 `_settings_lock` 사용 20곳 | 3 |
 | M3 | 중간 | `OUTCOME_UNKNOWN` 복구 경로 없음 | 유효 [코드 확인] `finish_dashboard_post` 호출은 `posting_service.py` 게시 경로뿐 | 3 |
 | M4 | 중간 | 레거시 CLI와 이중 데이터 모델 | 재확인 필요 [보고서] 레거시 모듈(`pipeline`, `watcher` 등) 존재. `poster.py`는 362줄로 줄어 CDP 구간 잔존 여부 확인 필요 | 4 |
 | M5 | 중간 | `_NoRedirect` 중복, 공통 HTTP 계층 없음 | 유효 [코드 확인] `ai_client`·`captions`·`pipeline`·`rss_feed` 4곳 | 4 |
-| M6 | 중간 | 자막 라이브러리 미선언 | 유효 [코드 확인] `pyproject.toml`·`requirements.txt`에 없음 | 1 |
+| M6 | 중간 | 자막 라이브러리 미선언 | **해소 (IMP-29)** 이전: [코드 확인] `pyproject.toml`·`requirements.txt`에 없음 | 1 |
 | M7 | 중간 | `dashboard.py` 비대 | 악화 [코드 확인] 1,028줄 → 1,372줄 | 5 |
 | M8 | 중간 | JS가 Python 문자열 안, CSP `unsafe-inline` | 재확인 필요 [보고서] | 5 |
 | L1 | 낮음 | 일일 한도 날짜가 머신 시간대 기준 | 유효 [코드 확인] `posting_service.local_tz` | 3 |
