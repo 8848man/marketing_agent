@@ -14,7 +14,7 @@
 | ID | IMP | 내용 | 대상 | 계약서 | 상태 |
 | --- | --- | --- | --- | --- | --- |
 | R3-T1 | IMP-34 | 설정 락·브라우저 락 분리 | M2 | [R3-T1_lock_split.md](R3-T1_lock_split.md) | 완료 (c2a31a2, 게이트 PASS) |
-| R3-T2 | IMP-35 | 결과 불명 게시 사람 해소, 키 저장소 오류 문구 | M3 | [R3-T2_outcome_resolution.md](R3-T2_outcome_resolution.md) | 계획 |
+| R3-T2 | IMP-35 | 결과 불명 게시 사람 해소, 키 저장소 오류 문구 | M3 | [R3-T2_outcome_resolution.md](R3-T2_outcome_resolution.md) | 완료 (23a3e3a, 게이트 PASS) |
 | R3-T3 | IMP-36 | 대시보드 요청 구조화 로그 | L4 | [R3-T3_dashboard_logging.md](R3-T3_dashboard_logging.md) | 계획 |
 | R3-T4 | IMP-37 | 일일 한도 KST, 개별 초안 우선 | L1, L2 | [R3-T4_kst_and_draft_order.md](R3-T4_kst_and_draft_order.md) | 계획 |
 
