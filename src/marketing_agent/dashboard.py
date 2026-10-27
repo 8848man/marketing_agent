@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import subprocess
+from urllib.parse import parse_qs, urlsplit
 from threading import RLock
 import webbrowser
 import xml.etree.ElementTree as ET
@@ -870,11 +871,19 @@ def _capture_url(path: str, capture_dir: Path | None) -> str:
     return ""
 
 
+PAIR_HELP_PAGE = (
+    '<!doctype html><html lang="ko"><meta charset="utf-8"><title>대시보드 연결</title>'
+    "<p>대시보드를 실행한 창에 표시된 주소로 다시 여세요.</p></html>"
+)
+
+
 def create_server(service: DashboardService | None = None, *, port: int = 0,
                   capture_dir: str | Path | None = None) -> ThreadingHTTPServer:
     """Bind to loopback and call the poster only after request checks."""
     service = service if service is not None else FeedDraftService()
     token = secrets.token_urlsafe(32)
+    pair_code = secrets.token_urlsafe(24)
+    pair_cookie = secrets.token_urlsafe(32)  # separate from the API session token
     captures = Path(capture_dir) if capture_dir is not None else None
 
     class Handler(BaseHTTPRequestHandler):
@@ -923,10 +932,35 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
         def _session_ok(self) -> bool:
             return secrets.compare_digest(self.headers.get("X-Session-Token", ""), token)
 
+        def _paired(self) -> bool:
+            for part in self.headers.get("Cookie", "").split(";"):
+                name, _, value = part.strip().partition("=")
+                if name == "ma_pair" and secrets.compare_digest(value, pair_cookie):
+                    return True
+            return False
+
+        def _unpaired_page(self) -> None:
+            body = PAIR_HELP_PAGE.encode("utf-8")
+            self._headers(403, "text/html; charset=utf-8", len(body))
+            self.wfile.write(body)
+
         def do_GET(self) -> None:
             if not self._host_ok():
                 return self._reject(403, FORBIDDEN)
+            if urlsplit(self.path).path == "/pair":
+                code = parse_qs(urlsplit(self.path).query).get("code", [""])[0]
+                if not secrets.compare_digest(code, pair_code):
+                    return self._unpaired_page()
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.send_header("Set-Cookie", f"ma_pair={pair_cookie}; HttpOnly; SameSite=Strict; Path=/")
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                return self.end_headers()
             if self.path == "/":
+                if not self._paired():
+                    return self._unpaired_page()
                 body = _page(token, demo=isinstance(service, DemoService))
                 self._headers(200, "text/html; charset=utf-8", len(body))
                 return self.wfile.write(body)
@@ -1347,7 +1381,9 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
         do_PATCH = do_PUT
         do_DELETE = do_PUT
 
-    return ThreadingHTTPServer((HOST, port), Handler)
+    server = ThreadingHTTPServer((HOST, port), Handler)
+    server.pair_code = pair_code
+    return server
 
 
 def run_dashboard(*, port: int = 8765, service: DashboardService | None = None,
@@ -1363,7 +1399,7 @@ def run_dashboard(*, port: int = 8765, service: DashboardService | None = None,
     if server is None:
         raise OSError(f"PORT_IN_USE {port}-{port + max(1, min(int(port_tries), 20)) - 1}")
     with server:
-        url = f"http://{HOST}:{server.server_port}/"
+        url = f"http://{HOST}:{server.server_port}/pair?code={server.pair_code}"
         print(f"Dashboard: {url}", flush=True)  # launchers read this line from a pipe
         if open_browser:
             webbrowser.open(url)

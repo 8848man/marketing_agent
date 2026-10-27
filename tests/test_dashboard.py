@@ -13,6 +13,7 @@ import re
 import sys
 from tempfile import TemporaryDirectory
 import threading
+import time
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -68,33 +69,58 @@ def no_post_attempts(db_path) -> bool:
                    for table in ("dashboard_post_reservations", "post_results") if table in tables)
 
 
+class PairedPort(int):
+    """Port number that also carries the server's pairing code."""
+
+    def __new__(cls, port, pair_code):
+        obj = super().__new__(cls, port)
+        obj.pair_code = pair_code
+        return obj
+
+
 @contextmanager
 def running_server(service, **kwargs):
     server = create_server(service, **kwargs)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.server_port
+        yield PairedPort(server.server_port, server.pair_code)
     finally:
         server.shutdown()
         thread.join(timeout=3)
         server.server_close()
 
 
-def request(port, method, path, *, host=None, origin=None, token=None, body=None):
-    connection = http.client.HTTPConnection(HOST, port, timeout=3)
+def _raw_request(port, method, path, *, host=None, origin=None, token=None, body=None, cookie=None):
+    connection = http.client.HTTPConnection(HOST, int(port), timeout=3)
     headers = {"Host": host if host is not None else f"{HOST}:{port}"}
     if origin is not None:
         headers["Origin"] = origin
     if token is not None:
         headers["X-Session-Token"] = token
+    if cookie is not None:
+        headers["Cookie"] = cookie
     if body is not None:
         headers["Content-Type"] = "application/json"
     connection.request(method, path, body=body, headers=headers)
     response = connection.getresponse()
-    result = response.status, response.read().decode("utf-8")
+    result = response.status, response.read().decode("utf-8"), response.getheaders()
     connection.close()
     return result
+
+
+def pair_cookie(port):
+    """Pair like the browser does and return the Cookie header value."""
+    status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+    assert status == 303
+    cookie = next(v for k, v in headers if k.lower() == "set-cookie")
+    return cookie.split(";", 1)[0]
+
+
+def request(port, method, path, *, host=None, origin=None, token=None, body=None, pair=True):
+    """Page requests ('/') are paired first unless pair=False."""
+    cookie = pair_cookie(port) if pair and method == "GET" and path == "/" and hasattr(port, "pair_code") else None
+    return _raw_request(port, method, path, host=host, origin=origin, token=token, body=body, cookie=cookie)[:2]
 
 
 def test_dashboard_is_loopback_and_has_three_panels():
@@ -1373,3 +1399,72 @@ def test_app_login_window_blocks_post_until_closed(tmp_path):
         assert no_post_attempts(tmp_path / "posts.db")
         launch.return_value.poll.return_value = 0
         assert service._profile_reason() == ""
+
+
+def test_page_requires_pairing_cookie():
+    with running_server(FakeService()) as port:
+        status, page = request(port, "GET", "/", pair=False)
+        assert status == 403
+        assert "session-token" not in page
+        assert "다시 여세요" in page
+
+
+def test_pair_sets_cookie_and_page_has_token():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        assert status == 303
+        assert dict(headers)["Location"] == "/"
+        cookie = next(v for k, v in headers if k.lower() == "set-cookie")
+        assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+        status, page, _ = _raw_request(port, "GET", "/", cookie=cookie.split(";", 1)[0])
+        assert status == 200
+        assert 'name="session-token"' in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert token not in cookie
+        # The code stays valid for repeated use.
+        assert _raw_request(port, "GET", f"/pair?code={port.pair_code}")[0] == 303
+
+
+def test_pair_rejects_wrong_code():
+    with running_server(FakeService()) as port:
+        for path in ("/pair?code=wrong", "/pair"):
+            status, _, headers = _raw_request(port, "GET", path)
+            assert status == 403
+            assert not any(k.lower() == "set-cookie" for k, _ in headers)
+        status, page, _ = _raw_request(port, "GET", "/", cookie="ma_pair=wrong")
+        assert status == 403 and "session-token" not in page
+
+
+def test_pair_checks_host():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}", host="evil.example")
+        assert status == 403
+        assert not any(k.lower() == "set-cookie" for k, _ in headers)
+
+
+def test_run_dashboard_prints_pair_url(capsys, monkeypatch):
+    import marketing_agent.dashboard as dashboard
+
+    holder = {}
+    real_create = dashboard.create_server
+
+    def capture(*args, **kwargs):
+        holder["server"] = real_create(*args, **kwargs)
+        return holder["server"]
+
+    monkeypatch.setattr(dashboard, "create_server", capture)
+    thread = threading.Thread(
+        target=lambda: dashboard.run_dashboard(port=0, service=FakeService(), open_browser=False), daemon=True)
+    thread.start()
+    try:
+        deadline = time.time() + 5
+        out = ""
+        while time.time() < deadline and "Dashboard: " not in out:
+            out += capsys.readouterr().out
+            time.sleep(0.05)
+        server = holder["server"]
+        assert f"Dashboard: http://127.0.0.1:{server.server_port}/pair?code={server.pair_code}" in out
+    finally:
+        if "server" in holder:
+            holder["server"].shutdown()
+        thread.join(timeout=5)

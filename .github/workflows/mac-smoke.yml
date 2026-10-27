@@ -35,8 +35,10 @@ jobs:
       - name: 대시보드 기동·접속
         run: |
           .venv/bin/python -m marketing_agent dashboard --port 8770 > dashboard.log 2>&1 &
+          code=""
           for i in $(seq 1 30); do
-            code=$(curl -s -o page.html -w "%{http_code}" http://127.0.0.1:8770/ || true)
+            url=$(grep -o 'http://127.0.0.1:[0-9]*/pair?code=[A-Za-z0-9_-]*' dashboard.log | head -1 || true)
+            if [ -n "$url" ]; then code=$(curl -s -c jar -b jar -L -o page.html -w "%{http_code}" "$url" || true); fi
             [ "$code" = "200" ] && break; sleep 1
           done
           echo "dashboard_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -47,11 +49,11 @@ jobs:
           bash start-review.command > launcher.log 2>&1 &
           url=""; code=""
           for i in $(seq 1 90); do
-            url=$(grep -o 'http://127.0.0.1:[0-9]*/' launcher.log | head -1 || true)
-            if [ -n "$url" ]; then code=$(curl -s -o review.html -w "%{http_code}" "$url" || true); fi
+            url=$(grep -o 'http://127.0.0.1:[0-9]*/pair?code=[A-Za-z0-9_-]*' launcher.log | head -1 || true)
+            if [ -n "$url" ]; then code=$(curl -s -c jar2 -b jar2 -L -o review.html -w "%{http_code}" "$url" || true); fi
             [ "$code" = "200" ] && break; sleep 2
           done
-          echo "launcher_url=$url launcher_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "launcher_url=${url%%\?*} launcher_http=$code" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$code" != "200" ] || ! grep -q "applyFeatured" review.html; then
             echo "::error title=launcher::$(tail -n 8 launcher.log | tr '\n' ' ' | cut -c1-900)"
             exit 1
