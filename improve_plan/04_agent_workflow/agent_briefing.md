@@ -10,7 +10,7 @@
 
 ## 저장소 접근
 
-- 저장소는 사용자 PC에 있고, `mcp__remote-devices__device_bash` 도구로만 접근한다. 각 호출은 새 bash이므로 매번 `cd "$HOME/mnt/marketing_agent"`로 시작한다.
+- 저장소는 사용자 PC에 있고, `mcp__remote-devices__device_bash` 도구로만 접근한다. 이 도구가 목록에 없으면 `ToolSearch`로 `select:mcp__remote-devices__device_bash`를 먼저 불러온다. 각 호출은 새 bash이므로 매번 `cd "$HOME/mnt/marketing_agent"`로 시작한다.
 - 파일 수정은 그 셸 안에서 한다(`python3`로 읽고-고치고-쓰기, 또는 heredoc). 이전 도구 출력을 다시 타이핑해 파일을 재구성하지 않는다(출력이 잘려 있을 수 있다).
 - 큰 파일은 통째로 읽지 말고 `grep -n`, `sed -n '시작,끝p'`로 필요한 부분만 읽는다.
 
