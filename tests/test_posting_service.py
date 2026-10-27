@@ -2,7 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import json
+import os
+import sqlite3
+import time
 from unittest.mock import patch
+
+import pytest
 
 from marketing_agent.dashboard_contracts import VideoCard, VideoList
 from marketing_agent.drafts import content_hash
@@ -323,3 +328,33 @@ def test_cooldown_and_daily_limit_have_korean_message(tmp_path):
     daily = limited.post_video(card4.video_id)
     assert daily.reason_code == "DAILY_LIMIT"
     assert "오늘 게시 한도(" in daily.message and "내일 다시" in daily.message
+
+
+def test_daily_limit_day_is_kst_regardless_of_machine_tz(tmp_path, monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset unavailable")
+    original = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    try:
+        late = datetime(2026, 10, 15, 15, 30, tzinfo=timezone.utc)  # KST 2026-10-16 00:30
+        service, card, _ = prepare_service(tmp_path, clock=lambda: late, poster=lambda *args: None)
+        assert late.astimezone(service.local_tz).utcoffset() == timedelta(hours=9)
+        with Store(service.db_path) as store:
+            attempt_id = store.reserve_reviewed_post(
+                video_id=card.video_id, channel_id=card.channel_id, title=card.title,
+                body_hash="b", approval_hash="a", profile="p", when=late, local_tz=service.local_tz)
+        db = sqlite3.connect(service.db_path)
+        try:
+            row = db.execute("SELECT attempt_date_kst FROM dashboard_post_reservations WHERE attempt_id=?",
+                             (attempt_id,)).fetchone()
+        finally:
+            db.close()
+        assert row[0] == "2026-10-16"
+    finally:
+        monkeypatch.undo()
+        if original is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original
+        time.tzset()

@@ -15,7 +15,7 @@ from .dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
 from .drafts import _load_record, content_hash, preview
 from .guard import check_rss_membership, normalize_video_id
 from .rss_feed import CHANNELS, VIDEO_ID, _NoRedirect, list_videos, recheck_video
-from .storage import ReservationBlocked, Store
+from .storage import KST, ReservationBlocked, Store
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,7 @@ class PostingService:
                  daily_limit: int = 10, feed_loader=list_videos,
                  recheck=recheck_video, clock=None, test_videos=(),
                  test_recheck=recheck_test_video, allowed_channels=None,
-                 channel_cooldown_minutes: int = 0):
+                 channel_cooldown_minutes: int = 0, local_tz=None):
         self.db_path = Path(db_path)
         self.drafts_dir = Path(drafts_dir)
         self.poster = poster
@@ -102,7 +102,7 @@ class PostingService:
         self.allowed_channels = allowed_channels
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.test_videos = _test_cards(test_videos)
-        self.local_tz = datetime.now().astimezone().tzinfo
+        self.local_tz = local_tz or KST
         self._videos: dict[str, VideoCard] = {}
         self._selected: dict[str, _Selection] = {}
 
