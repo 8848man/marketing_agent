@@ -208,3 +208,26 @@ def test_g6_email_pattern_ignores_escaped_newline(rg, repo):
     addr = "user" + "@" + "example.org"
     bad = commit(repo, {"a.py": f'owner = "{addr}"\n'})
     assert rg.check_g6(repo, ok, bad)[0] == "FAIL"
+
+
+def test_g6_email_detection_boundaries(rg, repo):
+    addr = "u" + "@" + "e.org"
+    must_fail = [
+        "연락처" + addr,
+        '"' + addr + '"',
+        "x = " + addr,
+        addr,
+        "f(" + addr + ")",
+        "<" + addr + ">",
+        "mailto:" + addr,
+    ]
+    prev = commit(repo, {"a.py": "x = 1\n"})
+    for i, line in enumerate(must_fail):
+        head = commit(repo, {"a.py": line + f"\n# {i}\n"})
+        assert rg.check_g6(repo, prev, head)[0] == "FAIL", line
+        prev = head
+    must_pass = ['x = "a' + "\\" + "n" + "@" + 'functools.cache"', "@functools.cache"]
+    for i, line in enumerate(must_pass):
+        head = commit(repo, {"a.py": line + f"\n# ok{i}\n"})
+        assert rg.check_g6(repo, prev, head)[0] == "PASS", line
+        prev = head

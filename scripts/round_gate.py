@@ -35,7 +35,7 @@ SECRET_PATTERNS = [
     ("sk 키", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
     ("Google 키", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
     ("xai 키", re.compile(r"xai-[A-Za-z0-9]{20,}")),
-    ("이메일", re.compile(r"(?<![\\\w.%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")),
+    ("이메일", re.compile(r"(?<![A-Za-z0-9_.%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")),
 ]
 
 
@@ -318,6 +318,7 @@ def check_g6(repo, base, head):
         if not line.startswith("+") or line.startswith("+++"):
             continue
         line = line[1:]  # diff의 '+' 접두어 제거(이메일 로컬 파트로 오인 방지)
+        line = re.sub(r"\\[nrtfvab0]", " ", line)  # 문자열 이스케이프(\n@x)를 이메일 시작으로 오인하지 않게
         if "noreply" in line:
             continue
         for label, pat in SECRET_PATTERNS:
