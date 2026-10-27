@@ -340,6 +340,16 @@
       "type": "code"
     },
     {
+      "id": "CODE-SERVICE",
+      "path": "src/marketing_agent/dashboard_service.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-CHROME",
+      "path": "src/marketing_agent/chrome_launch.py",
+      "type": "code"
+    },
+    {
       "id": "CODE-PAGE",
       "path": "src/marketing_agent/dashboard_page.py",
       "type": "code"

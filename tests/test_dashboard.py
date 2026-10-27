@@ -668,7 +668,7 @@ def test_ai_settings_are_write_only_and_test_requires_local_request_checks(tmp_p
         assert "PRIVATE_AI_TEST_KEY" not in settings.yaml_text()
         settings.save_channels(settings.channel_ids())
         assert settings.ai_credentials()[2] == "PRIVATE_AI_TEST_KEY"
-        with patch("marketing_agent.dashboard.test_ai_connection", return_value=True) as probe:
+        with patch("marketing_agent.dashboard_service.test_ai_connection", return_value=True) as probe:
             assert request(port, "POST", "/api/ai/test", host="evil.example",
                            token=token, origin=f"http://{HOST}:{port}", body="{}")[0] == 403
             assert request(port, "POST", "/api/ai/test", token=token,
@@ -1233,7 +1233,7 @@ def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, m
     poster = VisibleChromePoster(root, "Profile 1", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", poster=poster)
     assert service._profile_reason() == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
-    with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+    with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
         result = service.post_video(VIDEO_ID)
     assert result.reason_code == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
     post.assert_not_called()
@@ -1245,7 +1245,7 @@ def test_missing_profile_blocks_before_store_or_chrome():
         poster = VisibleChromePoster(root, "", screenshot_dir=Path(root) / "screenshots")
         service = ConfiguredPostingService(Path(root) / "posts.db", Path(root) / "drafts",
                                            poster=poster)
-        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+        with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
             result = service.post_video(VIDEO_ID)
         assert result.reason_code == "PROFILE_NOT_CONFIGURED"
         post.assert_not_called()
@@ -1262,7 +1262,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     poster = VisibleChromePoster(prior, "Default", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window",
+    with patch("marketing_agent.dashboard_service._open_login_window",
                side_effect=ValueError("CHROME_NOT_FOUND")):
         try:
             service.open_app_profile()
@@ -1272,7 +1272,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     assert settings.profile_public()["user_data_dir"] == str(prior)
     assert poster.user_data_dir == prior
     root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube1"
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         saved = service.open_app_profile("유튜브1")
     launch.assert_called_once_with(root, "akn-AvCeHBI")
     assert saved["profile_directory"] == "Default"
@@ -1294,17 +1294,17 @@ def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
     from marketing_agent.storage import Store
     with Store(tmp_path / "posts.db") as store:   # IMP-19: 유튜브1 confirmed first
         store.set_profile_active("유튜브1", True, datetime.now(timezone.utc))
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         service.open_app_profile("유튜브2")
         launch.assert_called_once_with(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
     assert settings.profile_public()["label"] == "유튜브1"
     assert settings.profile_options_public()["options"][1]["connected"] is True
     assert poster.user_data_dir == tmp_path
     assert no_post_attempts(tmp_path / "posts.db")
-    with patch("marketing_agent.dashboard._installed_chrome", return_value=Path("chrome.exe")), \
-         patch("marketing_agent.dashboard.subprocess.Popen") as start:
-        from marketing_agent import dashboard as dashboard_module
-        from marketing_agent.dashboard import _open_login_window
+    with patch("marketing_agent.chrome_launch._installed_chrome", return_value=Path("chrome.exe")), \
+         patch("marketing_agent.chrome_launch.subprocess.Popen") as start:
+        from marketing_agent import chrome_launch as dashboard_module
+        from marketing_agent.chrome_launch import _open_login_window
         _open_login_window(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
         second = start.call_args.args[0]
         _open_login_window(settings.app_profile_root("유튜브1"), "akn-AvCeHBI")
@@ -1327,7 +1327,7 @@ def test_app_profile_setup_http_boundary(tmp_path):
     poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         with running_server(service) as port:
             page = request(port, "GET", "/")[1]
             assert "profile-setup" in page
@@ -1384,14 +1384,14 @@ def test_app_login_window_blocks_post_until_closed(tmp_path):
     poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         launch.return_value.poll.return_value = None
         service.open_app_profile()
         poster.user_data_dir = settings.app_profile_root("유튜브1")
         poster.profile_directory = "Default"
         service.profile = "유튜브1"
         assert service._profile_reason() == "PROFILE_LOCKED"
-        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+        with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
             result = service.post_video(VIDEO_ID)
         assert result.reason_code == "PROFILE_LOCKED"
         post.assert_not_called()
@@ -1538,7 +1538,7 @@ def _blocked_post(service):
         return PostStatus("posted")
 
     result = {}
-    with patch("marketing_agent.dashboard.PostingService.post_video", slow_post):
+    with patch("marketing_agent.dashboard_service.PostingService.post_video", slow_post):
         thread = threading.Thread(target=lambda: result.update(
             status=service.post_video(VIDEO_ID)), daemon=True)
         thread.start()

@@ -63,6 +63,7 @@ def request_route(path: str) -> str:
 
 class RequestLogger:
     """Dashboard request records: fixed safe fields only, never query, body, headers or messages."""
+    # Assumes one process and one instance write a given file; the lock is per instance, not cross-process.
 
     def __init__(self, path: str | Path, *, max_bytes: int = _MAX_LOG_BYTES):
         self.path = Path(path)

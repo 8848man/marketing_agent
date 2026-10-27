@@ -63,7 +63,7 @@
 | TOOL-SDD | tool | [check_sdd.py](../scripts/check_sdd.py) | SDD 링크·그래프 검사 |
 | TOOL-SAFETY | tool | [safety_scan.py](../scripts/safety_scan.py) | 안전 규칙 정적 검사 |
 | TOOL-MAC-SMOKE | tool | [mac_smoke.py](../scripts/mac_smoke.py) | macOS 리허설(GitHub Actions mac-smoke) |
-| CODE-TRACK2 | code | [dashboard.py](../../src/marketing_agent/dashboard.py) | 제품의 로컬 HTTP 진입점 |
+| CODE-TRACK2 | code | [dashboard.py](../../src/marketing_agent/dashboard.py) | 제품의 로컬 HTTP 계층(서비스·Chrome 모듈은 아래 두 노드로 분리) |
 | CODE-RSS | code | [rss_feed.py](../../src/marketing_agent/rss_feed.py) | RSS 파싱·영상 소속 재조회 |
 | CODE-DRAFT | code | [drafts.py](../../src/marketing_agent/drafts.py) | 초안 저장·품질 검사·사람 승인 해시 검증 |
 | CODE-TRACK2-UI | code | [dashboard_ui.py](../../src/marketing_agent/dashboard_ui.py) | 3단계 화면과 상태 안내 |
@@ -75,6 +75,8 @@
 | CODE-CONTRACTS | code | [dashboard_contracts.py](../../src/marketing_agent/dashboard_contracts.py) | 대시보드 기본·선택 기능 계약 |
 | CODE-GENERATOR | code | [draft_generation.py](../../src/marketing_agent/draft_generation.py) | 주입 가능한 AI 초안 생성 계약 |
 | CODE-PROMPT | code | [prompt_policy.py](../../src/marketing_agent/prompt_policy.py) | 공통 프롬프트 원본(현행 `draft-v7-scene-first-reviewed`, `check_sdd.py`가 대조) |
+| CODE-SERVICE | code | [dashboard_service.py](../../src/marketing_agent/dashboard_service.py) | 설정 기반 게시 서비스·데모 서비스·채널 연결 확인 |
+| CODE-CHROME | code | [chrome_launch.py](../../src/marketing_agent/chrome_launch.py) | Chrome 찾기·기본 프로필 판정·로그인 창 |
 | CODE-PAGE | code | [dashboard_page.py](../../src/marketing_agent/dashboard_page.py) | 설정·브랜드 관리 다이얼로그 |
 | CODE-POSTER | code | [poster.py](../../src/marketing_agent/poster.py) | 앱 전용 프로필 Chrome 게시(유일한 게시 경로) |
 | CODE-REVIEW | code | [draft_review.py](../../src/marketing_agent/draft_review.py) | 2차 필터: 규칙·반복 검사와 AI 재작성 지시 |
