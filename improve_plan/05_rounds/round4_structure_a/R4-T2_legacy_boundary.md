@@ -9,6 +9,7 @@
 - `storage._dashboard_count`가 레거시 `post_results`를 합산한다. 이는 PDF 일일 한도를 넘지 않게 하는 보수적 동작이라 유지한다.
 
 ### 3. 사양
+0. (D-019, 1차 실행에서 발견한 경계 위반) 제품 `drafts.py`가 레거시 `writer.py`의 정규식 상수 `LINK`를 import해 `writer`·`classifier`가 제품 경로에 들어와 있다. `LINK` 정의를 `drafts.py`로 옮기고(값 그대로), `writer.py`는 `from .drafts import LINK`로 가져온다. 레거시 → 제품 참조는 허용, 제품 → 레거시는 금지.
 1. `tests/test_legacy_boundary.py`: `ast`로 `dashboard.py`에서 시작하는 상대 import 그래프(`check_sdd.py`의 `dashboard_modules`와 같은 방식)를 만들어, 레거시 모듈 집합과의 교집합이 비어 있음을 단언한다. `__main__.py`는 대시보드·레거시 두 진입점을 모두 가지므로 제외한다.
 2. 같은 파일에서 레거시 모듈들이 `poster`·`posting_service`(게시 경로)를 import하지 않음을 단언한다(레거시의 게시 호출 0회 고정).
 3. `legacy-scope.md`에 이 시험을 "자동 검사" 항목으로 적고, CDP 제거 완료와 `_dashboard_count` 합산 유지 이유를 한 줄씩 적는다.
@@ -23,8 +24,8 @@
 (1·2는 현재 코드에서 통과할 수 있다. 그 경우 G1을 위해 3번을 둔다.)
 
 ### 5. 수정 범위
-- 허용: `tests/test_legacy_boundary.py`, `.ucompany/sdd/contracts/legacy-scope.md`
-- 동결: `src/` 전체
+- 허용: `tests/test_legacy_boundary.py`, `.ucompany/sdd/contracts/legacy-scope.md`, `src/marketing_agent/drafts.py`, `src/marketing_agent/writer.py`
+- 동결: `dashboard.py`, `storage.py`, `pipeline.py`, `classifier.py`, `drafts.content_hash`, `drafts.quality_failure`
 - 하지 말 것: 모듈 이동·삭제, 테이블 변경
 
 ### 6. 완료 조건
@@ -35,8 +36,10 @@
 ## 게이트 입력
 ```json
 {"task_id": "R4-T2", "spec": "IMP-39",
- "allowed_files": ["tests/test_legacy_boundary.py", ".ucompany/sdd/contracts/legacy-scope.md"],
- "new_tests": ["tests/test_legacy_boundary.py::test_legacy_scope_doc_mentions_boundary_test"],
- "frozen": [{"path": "src/marketing_agent/dashboard.py"}, {"path": "src/marketing_agent/storage.py"}, {"path": "src/marketing_agent/pipeline.py"}],
+ "allowed_files": ["tests/test_legacy_boundary.py", ".ucompany/sdd/contracts/legacy-scope.md", "src/marketing_agent/drafts.py", "src/marketing_agent/writer.py"],
+ "new_tests": ["tests/test_legacy_boundary.py::test_dashboard_does_not_import_legacy", "tests/test_legacy_boundary.py::test_legacy_scope_doc_mentions_boundary_test"],
+ "frozen": [{"path": "src/marketing_agent/dashboard.py"}, {"path": "src/marketing_agent/storage.py"}, {"path": "src/marketing_agent/pipeline.py"},
+            {"path": "src/marketing_agent/classifier.py"}, {"path": "src/marketing_agent/drafts.py", "function": "content_hash"},
+            {"path": "src/marketing_agent/drafts.py", "function": "quality_failure"}],
  "baseline_passed": 250}
 ```
