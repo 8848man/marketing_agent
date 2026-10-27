@@ -18,6 +18,7 @@ from .ai_client import PROVIDERS, validate_model
 from .posting_service import CHANNEL_ID
 from .rss_feed import CHANNELS
 from .secret_store import DpapiFileStore, default_store
+from .task_constraints import BRAND_NAME as FIXED_BRAND, DAILY_MAX_COMMENTS
 
 CHANNEL_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}\Z")
 PROFILE_MEMO_MAX = 40
@@ -25,7 +26,7 @@ PROFILE_LABEL = re.compile(r'[^\x00-\x1f\x7f\\/:*?"<>|]{1,30}\Z')
 PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
 BRAND_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
 BRAND_DESCRIPTION = re.compile(r"[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]{1,1000}\Z")
-DEFAULT_BRAND = {"name": "운명원", "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
+DEFAULT_BRAND = {"name": FIXED_BRAND, "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
 DEFAULT_COMMENT_LIMITS = {"min_chars": 40, "max_chars": 120}
 YOUTUBE_KEY_NAME = "YOUTUBE_API_KEY"
 _DEFAULT = object()
@@ -44,8 +45,8 @@ class DashboardSettings:
     DEFAULT = {
         "profiles": ["유튜브1", "유튜브2", "유튜브3"],
         "channels": list(CHANNELS),
-        "comment": {"min_chars": 40, "max_chars": 120, "brand": "운명원"},
-        "limits": {"daily_max_comments": 10},
+        "comment": {"min_chars": 40, "max_chars": 120, "brand": FIXED_BRAND},
+        "limits": {"daily_max_comments": DAILY_MAX_COMMENTS},
     }
 
     def __init__(self, path: str | Path, *, secret_store: DpapiFileStore | None = _DEFAULT):
@@ -385,15 +386,15 @@ class DashboardSettings:
                 or any(not isinstance(item, str) or not CHANNEL_ID.fullmatch(item) for item in channels)
                 or len(set(channels)) != len(channels)):
             raise ValueError("SETTINGS_CHANNELS_INVALID")
-        if not isinstance(comment, dict) or comment.get("brand", "운명원") != "운명원":
+        if not isinstance(comment, dict) or comment.get("brand", FIXED_BRAND) != FIXED_BRAND:
             raise ValueError("SETTINGS_COMMENT_INVALID")
         limits_for_comment = validate_comment_limits(
             comment.get("min_chars", 40), comment.get("max_chars", 120))
-        if (not isinstance(limits, dict) or limits.get("daily_max_comments") != 10):
+        if (not isinstance(limits, dict) or limits.get("daily_max_comments") != DAILY_MAX_COMMENTS):
             raise ValueError("SETTINGS_LIMIT_PDF_LOCKED")
         return {"profiles": list(profiles), "channels": list(channels),
-                "comment": {**limits_for_comment, "brand": "운명원"},
-                "limits": {"daily_max_comments": 10}}
+                "comment": {**limits_for_comment, "brand": FIXED_BRAND},
+                "limits": {"daily_max_comments": DAILY_MAX_COMMENTS}}
 
     def channels(self) -> dict[str, str]:
         with self._lock:
@@ -464,7 +465,7 @@ class DashboardSettings:
         with self._lock:
             full = self._read_full()
             full["brand_settings"] = brand
-            full["comment"] = {**full.get("comment", {}), "brand": "운명원", **lengths,
+            full["comment"] = {**full.get("comment", {}), "brand": FIXED_BRAND, **lengths,
                                "review_filter": review_filter}
             normalized = self._validate(full)
             self._write_full(full)
@@ -747,8 +748,8 @@ class DashboardSettings:
                 label = CHANNELS.get(channel_id, "")
                 rows.append(f"  - {channel_id}" + (f"  # {label}" if label else ""))
             comment = current["comment"]
-            rows.extend([f"comment: {{ min_chars: {comment['min_chars']}, max_chars: {comment['max_chars']}, brand: 운명원 }}",
-                         "limits: { daily_max_comments: 10 }", ""])
+            rows.extend([f"comment: {{ min_chars: {comment['min_chars']}, max_chars: {comment['max_chars']}, brand: {FIXED_BRAND} }}",
+                         f"limits: {{ daily_max_comments: {DAILY_MAX_COMMENTS} }}", ""])
             return "\n".join(rows)
 
     def save_yaml(self, source: str, *, forbidden_channels=()) -> str:

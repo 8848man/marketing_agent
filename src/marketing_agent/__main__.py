@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import re
 import sys
 from time import sleep
 
@@ -17,7 +20,34 @@ from .storage import Store
 from .watcher import cycle_times
 
 
-APP_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = _DEFAULT_ROOT
+_ROOT_HINT = "앱 폴더에서 `pip install -e .` 후 실행하세요 (또는 MARKETING_AGENT_HOME을 앱 폴더로 지정)."
+
+
+def _is_app_root(path: Path) -> bool:
+    try:
+        text = (path / "pyproject.toml").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return re.search(r'^name\s*=\s*"marketing-agent"\s*$', text, re.MULTILINE) is not None
+
+
+def _resolve_app_root(candidate: Path, env: Mapping[str, str]) -> Path:
+    """Accept the computed root, else MARKETING_AGENT_HOME, else stop with guidance."""
+    if _is_app_root(candidate):
+        return candidate
+    override = env.get("MARKETING_AGENT_HOME")
+    if override and _is_app_root(Path(override).resolve()):
+        return Path(override).resolve()
+    raise SystemExit(_ROOT_HINT)
+
+
+def _ensure_app_root() -> None:
+    """Check at run time, not import time; a patched APP_ROOT is left alone."""
+    global APP_ROOT
+    if APP_ROOT is _DEFAULT_ROOT:
+        APP_ROOT = _resolve_app_root(_DEFAULT_ROOT, os.environ)
 
 
 def _app_path(value: str | Path) -> Path:
@@ -140,6 +170,7 @@ def _drafts_command(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+    _ensure_app_root()
     if argv and argv[0] == "drafts":
         return _drafts_command(argv[1:])
     if argv and argv[0] == "dashboard":

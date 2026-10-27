@@ -153,7 +153,7 @@ def validate_model(model: str) -> str:
 
 
 class ClaudeClient:
-    def __init__(self, api_key: str | None = None, *, model: str = "claude-sonnet-4-5", transport: Callable | None = None):
+    def __init__(self, api_key: str | None = None, *, model: str = PROVIDERS["claude"][0], transport: Callable | None = None):
         self.api_key = api_key if api_key is not None else os.getenv("ANTHROPIC_API_KEY")
         self.model = validate_model(model)
         self.transport = transport or _transport

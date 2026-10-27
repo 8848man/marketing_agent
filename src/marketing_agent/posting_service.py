@@ -17,6 +17,7 @@ from .guard import check_rss_membership, normalize_video_id
 from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
 from .rss_feed import CHANNELS, VIDEO_ID, FeedError, list_videos, recheck_video
 from .storage import KST, ReservationBlocked, Store
+from .task_constraints import DAILY_MAX_COMMENTS
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ class PostingService:
 
     def __init__(self, db_path: str | Path, drafts_dir: str | Path, *,
                  poster: Callable | None = None, profile: str = "유튜브1",
-                 daily_limit: int = 10, feed_loader=list_videos,
+                 daily_limit: int = DAILY_MAX_COMMENTS, feed_loader=list_videos,
                  recheck=recheck_video, clock=None, test_videos=(),
                  test_recheck=recheck_test_video, allowed_channels=None,
                  channel_cooldown_minutes: int = 0, local_tz=None):
