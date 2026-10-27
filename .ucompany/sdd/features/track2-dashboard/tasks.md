@@ -180,10 +180,10 @@ T11의 README·PROCESS를 현재 코드와 확인된 증거에 맞춰 갱신했�
 - [x] IMP-15 2차 필터(검사 → AI 재작성 최대 2회, 감사 기록)와 프롬프트 v7. 자동 시험 통과. 사용자 PC 재생성으로 효과 확인 필요.
 - [x] IMP-16 2차 필터 설정 토글(기본 켬)·검토·승인 화면 열기·2차 필터 다시 적용·`SAME_QUOTE` 검사. 자동 시험 통과, 실제 화면 확인은 사용자 PC.
 - [x] IMP-17 필수 설정 n/m 버튼·점검 화면·설정하기 포커스 이동. 자동 시험과 헤드리스 화면 확인(데스크톱·390px, 채널 ID 입력 포커스 이동) 완료.
-- [ ] IMP-27 작업 게이트 도구 `scripts/round_gate.py`와 자동 시험 (R1-T2).
-- [ ] IMP-28 게시 가드 허용 채널 주입, 설정 채널 게시 도달 시험 (R1-T3).
-- [ ] IMP-29 `youtube-transcript-api` 선택 의존성 선언, `CAPTIONS_LIBRARY_MISSING` 안내 (R1-T4).
-- [ ] IMP-30 추적 파일 기반 배포 패키징과 금지 항목 검사, README 배포 안내 (R1-T5).
+- [x] IMP-27 작업 게이트 도구 `scripts/round_gate.py`(G0~G6, 이동 파일·데코레이터·한글 접두 이메일 검출 포함). 자동 시험 13개.
+- [x] IMP-28 게시 가드 허용 채널 주입(`ConfiguredPostingService`는 설정 채널), 설정 오류 시 `CHANNEL_CONFIG_UNAVAILABLE`로 예약 전 차단. 자동 시험.
+- [x] IMP-29 `youtube-transcript-api` 선택 의존성(`captions`) 기본 설치, `CAPTIONS_LIBRARY_MISSING` 안내. 자동 시험 4개. Windows `start.bat` 설치 확인(V4) 미수행.
+- [x] IMP-30 `scripts/package.py`(git 추적 파일만, 금지 이름 대소문자 무시·키 패턴 검사), README 배포 안내. 실제 저장소 패키징 151개 항목·위반 0. 다른 폴더 압축 해제 후 실행(V4) 미수행.
 - [x] IMP-26 새 폴더 승인 실패 수정: 브랜드 일치 검사를 이름·글자 수만 비교, 예시 설정 설명을 제출 초안과 일치, 승인 실패 문구 한국어화. 자동 시험 177 passed, `config.yaml` 없는 새 폴더(심사 모드)에서 화면으로 승인 성공 확인.
 - [x] IMP-25 SDD·AGENTS 정합: 색인·그래프에 코드 노드 11개 추가(2차 필터·게시 서비스·저장소·근거·관문·CLI·실행 파일·README·설정 안내·제작 노트·AGENTS), `check_sdd.py`에 대시보드 모듈 커버리지·프롬프트 버전·AGENTS 경로 검사 추가(음성 시험으로 검출 확인), workflow를 Merge commit·`submitment` 고정으로 정정, AGENTS.md에 문서 지도·자동 검사·제출 브랜치 반영.
 - [x] IMP-24 문서: README 실행 파일 안내·오픈소스 출처(부록 D), `HOW_TO_SETTING.md`(키는 채팅으로 받지 않음), PROCESS 재구성(UI/UX·실행·SDD 섹션 추가, 실패 5에 2026-10-19 사고 기록), `drafts/README.md` 두 상태 설명.

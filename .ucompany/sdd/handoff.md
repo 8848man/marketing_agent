@@ -1,5 +1,7 @@
 # Handoff
 
+- IMP-27~30 개선 라운드 1 (2026-10-27): 코드베이스 분석 보고서의 즉시 조치 항목. 계획·방법론·기록은 `improve_plan/`(라운드 1: `improve_plan/05_rounds/round1_immediate/`). 메인(Opus)이 계약서를 쓰고 하위 에이전트(Sonnet)가 구현, `scripts/round_gate.py`로 작업마다 범위·동결·커밋·비밀 검사, 별도 에이전트가 검토(차단 4건 반영). 설정 채널 게시 결함(H2) 수정, 자막 라이브러리 선언(M6), 추적 파일 기반 배포 패키징(H4). 검증: V1 check_sdd 0·safety 0, V2 206 passed, V3·V4 미수행. 다음: 라운드 2(페어링·Windows 키 저장·채널 간격), 사용자 push·PR.
+
 - IMP-26 (2026-10-19): `ma_review_2`(submitment 새로 받기)에서 "초안 승인에 실패했습니다" 제보. 원인은 예시 설정의 브랜드 설명과 초안의 설명이 달라 `BRAND_CHANGED_REGENERATE`. 설명은 비교에서 빼고(이름·글자 수만), 예시 설명을 제출 초안과 맞췄다. `submitment`를 수정본으로 다시 고정.
 
 - IMP-22~25 제출 마무리 (2026-10-19): 2026-10-19 02시대 시연 녹화 중 `ma_review` 폴더(개발 가드 없음)에서 우리 채널 3건(`ZmEIpurPTCA`·`k_0c0m0Hk5k`·`c-QzU4kuu90`)이 게시됐고 사용자가 같은 날 아침 모두 삭제했다(누적 10건 모두 삭제, PROCESS 실패 5). 심사 모드(`--review`, '테스트용' 추천)와 더블클릭 실행 파일, 제출 초안 세트(15건: 승인 5·승인 전 10), HOW_TO_SETTING·오픈소스 출처·PROCESS 재구성, SDD 커버리지 검사를 반영했다. 제출 버전은 `submitment` 브랜치·`submission-20261019` 태그. 검증: V1 check_sdd 0·safety 0, V2 pytest, V3 Linux 실행 파일·헤드리스 화면, mac-smoke(실행 파일 단계 포함). V4 Mac 실기기 미수행.
