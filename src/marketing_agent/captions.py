@@ -35,7 +35,9 @@ class YouTubeCaptions:
     def fetch(self, video_id: str) -> CaptionResult:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-
+        except ImportError:
+            return CaptionResult(failure_reason="CAPTIONS_LIBRARY_MISSING")
+        try:
             api = YouTubeTranscriptApi()
             snippets = api.fetch(video_id, languages=["ko", "en"])
             text = " ".join(item.text for item in snippets).strip()
@@ -113,6 +115,9 @@ class VideoEvidence:
             sources = ["제목", *( ["설명"] if card.description.strip() else [])]
         if not primary.strip():
             raise ValueError("EVIDENCE_MISSING")
+        library_notice = ""
+        if not caption.available and caption.failure_reason == "CAPTIONS_LIBRARY_MISSING":
+            library_notice = "자막 라이브러리(youtube-transcript-api)가 설치되지 않아 제목·설명을 근거로 사용합니다."
         notice = ""
         try:
             popular = self.comments.fetch(card.video_id)
@@ -123,6 +128,7 @@ class VideoEvidence:
                 notice = "YouTube Data API 키가 없어 인기 댓글 없이 자막 또는 제목·설명만 근거로 사용합니다."
             elif str(exc) == "COMMENTS_KEY_INVALID":
                 notice = "YouTube Data API 키가 유효하지 않아 인기 댓글 없이 자막 또는 제목·설명만 근거로 사용합니다."
+        notice = " ".join(part for part in (library_notice, notice) if part)
         if popular:
             primary += "\n\n[인기 댓글]\n" + "\n".join(comment[:MAX_COMMENT_CHARS] for comment in popular[:10])
             sources.append("인기 댓글")

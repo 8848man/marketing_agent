@@ -114,6 +114,7 @@ python -m marketing_agent drafts --latest 3
 | PyYAML | `config.yaml` 읽기·쓰기 | MIT | https://github.com/yaml/pyyaml |
 | tzdata (Windows만) | `Asia/Seoul` 시간대 데이터 | Apache-2.0 | https://github.com/python/tzdata |
 | pytest (개발·검증용) | 자동 회귀 시험 | MIT | https://github.com/pytest-dev/pytest |
+| youtube-transcript-api | 영상 자막을 초안 근거로 사용(선택) | MIT | https://github.com/jdepoix/youtube-transcript-api |
 
 그 밖에 Python 표준 라이브러리만 씁니다. Google Chrome은 사용자가 설치한 브라우저를 그대로 쓰며 저장소에 포함하지 않습니다. 외부 서비스는 YouTube(RSS·영상 페이지·선택적 Data API)와 사용자가 고른 AI 서비스(OpenAI·Gemini·Claude·xAI 중 하나, 선택)뿐입니다.
 
