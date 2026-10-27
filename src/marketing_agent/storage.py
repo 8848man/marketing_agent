@@ -486,7 +486,8 @@ class Store:
         """Human closes an OUTCOME_UNKNOWN attempt as POSTED or DISMISSED (never reposts)."""
         if outcome not in {"POSTED", "DISMISSED"}:
             raise ValueError("OUTCOME_INVALID")
-        if not isinstance(reviewer, str) or not 1 <= len(reviewer.strip()) <= 40:
+        if (not isinstance(reviewer, str) or not 1 <= len(reviewer.strip()) <= 40
+                or any(ord(ch) <= 0x1F or ord(ch) == 0x7F for ch in reviewer)):
             raise ValueError("REVIEWER_INVALID")
         reviewer = reviewer.strip()
         stamp = _stamp(when)

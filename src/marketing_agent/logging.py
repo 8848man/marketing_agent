@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import threading
 
 _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _REQUEST_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -63,8 +64,10 @@ def request_route(path: str) -> str:
 class RequestLogger:
     """Dashboard request records: fixed safe fields only, never query, body, headers or messages."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, max_bytes: int = _MAX_LOG_BYTES):
         self.path = Path(path)
+        self.max_bytes = max_bytes
+        self._lock = threading.Lock()
 
     def emit(self, *, request_id: str, method: str, route: str, status: int, reason_code: str = "",
              duration_ms: int, error_type: str = "") -> dict[str, object]:
@@ -79,13 +82,15 @@ class RequestLogger:
             "error_type": code(str(error_type)),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            if self.path.stat().st_size > _MAX_LOG_BYTES:
-                os.replace(self.path, self.path.with_name(self.path.name + ".1"))
-        except FileNotFoundError:
-            pass
-        with self.path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        with self._lock:  # rotation check, rotation and append form one critical section
+            try:
+                if self.path.stat().st_size > self.max_bytes:
+                    os.replace(self.path, self.path.with_name(self.path.name + ".1"))
+            except FileNotFoundError:
+                pass
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(line)
         return record
 
 

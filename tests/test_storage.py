@@ -157,6 +157,15 @@ def test_resolve_outcome_rejects_other_states(tmp_path):
             store.resolve_dashboard_outcome("vOut0000004", "DISMISSED", "x", T)
 
 
+def test_resolve_outcome_rejects_control_characters(tmp_path):
+    with Store(tmp_path / "state.sqlite") as store:
+        _unknown_attempt(store, "vOut0000006")
+        for reviewer in ("a\nb", "a\x00", "a\x7f", "a\tb", "\x1fx"):
+            with pytest.raises(ValueError, match="REVIEWER_INVALID"):
+                store.resolve_dashboard_outcome("vOut0000006", "POSTED", reviewer, T)
+        assert store.dashboard_attempt("vOut0000006")["status"] == "OUTCOME_UNKNOWN"
+
+
 def test_dismissed_still_blocks_repost(tmp_path):
     with Store(tmp_path / "state.sqlite") as store:
         _unknown_attempt(store, "vOut0000005")
