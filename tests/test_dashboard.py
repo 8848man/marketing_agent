@@ -1313,8 +1313,10 @@ def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
             _open_login_window(settings.app_profile_root("유튜브1"), "https://accounts.google.com/")
     assert second[-1] == first[-1] == "https://www.youtube.com/watch?v=akn-AvCeHBI&hl=ko"
     assert not hasattr(dashboard_module, "GOOGLE_LOGIN_URL")
-    source = Path(dashboard_module.__file__).read_text(encoding="utf-8")
-    assert "accounts.google.com" not in source and "myaccount.google.com" not in source
+    from marketing_agent import dashboard as dashboard_main, dashboard_service
+    for module in (dashboard_main, dashboard_service, dashboard_module):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        assert "accounts.google.com" not in source and "myaccount.google.com" not in source
     assert f"--user-data-dir={settings.app_profile_root('유튜브2')}" in second
     assert f"--user-data-dir={settings.app_profile_root('유튜브1')}" in first
     assert first != second
@@ -1824,3 +1826,18 @@ def test_page_has_no_csp_violations_in_headless_browser():
         page.goto(f"http://{HOST}:{int(port)}/")
         page.wait_for_timeout(500)
     assert [m for m in messages if "Content Security Policy" in m] == []
+
+
+def test_render_page_requires_nonce():
+    from marketing_agent.dashboard_page import render_page
+    with pytest.raises(ValueError, match="NONCE_REQUIRED"):
+        render_page("tok", nonce="")
+
+
+def test_render_page_nonce_check_survives_optimize():
+    import ast
+    import marketing_agent.dashboard_page as page_module
+    tree = ast.parse(Path(page_module.__file__).read_text(encoding="utf-8"))
+    nonce_asserts = [n for n in ast.walk(tree) if isinstance(n, ast.Assert)
+                     and "nonce" in ast.dump(n.test) + (ast.dump(n.msg) if n.msg else "")]
+    assert nonce_asserts == []

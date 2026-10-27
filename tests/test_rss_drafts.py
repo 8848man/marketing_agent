@@ -272,7 +272,7 @@ def test_rss_outage_without_cache_shows_only_approved_draft_videos(tmp_path):
 
 def test_rss_errors_are_explained_in_plain_korean():
     from marketing_agent.dashboard_page import render_page
-    html = render_page("t").decode("utf-8")
+    html = render_page("t", nonce="x").decode("utf-8")
     assert "function rssText" in html and "YouTube RSS 서버 오류" in html
     assert "rssText(error)" in html and "rssText(error.message)" in html
 

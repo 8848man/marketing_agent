@@ -384,7 +384,10 @@ refreshSetup();
 """
     page = page.replace("</script>", setup_script + "</script>", 1)
     page = page.replace("</script>", progress + "</script>")
+    if not nonce:
+        raise ValueError("NONCE_REQUIRED")
     opening = page.count("<script")
     page = page.replace("<script>", f'<script nonce="{nonce}">')
-    assert opening == page.count("<script nonce=") == 1 or not nonce, "every <script> must carry the nonce"
+    if opening != page.count("<script nonce=") or opening != 1:
+        raise RuntimeError("SCRIPT_NONCE_MISMATCH")
     return page.encode("utf-8")

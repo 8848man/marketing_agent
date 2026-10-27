@@ -117,7 +117,7 @@ def test_registered_provider_uses_same_settings_and_ui_contract():
             factory=lambda key, model, transport: MockClient())
         assert ai_client.PROVIDERS["mock"] == ("mock-1", "MOCK_API_KEY")
         assert isinstance(ai_client.create_ai_client("mock", "mock-1", "test"), MockClient)
-        page = render_page("test-token").decode("utf-8")
+        page = render_page("test-token", nonce="x").decode("utf-8")
         assert '<option value="mock">Mock provider</option>' in page
         assert '"mock": [{"id": "mock-1", "label": "Mock 1", "recommended": true}]' in page
     finally:
