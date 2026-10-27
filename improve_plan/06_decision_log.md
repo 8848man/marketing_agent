@@ -13,3 +13,4 @@
 | D-007 | 2026-10-27 | 테스트 실행 기준 환경은 원격 셸의 `$HOME/venv-ma` (uv로 설치한 Python 3.11.17 + PyYAML, pytest, playwright). 실행 명령: `PYTHONDONTWRITEBYTECODE=1 $HOME/venv-ma/bin/python -m pytest -q -p no:cacheprovider` | 기본 Python 3.10으로는 실행 불가. 가상환경을 저장소 밖에 두어 사용자 폴더를 오염시키지 않음. Windows 전용 동작(DPAPI 등)은 이 환경에서 검증 불가 → 해당 작업은 사용자 PC 수동 확인을 게이트에 추가 |
 | D-008 | 2026-10-27 | Chrome 프로필은 `data/dashboard/chrome-profile-*`에 유지하고, 배포물에서만 제외 (R1-T5 패키징 스크립트) | 프로필은 PC·Windows 사용자에 묶인 실행 상태(DPAPI 암호화 쿠키)라 복사해도 다른 환경에서 로그인 유지 불가, 배포 시 세션 유출 위험. 환경 간 일관성은 코드·설정 예시·첫 실행 로그인 절차가 보장 |
 | D-009 | 2026-10-27 | 1라운드 브랜치 `improve/r1-immediate`를 `chore/normalize-eol`(줄바꿈 정리 + improve_plan) 위에서 시작 | push·병합을 기다리지 않고 진행. 사용자가 `chore/normalize-eol`을 먼저 병합하면 이력이 그대로 이어짐 |
+| D-010 | 2026-10-27 | 진행 상태는 `08_current_state.md`와 git 커밋에만 두고, 단계마다 체크포인트 (07_resume_protocol.md) | 토큰 소진·세션 종료 시 새 세션이 대화 이력 없이 재개할 수 있어야 함 |

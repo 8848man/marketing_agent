@@ -12,6 +12,9 @@
 5. [04_agent_workflow/](04_agent_workflow/index.md) — 하위 에이전트 운용 방법론
 6. [05_rounds/](05_rounds/index.md) — 라운드별 작업 계획과 진행 상태
 7. [06_decision_log.md](06_decision_log.md) — 결정 기록
+8. [07_resume_protocol.md](07_resume_protocol.md) — 중단·재개 프로토콜 (토큰 소진 대비)
+9. [08_current_state.md](08_current_state.md) — **현재 진행 상태와 다음 행동 (새 세션은 여기부터)**
+10. [logs/](logs/index.md) — 하위 에이전트 보고·게이트 기록
 
 ## 도구
 
@@ -20,10 +23,4 @@
 
 ## 현재 상태
 
-| 항목 | 값 |
-| --- | --- |
-| 대상 저장소 | `D:\projects\샘플_폴더\샘플프로젝트\marketing_agent` |
-| 기준 커밋 | `554e273` (main, PR #10 병합) |
-| 진행 중 라운드 | 없음 — 1라운드 계획 대기 |
-| 테스트 기준선 | **177개 통과, 실패 0** (2026-10-27, 테스트 함수 157개 + 파라미터화) |
-| 테스트 실행 환경 | 원격 셸 `$HOME/venv-ma` (Python 3.11.17) — [04_agent_workflow/roles_and_models.md](04_agent_workflow/roles_and_models.md) 참고 |
+[08_current_state.md](08_current_state.md)에서 관리합니다.

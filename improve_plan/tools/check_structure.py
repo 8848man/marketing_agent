@@ -18,6 +18,7 @@ from pathlib import Path
 MAX_LINES = 150
 ROOT = Path(__file__).resolve().parents[1]
 EXEMPT_DIRS = {"tools"}
+LOG_DIR = "logs"  # logs/ 아래 하위 폴더는 인덱스 규칙 제외 (150줄 규칙은 적용)
 LINK = re.compile(r"\]\(([^)#\s]+)")
 
 
@@ -32,7 +33,9 @@ def check() -> list[str]:
         if lines > MAX_LINES:
             problems.append(f"{md.relative_to(ROOT)}: {lines}줄 > {MAX_LINES}줄 — 폴더로 분할 필요")
     folders = [ROOT] + sorted(p for p in ROOT.rglob("*") if p.is_dir()
-                              and not set(p.relative_to(ROOT).parts) & EXEMPT_DIRS)
+                              and not set(p.relative_to(ROOT).parts) & EXEMPT_DIRS
+                              and not (p.relative_to(ROOT).parts[0] == LOG_DIR
+                                       and len(p.relative_to(ROOT).parts) > 1))
     for folder in folders:
         index = index_of(folder)
         rel = folder.relative_to(ROOT) if folder != ROOT else Path(".")
@@ -57,6 +60,8 @@ def check() -> list[str]:
                     continue
                 if f"{child.name}/index.md" not in links:
                     problems.append(f"{index.relative_to(ROOT)}: 하위 폴더 {child.name}/index.md 링크 없음")
+            elif folder.name == LOG_DIR and folder.parent == ROOT:
+                continue
             elif child.suffix == ".md" and child.name not in links:
                 problems.append(f"{index.relative_to(ROOT)}: {child.name} 링크 없음")
     return problems
