@@ -6,7 +6,7 @@
 | --- | --- |
 | 갱신 시각 | 2026-10-27 15:40 KST |
 | 브랜치 / HEAD | `refactor/IMP-41-43-round5-structure-b` / `git log -1`로 확인 |
-| 현재 라운드 · 단계 | **5라운드 완료** · 최종 점검 보고서 작성 |
+| 현재 라운드 · 단계 | **5라운드 완료**, 최종 점검 보고서 작성 완료 — 사용자 확인 대기 |
 | 테스트 기준선 | 라운드 5 시작 263 passed (`$HOME/venv-ma`, Python 3.11.17) |
 | 게이트 실행 | 작업 트리를 깨끗하게 두기 위해 보고·계약서 사본·게이트 기록은 `$HOME/gate-logs/`에 먼저 두고, 판정 후 `logs/`로 복사해 커밋 |
 | V1 정적 검사 | `check_sdd.py` 0 error, `safety_scan.py --strict` 0 fail |
@@ -24,7 +24,7 @@
 
 ## 다음 행동
 
-**최종 점검 보고서 `09_final_report/`를 작성·검증합니다.** 작성 후에는 사용자 확인 대기(push·병합·실기 점검·결정).
+**사용자 확인 대기.** [09_final_report/1_user_checklist.md](09_final_report/1_user_checklist.md) 순서대로 push·병합·실기 점검. 새 세션에서 후속 작업을 요청받으면 이 파일과 체크리스트 결과부터 확인.
 
 ## 진행 중이던 것
 

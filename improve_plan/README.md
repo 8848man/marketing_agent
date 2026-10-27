@@ -15,6 +15,7 @@
 8. [07_resume_protocol.md](07_resume_protocol.md) — 중단·재개 프로토콜 (토큰 소진 대비)
 9. [08_current_state.md](08_current_state.md) — **현재 진행 상태와 다음 행동 (새 세션은 여기부터)**
 10. [logs/](logs/index.md) — 하위 에이전트 보고·게이트 기록
+11. [09_final_report/](09_final_report/index.md) — **최종 점검 보고서 (사용자 확인 항목)**
 
 ## 도구
 
