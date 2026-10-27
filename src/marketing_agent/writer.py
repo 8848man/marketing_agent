@@ -7,9 +7,7 @@ from typing import Iterable
 
 from .ai_client import AIClient
 from .classifier import Classification, Video
-
-
-LINK = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|www\.|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/|\b))")
+from .drafts import LINK
 
 
 def normalize_space(value: str) -> str:

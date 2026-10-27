@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 
 from .dashboard_contracts import DraftPreview, VideoCard
 from .rss_feed import VIDEO_ID
-from .writer import LINK
 
 
+LINK = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|www\.|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/|\b))")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 HASHTAG = re.compile(r"(?<!\w)#[\w가-힣]+")
 APPROVED_FIELDS = ("video_id", "channel_id", "title", "worry_summary", "comment", "cited_detail", "source_text")
