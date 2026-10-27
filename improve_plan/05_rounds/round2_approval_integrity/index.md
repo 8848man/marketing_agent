@@ -15,7 +15,7 @@ ADR-0002(로컬 위협 모델)가 막아야 한다고 정한 경계 밖 공격�
 | R2-T1 | IMP-31 | 페어링 주소로만 대시보드 페이지(세션 토큰) 발급 | H1 | [R2-T1_pairing.md](R2-T1_pairing.md) | 완료 (31e3fe6, 게이트 PASS) |
 | R2-T2 | IMP-32 | Windows DPAPI 키 저장소 | H3 | [R2-T2_windows_secret_store.md](R2-T2_windows_secret_store.md) | 완료 (cba7c75, 게이트 PASS) |
 | R2-T3 | IMP-33 | 같은 대상 채널 게시 간격(제품 기본 60분) | M1 | [R2-T3_channel_cooldown.md](R2-T3_channel_cooldown.md) | 완료 (b43a347, 게이트 PASS) |
-| R2-T4 | IMP-31·32·33 | 검토 지적 반영 | 검토 #1~#3·#5·#6 | [R2-T4_review_fixes.md](R2-T4_review_fixes.md) | 계획 |
+| R2-T4 | IMP-31·32·33 | 검토 지적 반영 | 검토 #1~#3·#5·#6 | [R2-T4_review_fixes.md](R2-T4_review_fixes.md) | 완료 (aa28275, 게이트 PASS) |
 | R2-T5 | — | 정책 검토·위협 모델 보완 ADR (메인 작성) | M1, H1 | [ADR-0004](../../../.ucompany/sdd/decisions/ADR-0004-pairing-and-key-storage.md), [ADR-0005](../../../.ucompany/sdd/decisions/ADR-0005-youtube-policy-review.md) | 완료 (제안 상태) |
 
 ## 3. 결정 사항 (D-013, D-015, D-016)
