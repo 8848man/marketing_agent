@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- | --- |
 | R5-T1 | IMP-41 | `dashboard.py` 분리, 토큰 검사 단일화, 경계 시험 보강 | M7 | [R5-T1_dashboard_split.md](R5-T1_dashboard_split.md) | 완료 (149a8a3, 게이트 PASS) |
 | R5-T2 | IMP-42 | 스크립트 CSP nonce | M8 | [R5-T2_csp_nonce.md](R5-T2_csp_nonce.md) | 완료 (a0d954c, 게이트 PASS) |
-| R5-T3 | IMP-43 | 과제 고정값 모음, 모델 기본값, 앱 루트 검증 | L3, L6, L8 | [R5-T3_constants_and_root.md](R5-T3_constants_and_root.md) | 계획 |
+| R5-T3 | IMP-43 | 과제 고정값 모음, 모델 기본값, 앱 루트 검증 | L3, L6, L8 | [R5-T3_constants_and_root.md](R5-T3_constants_and_root.md) | 완료 (0a4bfd6, 게이트 PASS) |
 
 ## 3. 결정 사항
 
