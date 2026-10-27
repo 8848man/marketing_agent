@@ -15,6 +15,7 @@ chrome_profile/
 **/cookies*
 **/*session*.json
 data/screenshots/
+dist/
 screenshots/
 
 # drafts/ is tracked: PDF requires pre-approved drafts in the repository (IMP-05)
