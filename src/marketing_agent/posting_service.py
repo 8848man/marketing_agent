@@ -220,9 +220,13 @@ class PostingService:
                 fresh = self.recheck(video_id, card.channel_id)
             except Exception:
                 fresh = None
+            try:
+                allowed = self.allowed_channels() if self.allowed_channels else None
+            except Exception:
+                return PostStatus("blocked", "CHANNEL_CONFIG_UNAVAILABLE")
             decision = check_rss_membership(
                 video_id, card.channel_id, recheck=lambda *_: fresh,
-                allowed_channels=self.allowed_channels() if self.allowed_channels else None)
+                allowed_channels=allowed)
             if not decision.allowed:
                 return PostStatus("blocked", decision.reason)
             if fresh is None or fresh.video_id != card.video_id or fresh.channel_id != card.channel_id or fresh.title != card.title:

@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 PREFIX = "marketing_agent/"
-FORBIDDEN_FILENAMES = {"Cookies", "Login Data", "Local State"}
+FORBIDDEN_FILENAMES = {"cookies", "login data", "local state"}
 FORBIDDEN_SUFFIXES = (".db", ".sqlite", ".sqlite3")
 SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
@@ -28,6 +28,7 @@ SECRET_PATTERNS = [
 
 def _name_violation(name: str) -> str | None:
     """경로(접두어 제외) 하나의 금지 이름 규칙 위반 사유. 없으면 None."""
+    name = name.replace("\\", "/").casefold()
     parts = [p for p in name.split("/") if p]
     if not parts:
         return None
@@ -44,7 +45,7 @@ def _name_violation(name: str) -> str | None:
         return "루트 config.yaml"
     if base in FORBIDDEN_FILENAMES:
         return f"브라우저 파일 {base}"
-    if base.lower().endswith(FORBIDDEN_SUFFIXES):
+    if base.endswith(FORBIDDEN_SUFFIXES):
         return "DB 파일"
     return None
 

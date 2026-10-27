@@ -266,3 +266,27 @@ def test_test_registration_rejects_invalid_or_fixed_channel(tmp_path):
             assert False
         except ValueError:
             pass
+
+
+def test_post_video_blocks_when_channel_config_fails(tmp_path):
+    opened = []
+
+    def broken():
+        raise RuntimeError("config unreadable")
+
+    service, card, _ = prepare_service(tmp_path, poster=lambda *args: opened.append(1),
+                                       allowed_channels=broken)
+    result = service.post_video(card.video_id)
+    assert (result.state, result.reason_code) == ("blocked", "CHANNEL_CONFIG_UNAVAILABLE")
+    assert not opened
+    with Store(service.db_path) as store:
+        assert store.dashboard_attempt(card.video_id) is None
+
+
+def test_post_video_blocks_when_channel_config_empty(tmp_path):
+    opened = []
+    service, card, _ = prepare_service(tmp_path, poster=lambda *args: opened.append(1),
+                                       allowed_channels=lambda: {})
+    result = service.post_video(card.video_id)
+    assert result.reason_code == "CHANNEL_NOT_ALLOWED"
+    assert not opened

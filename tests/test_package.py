@@ -76,6 +76,17 @@ def test_find_violations_patterns():
     assert pkg.find_violations(["x/chrome-profile-1/a.txt"], nope)
 
 
+def test_find_violations_case_insensitive():
+    pkg = _load()
+    nope = lambda name: ""  # noqa: E731
+    for name in ("Data/x", ".ENV", "Config.yaml", "COOKIES", "login data",
+                 "Chrome-Profile-1/a", "x.DB", "Data\\x"):
+        assert pkg.find_violations([name], nope), name
+    assert not pkg.find_violations([".env.example"], nope)
+    assert not pkg.find_violations([".ENV.EXAMPLE"], nope)
+    assert not pkg.find_violations(["src/config.py"], nope)
+
+
 def test_secret_content_blocks_package(tmp_path):
     pkg = _load()
     fake = "sk-" + "A" * 24  # 테스트용 가짜 문자열

@@ -35,7 +35,7 @@ SECRET_PATTERNS = [
     ("sk 키", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
     ("Google 키", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
     ("xai 키", re.compile(r"xai-[A-Za-z0-9]{20,}")),
-    ("이메일", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")),
+    ("이메일", re.compile(r"(?<![\\\w.%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")),
 ]
 
 
@@ -216,7 +216,7 @@ def check_g2(repo, base, head, baseline_passed, wt_root=None):
 # ---------------------------------------------------------------- G3
 
 def check_g3(repo, base, head, allowed):
-    names = [n for n in git(repo, "diff", "--name-only", f"{base}..{head}").splitlines() if n]
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", f"{base}..{head}").splitlines() if n]
     outside = [n for n in names if not any(fnmatch.fnmatch(n, g) for g in allowed)]
     if outside:
         return FAIL, "허용 밖 변경: " + ", ".join(outside)
@@ -241,24 +241,29 @@ def extract_function_source(source: str, name: str):
             return None
         if i < len(parts) - 1:
             nodes = node.body
-    return ast.get_source_segment(source, node)
+    # 데코레이터 줄부터 함수 끝까지(ast 세그먼트는 데코레이터를 뺀다)
+    first = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    lines = source.splitlines()
+    return "\n".join(lines[first - 1:node.end_lineno])
 
 
 def check_g4(repo, base, head, frozen):
     changed = []
+    missing = []
     for item in frozen:
         path, func = item["path"], item.get("function")
         b, h = show(repo, base, path), show(repo, head, path)
         if func:
-            if b is None and h is None:
-                continue
-            if b is None or h is None:
-                changed.append(f"{path}::{func}")
-                continue
-            if extract_function_source(b, func) != extract_function_source(h, func):
+            bs = extract_function_source(b, func) if b is not None else None
+            hs = extract_function_source(h, func) if h is not None else None
+            if bs is None and hs is None:
+                missing.append(f"{path}::{func}")
+            elif bs != hs:
                 changed.append(f"{path}::{func}")
         elif b != h:
             changed.append(path)
+    if missing:
+        return FAIL, "동결 대상 없음: " + ", ".join(missing)
     if changed:
         return FAIL, "동결 영역 변경: " + ", ".join(changed)
     return PASS, f"동결 {len(frozen)}건 변경 없음"
@@ -287,22 +292,28 @@ def check_g5(repo, base, head, task_id, spec):
 # ---------------------------------------------------------------- G6
 
 def _forbidden_path(p: str) -> bool:
-    parts = p.split("/")
+    # package.py와 같은 규칙을 따로 구현한다(스크립트 간 import 금지). 대소문자·역슬래시 무시.
+    norm = p.replace("\\", "/").casefold()
+    parts = [x for x in norm.split("/") if x]
+    if not parts:
+        return False
+    base = parts[-1]
     return (
         ".env" in parts
-        or parts[-1] == "config.yaml"
+        or (base.startswith(".env.") and base != ".env.example")
+        or norm == "config.yaml"
         or "data" in parts[:-1]
-        or any(x.startswith("chrome-profile-") for x in parts)
+        or any("chrome-profile" in x for x in parts)
     )
 
 
 def check_g6(repo, base, head):
     problems = []
-    names = [n for n in git(repo, "diff", "--name-only", f"{base}..{head}").splitlines() if n]
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", f"{base}..{head}").splitlines() if n]
     bad_paths = [n for n in names if _forbidden_path(n)]
     if bad_paths:
         problems.append("금지 경로 변경: " + ", ".join(bad_paths))
-    diff = git(repo, "diff", "-U0", "--no-color", f"{base}..{head}")
+    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", f"{base}..{head}")
     for line in diff.splitlines():
         if not line.startswith("+") or line.startswith("+++"):
             continue

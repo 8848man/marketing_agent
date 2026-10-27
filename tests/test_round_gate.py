@@ -155,3 +155,56 @@ def test_g0_checks_report_sections(rg):
     status, msg = rg.check_g0(full.replace("- 통과 확인: y\n", ""))
     assert status == "FAIL" and "통과 확인" in msg
     assert rg.check_g0("아무 말")[0] == "FAIL"
+
+
+def test_g3_g6_detect_renamed_files(rg, repo):
+    base = commit(repo, {"secret.py": "x = 1\n" * 20, "data/a.txt": "hello\n" * 20, "tests/keep.py": "k\n"})
+    git(repo, "mv", "secret.py", "tests/x.py")
+    head = commit(repo, {}, GOOD_MSG)
+    status, msg = rg.check_g3(repo, base, head, ["tests/*"])
+    assert status == "FAIL" and "secret.py" in msg
+    git(repo, "mv", "data/a.txt", "tests/a.txt")
+    head2 = commit(repo, {}, GOOD_MSG)
+    status, msg = rg.check_g6(repo, head, head2)
+    assert status == "FAIL" and "data/a.txt" in msg
+
+
+def test_g4_missing_frozen_target_fails(rg, repo):
+    src = "def f():\n    return 1\n"
+    base = commit(repo, {"m.py": src})
+    head = commit(repo, {"other.py": "y = 1\n"})
+    status, msg = rg.check_g4(repo, base, head, [{"path": "m.py", "function": "nope"}])
+    assert status == "FAIL" and "nope" in msg
+    status, _ = rg.check_g4(repo, base, head, [{"path": "absent.py", "function": "f"}])
+    assert status == "FAIL"
+    assert rg.check_g4(repo, base, head, [{"path": "m.py", "function": "f"}])[0] == "PASS"
+
+
+def test_g4_detects_decorator_change(rg, repo):
+    src = "import functools\n\n\n@functools.cache\ndef f():\n    return 1\n"
+    base = commit(repo, {"m.py": src})
+    head = commit(repo, {"m.py": src.replace("@functools.cache", "@functools.lru_cache")})
+    assert rg.check_g4(repo, base, head, [{"path": "m.py", "function": "f"}])[0] == "FAIL"
+    same = commit(repo, {"m.py": src.replace("import functools", "import functools  # c")})
+    assert rg.check_g4(repo, base, same, [{"path": "m.py", "function": "f"}])[0] == "PASS"
+
+
+def test_g6_forbids_env_variants_case_insensitive(rg, repo):
+    base = commit(repo, {"a.py": "x = 1\n"})
+    for name in (".env.local", ".ENV", "Config.yaml", "Data/x.json", "Chrome-Profile-1/a"):
+        head = commit(repo, {name: "v\n"})
+        status, _ = rg.check_g6(repo, base, head)
+        assert status == "FAIL", name
+        git(repo, "rm", "-rq", "--cached", name.split("/")[0])
+        base = commit(repo, {"a.py": f"x = '{name}'\n"})
+    ok = commit(repo, {".env.example": "A=\n"})
+    assert rg.check_g6(repo, base, ok)[0] == "PASS"
+
+
+def test_g6_email_pattern_ignores_escaped_newline(rg, repo):
+    base = commit(repo, {"a.py": "x = 1\n"})
+    ok = commit(repo, {"a.py": 'x = "a\\n@functools.cache"\n'})
+    assert rg.check_g6(repo, base, ok)[0] == "PASS"
+    addr = "user" + "@" + "example.org"
+    bad = commit(repo, {"a.py": f'owner = "{addr}"\n'})
+    assert rg.check_g6(repo, ok, bad)[0] == "FAIL"
