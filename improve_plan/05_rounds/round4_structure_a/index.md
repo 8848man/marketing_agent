@@ -14,7 +14,7 @@
 | ID | IMP | 내용 | 대상 | 계약서 | 상태 |
 | --- | --- | --- | --- | --- | --- |
 | R4-T1 | IMP-38 | 리다이렉트 차단·크기 제한 공통 계층 | M5 | [R4-T1_http_client.md](R4-T1_http_client.md) | 완료 (3a0b43a, 게이트 PASS) |
-| R4-T2 | IMP-39 | 제품·레거시 import 경계 시험 | M4 | [R4-T2_legacy_boundary.md](R4-T2_legacy_boundary.md) | 계획 |
+| R4-T2 | IMP-39 | 제품·레거시 import 경계 시험 | M4 | [R4-T2_legacy_boundary.md](R4-T2_legacy_boundary.md) | 완료 (7236893, 게이트 PASS) |
 | R4-T3 | IMP-40 | 스키마 버전·마이그레이션 틀 | L5 | [R4-T3_schema_version.md](R4-T3_schema_version.md) | 계획 |
 | R4-T4 | IMP-35·36 | 라운드 3 권고(로그 회전 잠금, 검토자 제어문자) | 검토 권고 | [R4-T4_round3_advisories.md](R4-T4_round3_advisories.md) | 계획 |
 
