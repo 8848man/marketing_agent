@@ -6,7 +6,7 @@
 | --- | --- |
 | 갱신 시각 | 2026-10-27 15:40 KST |
 | 브랜치 / HEAD | `fix/IMP-27-30-round1-immediate` / `git log -1`로 확인 |
-| 현재 라운드 · 단계 | 라운드 1 · 검토 (자율 진행, D-012) |
+| 현재 라운드 · 단계 | 라운드 1 · 구현 · R1-T6 (검토 차단 지적 반영) |
 | 테스트 기준선 | 라운드 시작 177 → 현재 184 passed (`$HOME/venv-ma`, Python 3.11.17) |
 | 게이트 실행 | 작업 트리를 깨끗하게 두기 위해 보고·계약서 사본·게이트 기록은 `$HOME/gate-logs/`에 먼저 두고, 판정 후 `logs/`로 복사해 커밋 |
 | V1 정적 검사 | `check_sdd.py` 0 error, `safety_scan.py --strict` 0 fail |
@@ -20,11 +20,12 @@
 | R1-T2 | IMP-27 | 완료 (6604f3e, 게이트 PASS, 재작업 0) | logs/r1/R1-T2-gate-1.md |
 | R1-T3 | IMP-28 | 완료 (d6a1065, 게이트 PASS, 재작업 0) | logs/r1/R1-T3-gate-1.md |
 | R1-T4 | IMP-29 | 완료 (21abd03, 게이트 PASS, 재작업 0) | logs/r1/R1-T4-gate-1.md |
+| R1-T6 | IMP-27·28·30 | **구현 에이전트 실행 중** | — |
 | R1-T5 | IMP-30 | 완료 (57629b0, 게이트 PASS, 재작업 1) | logs/r1/R1-T5-gate-2.md |
 
 ## 다음 행동
 
-**라운드 1 검토 에이전트 결과를 확인합니다.** 결과가 없으면 검토 에이전트를 다시 실행합니다. 검토 범위: `git diff e2115f1..HEAD -- . ':!improve_plan'`
+**R1-T6 구현 에이전트 결과를 확인합니다.** 작업 트리가 깨끗하고 R1-T6 커밋이 없으면 에이전트를 다시 실행합니다. 통과 후 라운드 1 재검토(수정분 + 체크리스트 전체).
 프롬프트 = `04_agent_workflow/agent_briefing.md` 전문 + `05_rounds/round1_immediate/R1-T2_gate_tool.md` 전문.
 실행 직전에 이 파일을 "R1-T2 구현 에이전트 실행 중"으로 갱신합니다(작업 트리는 깨끗한 상태).
 
