@@ -16,7 +16,7 @@
 | R1-T0 | — | 테스트 실행 환경 | N1 | — | 완료 (D-007) |
 | R1-T1 | — | 기준선 측정 | — | — | 완료 (177) |
 | R1-T2 | IMP-27 | 게이트 도구 `scripts/round_gate.py` | 방법론 | [R1-T2_gate_tool.md](R1-T2_gate_tool.md) | 완료 (6604f3e, 게이트 PASS) |
-| R1-T3 | IMP-28 | 게시 가드가 설정 채널 사용 | H2 | [R1-T3_channel_guard.md](R1-T3_channel_guard.md) | 계획 |
+| R1-T3 | IMP-28 | 게시 가드가 설정 채널 사용 | H2 | [R1-T3_channel_guard.md](R1-T3_channel_guard.md) | 완료 (d6a1065, 게이트 PASS) |
 | R1-T4 | IMP-29 | 자막 라이브러리 선언·누락 안내 | M6 | [R1-T4_captions_dependency.md](R1-T4_captions_dependency.md) | 계획 |
 | R1-T5 | IMP-30 | 추적 파일 기반 배포 패키징 | H4 | [R1-T5_packaging.md](R1-T5_packaging.md) | 계획 |
 
