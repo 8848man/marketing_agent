@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 data/
 logs/
+!improve_plan/logs/
 chrome-profile/
 chrome_profile/
 **/Chrome/User Data/
