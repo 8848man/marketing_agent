@@ -1435,6 +1435,29 @@ def test_pair_rejects_wrong_code():
         assert status == 403 and "session-token" not in page
 
 
+def test_pair_rejects_non_ascii_code_and_cookie():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", "/pair?code=%C3%A9")
+        assert status == 403
+        assert not any(k.lower() == "set-cookie" for k, _ in headers)
+        status, page, _ = _raw_request(port, "GET", "/", cookie=f"ma_pair_{int(port)}=\u00e9")
+        assert status == 403 and "session-token" not in page
+        status, _, _ = _raw_request(port, "POST", "/api/post", token="\u00e9", origin=f"http://{HOST}:{int(port)}",
+                                    body="{}")
+        assert status == 403
+
+
+def test_pair_cookie_name_includes_port_and_redirect_has_security_headers():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        assert status == 303
+        names = {k.lower(): v for k, v in headers}
+        assert names["set-cookie"].startswith(f"ma_pair_{int(port)}=")
+        assert names["x-content-type-options"] == "nosniff"
+        assert names["x-frame-options"] == "DENY"
+        assert "default-src 'self'" in names["content-security-policy"]
+
+
 def test_pair_checks_host():
     with running_server(FakeService()) as port:
         status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}", host="evil.example")

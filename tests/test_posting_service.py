@@ -304,3 +304,22 @@ def test_post_video_channel_cooldown_blocks_before_poster(tmp_path):
     result = second.post_video(card2.video_id)
     assert (result.state, result.reason_code) == ("blocked", "CHANNEL_COOLDOWN")
     assert calls == ["AbCdEfGhI12"]
+
+
+def test_cooldown_and_daily_limit_have_korean_message(tmp_path):
+    def poster(card, body, mark):
+        mark()
+        return True
+    first, card1, _ = prepare_service(tmp_path, "AbCdEfGhI12", poster=poster, channel_cooldown_minutes=60)
+    assert first.post_video(card1.video_id).state == "posted"
+    second, card2, _ = prepare_service(tmp_path, "ZyXwVuTsR98", poster=poster, channel_cooldown_minutes=60)
+    cooldown = second.post_video(card2.video_id)
+    assert cooldown.reason_code == "CHANNEL_COOLDOWN"
+    assert "60분 간격" in cooldown.message and "다른 채널" in cooldown.message
+    (tmp_path / "limit").mkdir()
+    one, card3, _ = prepare_service(tmp_path / "limit", "QwErTyUiO12", poster=poster, daily_limit=1)
+    assert one.post_video(card3.video_id).state == "posted"
+    limited, card4, _ = prepare_service(tmp_path / "limit", "PoIuYtReW34", poster=poster, daily_limit=1)
+    daily = limited.post_video(card4.video_id)
+    assert daily.reason_code == "DAILY_LIMIT"
+    assert "오늘 게시 한도(" in daily.message and "내일 다시" in daily.message

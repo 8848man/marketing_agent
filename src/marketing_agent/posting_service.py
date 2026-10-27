@@ -256,7 +256,13 @@ class PostingService:
                     local_tz=self.local_tz, body=selection.body,
                     cooldown_minutes=self.channel_cooldown_minutes)
             except ReservationBlocked as exc:
-                return PostStatus("blocked", exc.reason)
+                message = ""
+                if exc.reason == "CHANNEL_COOLDOWN":
+                    message = (f"같은 채널에는 {self.channel_cooldown_minutes}분 간격으로만 댓글을 달 수 있습니다. "
+                               "다른 채널 영상을 선택하거나 잠시 뒤 다시 시도하세요.")
+                elif exc.reason == "DAILY_LIMIT":
+                    message = f"오늘 게시 한도({self.daily_limit}개)에 도달했습니다. 내일 다시 시도하세요."
+                return PostStatus("blocked", exc.reason, message=message)
             clicked = False
 
             def before_click() -> None:

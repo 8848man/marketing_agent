@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -136,14 +137,33 @@ class DashboardSettings:
         return True
 
     def _store_write(self, action) -> None:
-        """Run a store write; move an unreadable store file to .bad and retry once."""
+        """Run a store write. Only a malformed store file is quarantined (to a
+        timestamped .bad-* name) before one retry; transient read/write errors
+        never move the file and surface as SECRET_STORE_UNAVAILABLE."""
         try:
             action()
-        except (ValueError, OSError):
+        except (ValueError, OSError) as exc:
             path = self._store.path
-            if not (path.exists() or path.is_symlink()) or self._store_usable():
+            invalid = False
+            if path.exists() or path.is_symlink():
+                try:
+                    for name in self._store.names():
+                        self._store.get(name)
+                except ValueError as probe:
+                    invalid = str(probe) == "SECRET_STORE_INVALID"
+                except OSError:
+                    pass
+            if not invalid:
+                if isinstance(exc, OSError) or str(exc) == "SECRET_STORE_UNREADABLE":
+                    raise ValueError("SECRET_STORE_UNAVAILABLE") from exc
                 raise
-            os.replace(path, path.with_name(path.name + ".bad"))
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            target = path.with_name(f"{path.name}.bad-{stamp}")
+            counter = 1
+            while target.exists() or target.is_symlink():
+                target = path.with_name(f"{path.name}.bad-{stamp}-{counter}")
+                counter += 1
+            os.replace(path, target)
             action()
         self.secret_store_error = None
 

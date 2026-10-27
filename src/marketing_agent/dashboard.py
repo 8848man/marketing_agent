@@ -878,6 +878,15 @@ PAIR_HELP_PAGE = (
 )
 
 
+def _same(left: str, right: str) -> bool:
+    """Constant-time compare that tolerates non-ASCII header/query text."""
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+_CSP = ("default-src 'self'; img-src 'self' https://i.ytimg.com; script-src 'unsafe-inline'; "
+        "style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
 def create_server(service: DashboardService | None = None, *, port: int = 0,
                   capture_dir: str | Path | None = None) -> ThreadingHTTPServer:
     """Bind to loopback and call the poster only after request checks."""
@@ -899,7 +908,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' https://i.ytimg.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+            self.send_header("Content-Security-Policy", _CSP)
             self.end_headers()
 
         def _json(self, status: int, payload: object) -> None:
@@ -931,12 +940,13 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             return self.headers.get("Host") == f"{HOST}:{self.server.server_port}"
 
         def _session_ok(self) -> bool:
-            return secrets.compare_digest(self.headers.get("X-Session-Token", ""), token)
+            return _same(self.headers.get("X-Session-Token", ""), token)
 
         def _paired(self) -> bool:
+            cookie_name = f"ma_pair_{self.server.server_port}"
             for part in self.headers.get("Cookie", "").split(";"):
                 name, _, value = part.strip().partition("=")
-                if name == "ma_pair" and secrets.compare_digest(value, pair_cookie):
+                if name == cookie_name and _same(value, pair_cookie):
                     return True
             return False
 
@@ -950,14 +960,18 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject(403, FORBIDDEN)
             if urlsplit(self.path).path == "/pair":
                 code = parse_qs(urlsplit(self.path).query).get("code", [""])[0]
-                if not secrets.compare_digest(code, pair_code):
+                if not _same(code, pair_code):
                     return self._unpaired_page()
                 self.send_response(303)
                 self.send_header("Location", "/")
-                self.send_header("Set-Cookie", f"ma_pair={pair_cookie}; HttpOnly; SameSite=Strict; Path=/")
+                self.send_header("Set-Cookie",
+                                 f"ma_pair_{self.server.server_port}={pair_cookie}; HttpOnly; SameSite=Strict; Path=/")
                 self.send_header("Content-Length", "0")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
                 self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Content-Security-Policy", _CSP)
                 return self.end_headers()
             if self.path == "/":
                 if not self._paired():
@@ -978,14 +992,14 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/settings" and isinstance(service, SettingsReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, {"yaml": service.settings_yaml()})
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/channels" and isinstance(service, ChannelReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     entries = service.channel_entries() if isinstance(service, ChannelEntryReadService) else [
@@ -995,35 +1009,35 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/ai" and isinstance(service, AIReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.ai_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/brand" and isinstance(service, BrandReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.brand_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/comment-settings" and isinstance(service, CommentGenerationReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.comment_generation_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/profile" and isinstance(service, ProfileReadService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.profile_public())
                 except Exception:
                     return self._reject(503, INTERNAL_ERROR)
             if self.path == "/api/profile-options" and isinstance(service, ProfileOptionsService):
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 try:
                     return self._json(200, service.profile_options_public())
@@ -1061,7 +1075,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     item["screenshot_url"] = _capture_url(item.pop("screenshot_path", ""), captures)
                 return self._json(200, result)
             if self.path == "/api/progress":
-                if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+                if not self._session_ok():
                     return self._reject(403, FORBIDDEN)
                 poster = getattr(service, "poster", None)
                 events = getattr(poster, "events", ())
@@ -1097,7 +1111,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
                 return self._reject_early_post(403, FORBIDDEN)
-            if not secrets.compare_digest(self.headers.get("X-Session-Token", ""), token):
+            if not self._session_ok():
                 return self._reject_early_post(403, FORBIDDEN)
             if self.headers.get("Content-Type") != "application/json":
                 return self._reject_early_post(400, BAD_REQUEST)

@@ -169,6 +169,28 @@ def test_save_replaces_corrupt_store(tmp_path):
     store.path.write_text("{not json", encoding="utf-8")
     settings = _settings(tmp_path, store)
     settings.save_ai("openai", "gpt-5.4-mini", KEY)
-    assert store.path.with_name(store.path.name + ".bad").exists()
+    assert len(list(store.path.parent.glob(store.path.name + ".bad-*"))) == 1
     assert settings.ai_credentials()[2] == KEY
     assert settings.secret_store_error is None
+
+
+def test_transient_unreadable_store_is_not_quarantined(tmp_path):
+    good = _store(tmp_path)
+    good.set("OPENAI_API_KEY", "test-old-value-000")
+    before = good.path.read_bytes()
+    store = DpapiFileStore(good.path, _failing, _failing)
+    settings = _settings(tmp_path, store)
+    with pytest.raises(ValueError, match="SECRET_STORE_UNAVAILABLE"):
+        settings.save_ai("openai", "gpt-5.4-mini", KEY)
+    assert good.path.read_bytes() == before
+    assert list(good.path.parent.glob("*.bad*")) == []
+
+
+def test_corrupt_store_quarantine_keeps_previous_backups(tmp_path):
+    store = _store(tmp_path)
+    store.path.parent.mkdir(parents=True)
+    settings = _settings(tmp_path, store)
+    for _ in range(2):
+        store.path.write_text("{not json", encoding="utf-8")
+        settings.save_ai("openai", "gpt-5.4-mini", KEY)
+    assert len(list(store.path.parent.glob(store.path.name + ".bad-*"))) == 2
