@@ -284,6 +284,11 @@
       "status": "in_progress"
     },
     {
+      "id": "CODE-HTTP",
+      "path": "src/marketing_agent/http_client.py",
+      "type": "code"
+    },
+    {
       "id": "CODE-LOGGING",
       "path": "src/marketing_agent/logging.py",
       "type": "code"

@@ -68,6 +68,7 @@
 | CODE-DRAFT | code | [drafts.py](../../src/marketing_agent/drafts.py) | 초안 저장·품질 검사·사람 승인 해시 검증 |
 | CODE-TRACK2-UI | code | [dashboard_ui.py](../../src/marketing_agent/dashboard_ui.py) | 3단계 화면과 상태 안내 |
 | CODE-AI | code | [ai_client.py](../../src/marketing_agent/ai_client.py) | 제공사별 공통 JSON 호출 인터페이스 |
+| CODE-HTTP | code | [http_client.py](../../src/marketing_agent/http_client.py) | 리다이렉트 차단·응답 크기 제한 공통 외부 호출 계층 |
 | CODE-SETTINGS | code | [dashboard_settings.py](../../src/marketing_agent/dashboard_settings.py) | 대시보드 설정·키 파일 경계 |
 | CODE-LOGGING | code | [logging.py](../../src/marketing_agent/logging.py) | 구조화 JSONL 로그(이벤트·대시보드 요청) |
 | CODE-SECRETS | code | [secret_store.py](../../src/marketing_agent/secret_store.py) | Windows DPAPI 키 저장소(암호문 파일, 그 외 OS는 `.env`) |

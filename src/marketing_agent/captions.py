@@ -6,10 +6,11 @@ import json
 import os
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request, build_opener
 from urllib.parse import urlencode
 
 from .dashboard_contracts import VideoCard
+from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
 
 MAX_PRIMARY_CHARS = 12_000
 MAX_COMMENT_CHARS = 500
@@ -57,11 +58,6 @@ class PopularCommentsProvider(Protocol):
     def fetch(self, video_id: str) -> tuple[str, ...]: ...
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
-
-
 class YouTubeDataComments:
     """Optional public-comment source; resolve its key only for explicit fetches."""
 
@@ -79,14 +75,14 @@ class YouTubeDataComments:
         request = Request(f"https://www.googleapis.com/youtube/v3/commentThreads?{query}",
                           headers={"Accept": "application/json"})
         try:
-            with build_opener(_NoRedirect()).open(request, timeout=10) as response:
-                raw = response.read(200_001)
+            with build_opener(NoRedirectHandler()).open(request, timeout=10) as response:
+                raw = read_limited(response, 200_000)
         except HTTPError as exc:
             raise ValueError("COMMENTS_KEY_INVALID" if exc.code in (400, 401) else "COMMENTS_UNAVAILABLE") from None
+        except ResponseTooLarge:
+            raise ValueError("COMMENTS_UNAVAILABLE") from None
         except (URLError, OSError, TimeoutError):
             raise ValueError("COMMENTS_UNAVAILABLE") from None
-        if len(raw) > 200_000:
-            raise ValueError("COMMENTS_UNAVAILABLE")
         try:
             data = json.loads(raw)
             rows = data.get("items", [])

@@ -14,7 +14,8 @@ import xml.etree.ElementTree as ET
 from .dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
 from .drafts import _load_record, content_hash, preview
 from .guard import check_rss_membership, normalize_video_id
-from .rss_feed import CHANNELS, VIDEO_ID, _NoRedirect, list_videos, recheck_video
+from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
+from .rss_feed import CHANNELS, VIDEO_ID, FeedError, list_videos, recheck_video
 from .storage import KST, ReservationBlocked, Store
 
 
@@ -40,10 +41,12 @@ def recheck_test_video(video_id: str, channel_id: str) -> VideoCard | None:
         raise ValueError("TEST_VIDEO_INVALID")
     url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     request = Request(url, headers={"User-Agent": "marketing-agent-rss/1.0", "Accept": "application/atom+xml"})
-    with build_opener(_NoRedirect()).open(request, timeout=10) as response:
-        data = response.read(MAX_FEED_BYTES + 1)
-    if len(data) > MAX_FEED_BYTES:
-        raise ValueError("TEST_FEED_TOO_LARGE")
+    client = build_opener(NoRedirectHandler(lambda: FeedError("RSS_REDIRECT_BLOCKED")))
+    try:
+        with client.open(request, timeout=10) as response:
+            data = read_limited(response, MAX_FEED_BYTES)
+    except ResponseTooLarge:
+        raise ValueError("TEST_FEED_TOO_LARGE") from None
     root = ET.fromstring(data)
     if root.tag != f"{ATOM}feed" or root.findtext(f"{YT}channelId") != channel_id:
         raise ValueError("TEST_FEED_CHANNEL_MISMATCH")

@@ -10,10 +10,11 @@ import re
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
 import xml.etree.ElementTree as ET
 
 from .dashboard_contracts import VideoCard, VideoList
+from .http_client import ResponseTooLarge, opener as _no_redirect_opener, read_limited
 
 
 CHANNELS = {
@@ -34,11 +35,6 @@ class FeedError(ValueError):
     pass
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        raise FeedError("RSS_REDIRECT_BLOCKED")
-
-
 RETRY_HTTP = {404, 408, 429, 500, 502, 503, 504}
 CACHE_MAX_AGE_HOURS = 72
 
@@ -55,7 +51,7 @@ def fetch_channel(channel_id: str, *, opener=None, channels=None, attempts: int 
     if channel_id not in allowed:
         raise FeedError("CHANNEL_NOT_ALLOWED")
     url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    client = opener or build_opener(_NoRedirect())
+    client = opener or _no_redirect_opener(on_redirect=lambda: FeedError("RSS_REDIRECT_BLOCKED"))
     last = "RSS_NETWORK"
     for attempt in range(max(1, attempts)):
         if attempt:
@@ -64,9 +60,11 @@ def fetch_channel(channel_id: str, *, opener=None, channels=None, attempts: int 
                                         "Accept": "application/atom+xml"})
         try:
             with client.open(request, timeout=10) as response:
-                data = response.read(MAX_FEED_BYTES + 1)
+                data = read_limited(response, MAX_FEED_BYTES)
         except FeedError:
             raise
+        except ResponseTooLarge:
+            raise FeedError("RSS_TOO_LARGE") from None
         except HTTPError as exc:
             last = f"RSS_HTTP_{exc.code}"
             if exc.code not in RETRY_HTTP:
@@ -75,8 +73,6 @@ def fetch_channel(channel_id: str, *, opener=None, channels=None, attempts: int 
         except (URLError, TimeoutError, OSError):
             last = "RSS_NETWORK"
             continue
-        if len(data) > MAX_FEED_BYTES:
-            raise FeedError("RSS_TOO_LARGE")
         return data
     raise FeedError(last)
 

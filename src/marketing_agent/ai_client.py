@@ -5,7 +5,9 @@ import os
 import re
 from typing import Any, Callable, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
+
+from .http_client import ResponseTooLarge, opener, read_limited
 
 
 class AIClient(Protocol):
@@ -33,12 +35,7 @@ JSON_SCHEMA_TYPES = {"object": "OBJECT", "array": "ARRAY", "string": "STRING",
 GEMINI_UNSUPPORTED_SCHEMA_KEYS = frozenset({"additionalProperties"})
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
-
-
-_opener = build_opener(_NoRedirect())
+_opener = opener()
 
 
 def _transport(request: Request, *, timeout: int):
@@ -49,7 +46,7 @@ def _response_json(request: Request, transport: Callable) -> dict:
     try:
         with transport(request, timeout=20) as response:
             try:
-                raw = response.read(MAX_RESPONSE + 1)
+                raw = read_limited(response, MAX_RESPONSE)
             except TypeError:
                 raise ValueError("AI_TRANSPORT_INVALID") from None
     except HTTPError as exc:
@@ -64,10 +61,10 @@ def _response_json(request: Request, transport: Callable) -> dict:
         else:
             code = "AI_PROVIDER_FAILED"
         raise ValueError(code) from None
+    except ResponseTooLarge:
+        raise ValueError("AI_RESPONSE_TOO_LARGE") from None
     except (OSError, URLError, TimeoutError):
         raise ValueError("AI_NETWORK_FAILED") from None
-    if len(raw) > MAX_RESPONSE:
-        raise ValueError("AI_RESPONSE_TOO_LARGE")
     try:
         result = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
