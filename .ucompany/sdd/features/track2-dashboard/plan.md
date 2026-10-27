@@ -325,3 +325,7 @@ HTTP가 제공 여부를 문자열 기반 `hasattr`로 추측하는 대신 읽�
 ## 2026-10-27 IMP-27~30 개선 라운드 1 (즉시 조치)
 
 분석 보고서(2026-10-27)의 위험 항목을 5라운드로 해소하는 계획의 첫 라운드다. 정책·방법론·계약서는 저장소 루트 `improve_plan/`에 있다(라운드 1: `improve_plan/05_rounds/round1_immediate/`). 작업마다 계약서의 실패 테스트를 먼저 쓰고, `scripts/round_gate.py`(IMP-27)로 범위·동결 영역·커밋 규칙을 판정한다. IMP-28은 `guard.py`·`posting_service.py`·`dashboard.py`의 허용 채널 주입만 바꾸고 RSS 재확인·예약 상태 머신은 그대로 둔다. IMP-29는 `captions.py`의 예외 구분과 안내 문구, 의존성 선언만 바꾼다. IMP-30은 `scripts/package.py`와 README 안내를 추가하며 제품 코드는 바꾸지 않는다.
+
+## 2026-10-27 IMP-31~33 개선 라운드 2 (보안·승인 무결성)
+
+계약서는 `improve_plan/05_rounds/round2_approval_integrity/`. IMP-31은 `dashboard.py`의 `create_server`·`run_dashboard`와 mac-smoke만 바꾸고 API 토큰 검사·승인 해시는 유지한다. IMP-32는 새 모듈 `secret_store.py`와 `dashboard_settings.py`의 키 읽기·쓰기 경로만 바꾼다(그래프 노드 등록). IMP-33은 `storage.reserve_reviewed_post`에 선택 인자 `cooldown_minutes`를 더하고 제품 서비스만 60분을 쓴다. 상태 전이·유일 인덱스·일일 한도는 바꾸지 않는다.

@@ -180,6 +180,9 @@ T11의 README·PROCESS를 현재 코드와 확인된 증거에 맞춰 갱신했�
 - [x] IMP-15 2차 필터(검사 → AI 재작성 최대 2회, 감사 기록)와 프롬프트 v7. 자동 시험 통과. 사용자 PC 재생성으로 효과 확인 필요.
 - [x] IMP-16 2차 필터 설정 토글(기본 켬)·검토·승인 화면 열기·2차 필터 다시 적용·`SAME_QUOTE` 검사. 자동 시험 통과, 실제 화면 확인은 사용자 PC.
 - [x] IMP-17 필수 설정 n/m 버튼·점검 화면·설정하기 포커스 이동. 자동 시험과 헤드리스 화면 확인(데스크톱·390px, 채널 ID 입력 포커스 이동) 완료.
+- [ ] IMP-31 페어링 주소로만 대시보드 페이지 발급, mac-smoke 갱신 (R2-T1).
+- [ ] IMP-32 Windows DPAPI 키 저장소, `.env` 키 이전 (R2-T2).
+- [ ] IMP-33 같은 대상 채널 게시 간격 60분 (R2-T3).
 - [x] IMP-27 작업 게이트 도구 `scripts/round_gate.py`(G0~G6, 이동 파일·데코레이터·한글 접두 이메일 검출 포함). 자동 시험 13개.
 - [x] IMP-28 게시 가드 허용 채널 주입(`ConfiguredPostingService`는 설정 채널), 설정 오류 시 `CHANNEL_CONFIG_UNAVAILABLE`로 예약 전 차단. 자동 시험.
 - [x] IMP-29 `youtube-transcript-api` 선택 의존성(`captions`) 기본 설치, `CAPTIONS_LIBRARY_MISSING` 안내. 자동 시험 4개. Windows `start.bat` 설치 확인(V4) 미수행.
