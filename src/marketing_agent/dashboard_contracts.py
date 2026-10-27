@@ -202,6 +202,11 @@ class DraftApprovalService(Protocol):
     def approve_draft(self, video_id: str, values: dict[str, str]) -> dict[str, object]: ...
 
 
+@runtime_checkable
+class OutcomeResolveService(Protocol):
+    def resolve_outcome(self, video_id: str, outcome: str, reviewer: str) -> dict[str, object]: ...
+
+
 # Stable codes exchanged with the UI. Posting services may add more precise codes.
 INVALID_VIDEO_ID = "INVALID_VIDEO_ID"
 VIDEO_NOT_FOUND = "VIDEO_NOT_FOUND"

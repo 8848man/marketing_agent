@@ -1633,3 +1633,59 @@ def test_generate_draft_discards_when_brand_changed(tmp_path):
     with pytest.raises(ValueError, match="BRAND_CHANGED_REGENERATE"):
         service.generate_draft(VIDEO_ID)
     assert not (tmp_path / "drafts" / f"{VIDEO_ID}.json").exists()
+
+
+def _unknown_service(tmp_path):
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts")
+    with Store(tmp_path / "posts.db") as store:
+        when = datetime(2026, 10, 15, 3, 0, tzinfo=timezone.utc)
+        attempt = store.reserve_reviewed_post(video_id=VIDEO_ID, channel_id="ch", title="t", body_hash="b",
+                                              approval_hash="a", profile="p", when=when)
+        store.begin_dashboard_submit(attempt, when)
+        store.finish_dashboard_post(attempt, "OUTCOME_UNKNOWN", reason_code="COMMENT_NOT_CONFIRMED")
+    return service
+
+
+def test_resolve_api_requires_token_and_schema(tmp_path):
+    service = _unknown_service(tmp_path)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        origin = f"http://{HOST}:{port}"
+        good = {"video_id": VIDEO_ID, "outcome": "DISMISSED", "reviewer": "홍길동"}
+        path = "/api/posts/resolve"
+        assert request(port, "POST", path, body=json.dumps(good))[0] == 403
+        assert request(port, "POST", path, origin=origin, token=token,
+                       body=json.dumps({"video_id": VIDEO_ID, "outcome": "POSTED"}))[0] == 400
+        assert request(port, "POST", path, origin=origin, token=token,
+                       body=json.dumps(good | {"extra": "x"}))[0] == 400
+        status, body = request(port, "POST", path, origin=origin, token=token,
+                               body=json.dumps(good | {"outcome": "RESERVED"}))
+        assert status == 409 and json.loads(body)["reason_code"] == "OUTCOME_INVALID"
+        status, body = request(port, "POST", path, origin=origin, token=token, body=json.dumps(good))
+        assert status == 200 and json.loads(body) == {"video_id": VIDEO_ID, "status": "DISMISSED"}
+        status, body = request(port, "POST", path, origin=origin, token=token, body=json.dumps(good))
+        assert status == 409 and json.loads(body)["reason_code"] == "OUTCOME_NOT_UNKNOWN"
+
+
+def test_history_ui_has_resolve_controls(tmp_path):
+    import shutil
+    import subprocess
+    with running_server(FakeService()) as port:
+        page = request(port, "GET", "/")[1]
+    assert "/api/posts/resolve" in page and "종료됨(재게시 안 함)" in page
+    assert "YouTube에서 댓글이 달렸는지 직접 확인한 뒤 선택하세요" in page
+    assert "댓글 확인됨" in page and "댓글 없음 — 종료" in page
+    for code in ("SECRET_STORE_UNAVAILABLE", "SECRET_STORE_UNREADABLE", "SECRET_STORE_INVALID"):
+        assert code in page
+    assert "secrets.dpapi.json" in page
+    assert "alert(" not in page.split("const HIST_STATUS", 1)[1] and "confirm(" not in page.split("const HIST_STATUS", 1)[1]
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    assert scripts
+    js = tmp_path / "page.js"
+    js.write_text("\n".join(scripts), encoding="utf-8")
+    result = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

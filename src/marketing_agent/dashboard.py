@@ -26,7 +26,7 @@ from .dashboard_contracts import (
     BrandReadService, BrandWriteService,
     CommentGenerationReadService, CommentGenerationWriteService,
     ChannelEntryWriteService, ChannelReadService, ChannelWriteService,
-    DashboardService, ReviewPickService, DraftApprovalService, DraftGenerationService, DraftPreview, DraftRefineService,
+    DashboardService, ReviewPickService, DraftApprovalService, OutcomeResolveService, DraftGenerationService, DraftPreview, DraftRefineService,
     HistoryService, SetupStatusService,
     FORBIDDEN, INTERNAL_ERROR, INVALID_VIDEO_ID, METHOD_NOT_ALLOWED,
     PostStatus, ProfileAddService, ProfileMemoService, ProfileOpenService,
@@ -699,6 +699,12 @@ class ConfiguredPostingService(PostingService):
                     "worry_summary": record["worry_summary"], "cited_detail": record["cited_detail"],
                     "comment": record["comment"]}
 
+    def resolve_outcome(self, video_id: str, outcome: str, reviewer: str) -> dict[str, object]:
+        """Human closes an OUTCOME_UNKNOWN post; no Chrome, so the settings lock only."""
+        with self._settings_lock, Store(self.db_path) as store:
+            store.resolve_dashboard_outcome(video_id, outcome, reviewer, self.clock())
+        return {"video_id": video_id, "status": outcome}
+
     def save_channel_ids(self, channels: list[str]) -> list[str]:
         if self.settings is None:
             raise ValueError("SETTINGS_UNAVAILABLE")
@@ -771,7 +777,7 @@ class ConfiguredPostingService(PostingService):
                     state = "posted"
                 elif posted == "POSTED":
                     state = "review"
-                elif posted in {"RESERVED", "SUBMITTING", "OUTCOME_UNKNOWN", "POST_OUTCOME_UNKNOWN", "POST_PENDING"}:
+                elif posted in {"RESERVED", "SUBMITTING", "OUTCOME_UNKNOWN", "DISMISSED", "POST_OUTCOME_UNKNOWN", "POST_PENDING"}:
                     state = "review"
                 elif not profile:
                     state = "unassigned"
@@ -1154,7 +1160,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                 return self._reject_early_post(403, FORBIDDEN)
             if self.path not in {"/api/post", "/api/settings", "/api/channels",
                                  "/api/channels/test", "/api/ai", "/api/ai/test", "/api/brand", "/api/comment-settings", "/api/youtube-key",
-                                 "/api/profile", "/api/profile/add", "/api/profile/memo", "/api/profile/verify", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine"}:
+                                 "/api/profile", "/api/profile/add", "/api/profile/memo", "/api/profile/verify", "/api/profile/setup", "/api/drafts/generate", "/api/drafts/approve", "/api/drafts/refine", "/api/posts/resolve"}:
                 return self._reject(404, BAD_REQUEST)
             if self.headers.get("Origin") != f"http://{HOST}:{self.server.server_port}":
                 return self._reject_early_post(403, FORBIDDEN)
@@ -1231,6 +1237,11 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                     if (not isinstance(data, dict) or set(data) != {"video_id", "rewrite"}
                             or not isinstance(data["video_id"], str) or not VIDEO_ID.fullmatch(data["video_id"])
                             or not isinstance(data["rewrite"], bool)):
+                        raise ValueError
+                elif self.path == "/api/posts/resolve":
+                    if (not isinstance(data, dict) or set(data) != {"video_id", "outcome", "reviewer"}
+                            or any(not isinstance(value, str) for value in data.values())
+                            or not VIDEO_ID.fullmatch(data["video_id"])):
                         raise ValueError
                 elif self.path == "/api/drafts/approve":
                     if (not isinstance(data, dict) or set(data) != {"video_id", "draft"}
@@ -1415,6 +1426,17 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
                                         reason if reason.isupper() else "DRAFT_REFINE_FAILED")
                 except OSError:
                     return self._reject(503, "DRAFT_WRITE_FAILED")
+            if self.path == "/api/posts/resolve":
+                if not isinstance(service, OutcomeResolveService):
+                    return self._reject(404, BAD_REQUEST)
+                try:
+                    return self._json(200, service.resolve_outcome(data["video_id"], data["outcome"], data["reviewer"]))
+                except ValueError as exc:
+                    reason = str(exc)
+                    return self._reject(409, reason if reason in {"OUTCOME_NOT_UNKNOWN", "OUTCOME_INVALID", "REVIEWER_INVALID"}
+                                        else "OUTCOME_RESOLVE_FAILED")
+                except OSError:
+                    return self._reject(503, "OUTCOME_RESOLVE_FAILED")
             if self.path == "/api/drafts/approve":
                 if not isinstance(service, DraftApprovalService):
                     return self._reject(404, BAD_REQUEST)

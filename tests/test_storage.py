@@ -111,3 +111,79 @@ def test_reviewed_post_cooldown_rejects_invalid_value(tmp_path):
         for bad in (-1, True, 1.5, "60"):
             with pytest.raises(ValueError):
                 _reviewed(store, "video000001", "chan-a", T, cooldown_minutes=bad)
+
+
+def _unknown_attempt(store, video_id="vOut0000001"):
+    attempt_id = store.reserve_reviewed_post(video_id=video_id, channel_id="ch", title="t", body_hash="b",
+                                             approval_hash="a", profile="p", when=T)
+    store.begin_dashboard_submit(attempt_id, T)
+    store.finish_dashboard_post(attempt_id, "OUTCOME_UNKNOWN", reason_code="COMMENT_NOT_CONFIRMED")
+    return attempt_id
+
+
+def test_resolve_outcome_posted_and_dismissed(tmp_path):
+    later = T + timedelta(minutes=5)
+    with Store(tmp_path / "state.sqlite") as store:
+        first = _unknown_attempt(store, "vOut0000001")
+        second = _unknown_attempt(store, "vOut0000002")
+        store.resolve_dashboard_outcome("vOut0000001", "POSTED", "검토자", later)
+        store.resolve_dashboard_outcome("vOut0000002", "DISMISSED", "검토자", later)
+        posted = store.dashboard_attempt("vOut0000001")
+        assert posted["status"] == "POSTED" and posted["verified_at"]
+        assert store.dashboard_attempt("vOut0000002")["status"] == "DISMISSED"
+        rows = {r["attempt_id"]: r for r in store.db.execute("SELECT * FROM dashboard_outcome_resolutions")}
+        assert rows[first]["outcome"] == "POSTED" and rows[second]["outcome"] == "DISMISSED"
+        assert rows[first]["reviewer"] == "검토자" and rows[first]["resolved_at"]
+
+
+def test_resolve_outcome_rejects_other_states(tmp_path):
+    with Store(tmp_path / "state.sqlite") as store:
+        store.reserve_reviewed_post(video_id="vOut0000003", channel_id="ch", title="t", body_hash="b",
+                                    approval_hash="a", profile="p", when=T)
+        _unknown_attempt(store, "vOut0000004")
+        for video, outcome, reviewer, code in [
+                ("vOut0000003", "POSTED", "x", "OUTCOME_NOT_UNKNOWN"),
+                ("vNone000000", "POSTED", "x", "OUTCOME_NOT_UNKNOWN"),
+                ("vOut0000004", "RESERVED", "x", "OUTCOME_INVALID"),
+                ("vOut0000004", "POSTED", "", "REVIEWER_INVALID"),
+                ("vOut0000004", "POSTED", "x" * 41, "REVIEWER_INVALID")]:
+            with pytest.raises(ValueError, match=code):
+                store.resolve_dashboard_outcome(video, outcome, reviewer, T)
+        assert store.dashboard_attempt("vOut0000004")["status"] == "OUTCOME_UNKNOWN"
+        store.resolve_dashboard_outcome("vOut0000004", "POSTED", "x", T)
+        with pytest.raises(ValueError, match="OUTCOME_NOT_UNKNOWN"):
+            store.resolve_dashboard_outcome("vOut0000004", "DISMISSED", "x", T)
+
+
+def test_dismissed_still_blocks_repost(tmp_path):
+    with Store(tmp_path / "state.sqlite") as store:
+        _unknown_attempt(store, "vOut0000005")
+        store.resolve_dashboard_outcome("vOut0000005", "DISMISSED", "x", T)
+        with pytest.raises(ReservationBlocked, match="ALREADY_ATTEMPTED"):
+            store.reserve_reviewed_post(video_id="vOut0000005", channel_id="ch", title="t", body_hash="b",
+                                        approval_hash="a", profile="p", when=T)
+        assert store.dashboard_posts_on("2026-10-15") == 1 or store.dashboard_posts_on("2026-10-16") == 1
+
+
+def test_old_reservation_table_is_migrated_for_dismissed(tmp_path):
+    import sqlite3
+    path = tmp_path / "state.sqlite"
+    with Store(path) as store:
+        _unknown_attempt(store, "vOut0000006")
+    db = sqlite3.connect(path)
+    db.executescript("""
+        ALTER TABLE dashboard_post_reservations RENAME TO _new;
+        DROP INDEX dashboard_one_active_video; DROP INDEX dashboard_post_day;
+        CREATE TABLE dashboard_post_reservations (
+            attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL, channel_id TEXT NOT NULL, title TEXT NOT NULL,
+            body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL, profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
+            reserved_at TEXT NOT NULL, status TEXT NOT NULL
+                CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED')),
+            reason_code TEXT, screenshot_path TEXT, verified_at TEXT);
+        INSERT INTO dashboard_post_reservations SELECT * FROM _new; DROP TABLE _new;
+        CREATE UNIQUE INDEX dashboard_one_active_video ON dashboard_post_reservations(video_id) WHERE status != 'PRECHECK_FAILED';""")
+    db.commit()
+    db.close()
+    with Store(path) as store:
+        store.resolve_dashboard_outcome("vOut0000006", "DISMISSED", "x", T)
+        assert store.dashboard_attempt("vOut0000006")["status"] == "DISMISSED"

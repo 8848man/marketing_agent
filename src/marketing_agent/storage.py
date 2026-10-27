@@ -93,6 +93,7 @@ class Store:
         # Kept separate from the legacy CLI table so its history and constraints
         # remain intact. A partial unique index permits only pre-click failures
         # to be retried, while retaining every failed decision for audit.
+        self._allow_dismissed_status()
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS dashboard_post_reservations (
                 attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL,
@@ -100,7 +101,7 @@ class Store:
                 body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL,
                 profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
                 reserved_at TEXT NOT NULL, status TEXT NOT NULL
-                    CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED')),
+                    CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED','DISMISSED')),
                 reason_code TEXT, screenshot_path TEXT, verified_at TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS dashboard_one_active_video
@@ -128,6 +129,11 @@ class Store:
             -- reservation table so older databases need no column migration.
             CREATE TABLE IF NOT EXISTS dashboard_post_bodies (
                 attempt_id TEXT PRIMARY KEY, body TEXT NOT NULL
+            );
+            -- IMP-35: who closed an OUTCOME_UNKNOWN attempt by hand, and as what.
+            CREATE TABLE IF NOT EXISTS dashboard_outcome_resolutions (
+                attempt_id TEXT PRIMARY KEY, outcome TEXT NOT NULL,
+                reviewer TEXT NOT NULL, resolved_at TEXT NOT NULL
             );
         """)
 
@@ -382,6 +388,63 @@ class Store:
             if row["attempt_date_kst"] != day and self._dashboard_count(day) >= daily_limit:
                 raise ReservationBlocked("DAILY_LIMIT")
             self.db.execute("UPDATE dashboard_post_reservations SET status='SUBMITTING', attempt_date_kst=? WHERE attempt_id=?", (day, attempt_id))
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def _allow_dismissed_status(self) -> None:
+        """Rebuild an older reservation table whose CHECK lacks DISMISSED (IMP-35)."""
+        def stale() -> bool:
+            row = self.db.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                                  "AND name='dashboard_post_reservations'").fetchone()
+            return row is not None and "DISMISSED" not in row["sql"]
+        if not stale():
+            return
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if stale():
+                self.db.execute("ALTER TABLE dashboard_post_reservations RENAME TO dashboard_post_reservations_old")
+                self.db.execute("DROP INDEX IF EXISTS dashboard_one_active_video")
+                self.db.execute("DROP INDEX IF EXISTS dashboard_post_day")
+                self.db.execute("""CREATE TABLE dashboard_post_reservations (
+                    attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL,
+                    channel_id TEXT NOT NULL, title TEXT NOT NULL,
+                    body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL,
+                    profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
+                    reserved_at TEXT NOT NULL, status TEXT NOT NULL
+                        CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED','DISMISSED')),
+                    reason_code TEXT, screenshot_path TEXT, verified_at TEXT)""")
+                self.db.execute("""INSERT INTO dashboard_post_reservations
+                    (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,
+                     reserved_at,status,reason_code,screenshot_path,verified_at)
+                    SELECT attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,
+                     reserved_at,status,reason_code,screenshot_path,verified_at
+                    FROM dashboard_post_reservations_old""")
+                self.db.execute("DROP TABLE dashboard_post_reservations_old")
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def resolve_dashboard_outcome(self, video_id: str, outcome: str, reviewer: str, when: datetime) -> None:
+        """Human closes an OUTCOME_UNKNOWN attempt as POSTED or DISMISSED (never reposts)."""
+        if outcome not in {"POSTED", "DISMISSED"}:
+            raise ValueError("OUTCOME_INVALID")
+        if not isinstance(reviewer, str) or not 1 <= len(reviewer.strip()) <= 40:
+            raise ValueError("REVIEWER_INVALID")
+        reviewer = reviewer.strip()
+        stamp = _stamp(when)
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute("SELECT attempt_id,status FROM dashboard_post_reservations "
+                                  "WHERE video_id=? AND status!='PRECHECK_FAILED'", (video_id,)).fetchone()
+            if row is None or row["status"] != "OUTCOME_UNKNOWN":
+                raise ValueError("OUTCOME_NOT_UNKNOWN")
+            self.db.execute("UPDATE dashboard_post_reservations SET status=?, verified_at=? WHERE attempt_id=?",
+                            (outcome, stamp if outcome == "POSTED" else None, row["attempt_id"]))
+            self.db.execute("INSERT INTO dashboard_outcome_resolutions VALUES(?,?,?,?)",
+                            (row["attempt_id"], outcome, reviewer, stamp))
             self.db.execute("COMMIT")
         except BaseException:
             self.db.execute("ROLLBACK")
