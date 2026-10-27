@@ -7,8 +7,8 @@
 | [round1_immediate/](round1_immediate/index.md) | 1. 즉시 조치 | 완료 | `fix/IMP-27-30-round1-immediate` |
 | [round2_approval_integrity/](round2_approval_integrity/index.md) | 2. 보안·승인 무결성 | 완료 | `fix/IMP-31-33-round2-approval-integrity` |
 | [round3_operations/](round3_operations/index.md) | 3. 운영 안정성 | 완료 | `fix/IMP-34-37-round3-operations` |
-| [round4_structure_a/](round4_structure_a/index.md) | 4. 구조 개선 A | 구현 | `refactor/IMP-38-40-round4-structure-a` |
-| [round5_structure_b.md](round5_structure_b.md) | 5. 구조 개선 B | 대기 | 계획 시 결정 |
+| [round4_structure_a/](round4_structure_a/index.md) | 4. 구조 개선 A | 완료 | `refactor/IMP-38-40-round4-structure-a` |
+| [round5_structure_b/](round5_structure_b/index.md) | 5. 구조 개선 B | 구현 | `refactor/IMP-41-43-round5-structure-b` |
 
 ## 라운드 파일 공통 구성
 
