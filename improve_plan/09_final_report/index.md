@@ -8,6 +8,7 @@
 | [2_decisions.md](2_decisions.md) | 사용자가 결정해야 할 사항 |
 | [3_limits.md](3_limits.md) | 알려진 한계와 복구 방법 |
 | [4_results.md](4_results.md) | 라운드별 결과, 측정값, 게이트·검토가 잡아낸 문제 |
+| [5_verification_20261027.md](5_verification_20261027.md) | 사용자 PC 점검 결과 (Windows 실행·페어링·키 암호화·CSP 통과) |
 
 ## 한눈에 보기
 
@@ -18,4 +19,4 @@
 | 정적 검사 | `check_sdd.py` 0, `safety_scan.py --strict` 0 |
 | 커밋 | `main` 이후 66개 (작업 커밋 22 + 기록·문서) |
 | 브랜치 | 6개가 순서대로 쌓여 있음 (1번 체크리스트 A 참고) |
-| GitHub | **아직 push 안 됨** — 이 PC에만 있음 |
+| GitHub | 통합 브랜치 `improve/IMP-27-43-rounds-1-5`로 PR |
