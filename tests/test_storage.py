@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 import json
+import sqlite3
 
 import pytest
 
 from marketing_agent.logging import EventLogger
-from marketing_agent.storage import ReservationBlocked, Store
+from marketing_agent import storage
+from marketing_agent.storage import SCHEMA_VERSION, ReservationBlocked, Store
 
 
 T = datetime(2026, 10, 15, 14, 59, tzinfo=timezone.utc)  # KST 23:59
@@ -182,8 +184,109 @@ def test_old_reservation_table_is_migrated_for_dismissed(tmp_path):
             reason_code TEXT, screenshot_path TEXT, verified_at TEXT);
         INSERT INTO dashboard_post_reservations SELECT * FROM _new; DROP TABLE _new;
         CREATE UNIQUE INDEX dashboard_one_active_video ON dashboard_post_reservations(video_id) WHERE status != 'PRECHECK_FAILED';""")
+    db.execute("PRAGMA user_version = 0")  # a real pre-versioning DB carries no version
     db.commit()
     db.close()
     with Store(path) as store:
         store.resolve_dashboard_outcome("vOut0000006", "DISMISSED", "x", T)
         assert store.dashboard_attempt("vOut0000006")["status"] == "DISMISSED"
+
+
+# ---- R4-T3 / IMP-40: schema version and migrations ----
+
+def _user_version(path):
+    con = sqlite3.connect(path)
+    try:
+        return con.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        con.close()
+
+
+# Round-2 era (commit 2fcbe07) reservation schema: status CHECK has no DISMISSED.
+ROUND2_SCHEMA = """
+    CREATE TABLE dashboard_post_reservations (
+        attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL, title TEXT NOT NULL,
+        body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL,
+        profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
+        reserved_at TEXT NOT NULL, status TEXT NOT NULL
+            CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED')),
+        reason_code TEXT, screenshot_path TEXT, verified_at TEXT
+    );
+    CREATE UNIQUE INDEX dashboard_one_active_video
+        ON dashboard_post_reservations(video_id)
+        WHERE status != 'PRECHECK_FAILED';
+    CREATE INDEX dashboard_post_day
+        ON dashboard_post_reservations(attempt_date_kst, status);
+    CREATE TABLE dashboard_post_bodies (
+        attempt_id TEXT PRIMARY KEY, body TEXT NOT NULL
+    );
+"""
+
+
+def test_new_db_gets_schema_version(tmp_path):
+    path = tmp_path / "new.db"
+    with Store(path):
+        pass
+    assert SCHEMA_VERSION >= 1
+    assert _user_version(path) == SCHEMA_VERSION
+
+
+def test_existing_unversioned_db_is_upgraded_without_data_loss(tmp_path):
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript(ROUND2_SCHEMA)
+    con.execute("INSERT INTO dashboard_post_reservations VALUES"
+                "('a1','v1','c1','t','bh','ah','p1','2026-10-01','2026-10-01T00:00:00+00:00',"
+                "'OUTCOME_UNKNOWN','TIMEOUT',NULL,NULL)")
+    con.execute("INSERT INTO dashboard_post_bodies VALUES('a1','hello body')")
+    con.commit()
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 0
+    con.close()
+
+    with Store(path) as store:
+        row = store.db.execute("SELECT * FROM dashboard_post_reservations").fetchall()
+        assert [(r["attempt_id"], r["video_id"], r["status"], r["reason_code"]) for r in row] == [
+            ("a1", "v1", "OUTCOME_UNKNOWN", "TIMEOUT")]
+        assert store.db.execute("SELECT body FROM dashboard_post_bodies WHERE attempt_id='a1'").fetchone()["body"] == "hello body"
+        indexes = {r["name"] for r in store.db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='dashboard_post_reservations'")}
+        assert {"dashboard_one_active_video", "dashboard_post_day"} <= indexes
+        assert "DISMISSED" in store.db.execute(
+            "SELECT sql FROM sqlite_master WHERE name='dashboard_post_reservations'").fetchone()["sql"]
+        assert store.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        # the rebuilt table accepts the new status
+        store.db.execute("UPDATE dashboard_post_reservations SET status='DISMISSED' WHERE attempt_id='a1'")
+
+
+def test_newer_db_is_rejected(tmp_path):
+    path = tmp_path / "newer.db"
+    with Store(path):
+        pass
+    con = sqlite3.connect(path)
+    con.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    con.close()
+    with pytest.raises(ValueError, match="DB_SCHEMA_NEWER"):
+        Store(path)
+    assert _user_version(path) == SCHEMA_VERSION + 1
+
+
+def test_failed_migration_rolls_back(tmp_path, monkeypatch):
+    path = tmp_path / "state.db"
+    with Store(path):
+        pass
+
+    def broken(db):
+        db.execute("CREATE TABLE half_applied (x INTEGER)")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(storage, "MIGRATIONS", [*storage.MIGRATIONS, broken])
+    with pytest.raises(RuntimeError, match="boom"):
+        Store(path)
+    assert _user_version(path) == SCHEMA_VERSION
+    con = sqlite3.connect(path)
+    try:
+        assert con.execute("SELECT name FROM sqlite_master WHERE name='half_applied'").fetchone() is None
+    finally:
+        con.close()
