@@ -91,8 +91,13 @@ def _pair_match(left: str, right: str) -> bool:
     return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
-_CSP = ("default-src 'self'; img-src 'self' https://i.ytimg.com; script-src 'unsafe-inline'; "
+_CSP_TEMPLATE = ("default-src 'self'; img-src 'self' https://i.ytimg.com; script-src {script_src}; "
         "style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+_CSP = _CSP_TEMPLATE.format(script_src="'none'")
+
+
+def _page_csp(nonce: str) -> str:
+    return _CSP_TEMPLATE.format(script_src=f"'nonce-{nonce}'")
 
 
 def create_server(service: DashboardService | None = None, *, port: int = 0,
@@ -143,7 +148,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
         def do_POST(self) -> None:
             self._logged(self._handle_post)
 
-        def _headers(self, status: int, content_type: str, size: int) -> None:
+        def _headers(self, status: int, content_type: str, size: int, csp: str = _CSP) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(size))
@@ -151,7 +156,7 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy", _CSP)
+            self.send_header("Content-Security-Policy", csp)
             self.end_headers()
 
         def _json(self, status: int, payload: object) -> None:
@@ -225,8 +230,9 @@ def create_server(service: DashboardService | None = None, *, port: int = 0,
             if self.path == "/":
                 if not self._paired():
                     return self._unpaired_page()
-                body = _page(token, demo=isinstance(service, DemoService))
-                self._headers(200, "text/html; charset=utf-8", len(body))
+                nonce = secrets.token_urlsafe(16)
+                body = _page(token, demo=isinstance(service, DemoService), nonce=nonce)
+                self._headers(200, "text/html; charset=utf-8", len(body), _page_csp(nonce))
                 return self.wfile.write(body)
             if self.path == "/api/videos":
                 if not self._session_ok():

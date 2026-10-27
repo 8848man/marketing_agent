@@ -1683,7 +1683,7 @@ def test_history_ui_has_resolve_controls(tmp_path):
     node = shutil.which("node")
     if node is None:
         pytest.skip("node not installed")
-    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", page, re.S)
     assert scripts
     js = tmp_path / "page.js"
     js.write_text("\n".join(scripts), encoding="utf-8")
@@ -1741,3 +1741,86 @@ def test_server_logs_error_type_on_503(tmp_path):
     assert "private detail" not in log.read_text(encoding="utf-8")
     record = next(r for r in records if r["status"] == 503)
     assert record["status"] == 503 and record["error_type"] == "RuntimeError"
+
+
+def _page_with_headers(port):
+    status, body, headers = _raw_request(port, "GET", "/", cookie=pair_cookie(port))
+    assert status == 200
+    csp = next(v for k, v in headers if k.lower() == "content-security-policy")
+    return body, csp
+
+
+def _csp_nonce(csp):
+    match = re.search(r"script-src ([^;]*)", csp)
+    assert match, csp
+    found = re.findall(r"'nonce-([A-Za-z0-9_-]+)'", match.group(1))
+    assert len(found) == 1, csp
+    return found[0]
+
+
+def test_page_csp_uses_nonce_without_unsafe_inline_script():
+    with running_server(FakeService()) as port:
+        _, csp = _page_with_headers(port)
+        script_src = re.search(r"script-src ([^;]*)", csp).group(1)
+        assert "unsafe-inline" not in script_src
+        assert "nonce-" in script_src
+        assert "style-src 'unsafe-inline'" in csp
+        status, _, headers = _raw_request(port, "GET", "/api/videos", cookie=pair_cookie(port))
+        json_csp = next(v for k, v in headers if k.lower() == "content-security-policy")
+        assert "script-src 'none'" in json_csp
+        status, _, headers = _raw_request(port, "GET", "/", host="evil.example")
+        assert status == 403
+        assert "script-src 'none'" in next(v for k, v in headers if k.lower() == "content-security-policy")
+
+
+def test_every_script_tag_has_matching_nonce():
+    with running_server(FakeService()) as port:
+        page, csp = _page_with_headers(port)
+    nonce = _csp_nonce(csp)
+    tags = re.findall(r"<script\b[^>]*>", page)
+    assert tags and len(tags) == page.count("<script")
+    assert all(tag == f'<script nonce="{nonce}">' for tag in tags)
+
+
+def test_nonce_changes_per_request():
+    with running_server(FakeService()) as port:
+        _, first = _page_with_headers(port)
+        _, second = _page_with_headers(port)
+    assert _csp_nonce(first) != _csp_nonce(second)
+
+
+def test_rendered_scripts_pass_node_check(tmp_path):
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    from marketing_agent.dashboard_page import render_page
+    for demo in (False, True):
+        page = render_page("tok", demo=demo, nonce="abc").decode("utf-8")
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", page, re.S)
+        assert scripts
+        for index, body in enumerate(scripts):
+            path = tmp_path / f"s{int(demo)}{index}.js"
+            path.write_text(body, encoding="utf-8")
+            result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+
+
+def test_page_has_no_csp_violations_in_headless_browser():
+    sync_api = pytest.importorskip("playwright.sync_api")
+    try:
+        with sync_api.sync_playwright() as pw:
+            browser = pw.chromium.launch()
+    except Exception as exc:  # browser binary missing
+        pytest.skip(f"chromium unavailable: {type(exc).__name__}")
+    with running_server(FakeService()) as port, browser:
+        page = browser.new_page()
+        messages = []
+        page.on("console", lambda m: messages.append(m.text))
+        page.context.add_cookies([{"name": pair_cookie(port).split("=", 1)[0],
+                                   "value": pair_cookie(port).split("=", 1)[1],
+                                   "url": f"http://{HOST}:{int(port)}/"}])
+        page.goto(f"http://{HOST}:{int(port)}/")
+        page.wait_for_timeout(500)
+    assert [m for m in messages if "Content Security Policy" in m] == []
