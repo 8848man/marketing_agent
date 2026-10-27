@@ -169,7 +169,7 @@ def test_other_profiles_require_first_profile_and_signout_moves_videos_back(tmp_
     service.poster.check_signed_in.side_effect = None
     service.verify_profile("유튜브1")
     service.verify_profile("유튜브2")
-    with patch("marketing_agent.dashboard._open_login_window"):
+    with patch("marketing_agent.dashboard_service._open_login_window"):
         result = service.open_app_profile("유튜브1")
     assert result["reassigned"] == 2
     assert service._assignment_candidates() == ["유튜브1"]
@@ -185,7 +185,7 @@ def test_login_required_on_post_deactivates_that_profile(tmp_path):
     service.verify_profile("유튜브2")
     service.profile = "유튜브2"
     service.poster.held_window_open.return_value = False
-    with patch("marketing_agent.dashboard.PostingService.post_video",
+    with patch("marketing_agent.dashboard_service.PostingService.post_video",
                return_value=PostStatus("blocked", "LOGIN_REQUIRED")), \
          patch.object(service, "_use_assigned_profile"), \
          patch.object(service, "_draft_brand_matches", return_value=True):
@@ -387,7 +387,7 @@ def test_setup_status_counts_required_and_marks_optional(tmp_path):
     settings = _settings(tmp_path)
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
                                        poster=MagicMock(), feed_loader=lambda: VideoList(()))
-    with patch("marketing_agent.dashboard._installed_chrome", return_value=None):
+    with patch("marketing_agent.dashboard_service._installed_chrome", return_value=None):
         status = service.setup_status()
     items = {item["id"]: item for item in status["items"]}
     assert items["channels"]["state"] == "ok" and items["channels"]["required"] is True
@@ -398,7 +398,7 @@ def test_setup_status_counts_required_and_marks_optional(tmp_path):
     assert status["required_total"] == sum(i["required"] for i in status["items"])
     assert not any("KEY" in str(item["value"]) for item in status["items"])  # never echoes secrets
     service._account_states["유튜브1"] = "SIGNED_IN"
-    with patch("marketing_agent.dashboard._installed_chrome", return_value="/x/chrome"):
+    with patch("marketing_agent.dashboard_service._installed_chrome", return_value="/x/chrome"):
         again = service.setup_status()
     assert again["required_ok"] == status["required_ok"] + 2
 

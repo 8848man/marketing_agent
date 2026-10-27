@@ -272,6 +272,22 @@ def test_rss_outage_without_cache_shows_only_approved_draft_videos(tmp_path):
 
 def test_rss_errors_are_explained_in_plain_korean():
     from marketing_agent.dashboard_page import render_page
-    html = render_page("t").decode("utf-8")
+    html = render_page("t", nonce="x").decode("utf-8")
     assert "function rssText" in html and "YouTube RSS 서버 오류" in html
     assert "rssText(error)" in html and "rssText(error.message)" in html
+
+
+def test_individual_draft_wins_over_latest_json(tmp_path):
+    from marketing_agent.drafts import _load_record
+    old = dict(approved(), comment="옛 문안")
+    new = dict(approved(), comment="새 문안")
+    save(tmp_path, old)
+    (tmp_path / f"{VIDEO_ID}.json").write_text(json.dumps(new, ensure_ascii=False), encoding="utf-8")
+    assert _load_record(tmp_path, VIDEO_ID)["comment"] == "새 문안"
+
+
+def test_latest_json_used_only_as_fallback(tmp_path):
+    from marketing_agent.drafts import _load_record
+    save(tmp_path, dict(approved(), comment="옛 문안"))
+    assert not (tmp_path / f"{VIDEO_ID}.json").exists()
+    assert _load_record(tmp_path, VIDEO_ID)["comment"] == "옛 문안"

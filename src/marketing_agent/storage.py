@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -35,15 +36,7 @@ def _stamp(when: datetime) -> str:
     return _aware(when).isoformat(timespec="microseconds")
 
 
-class Store:
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA foreign_keys = ON")
-        self.db.execute("PRAGMA busy_timeout = 30000")
-        self.db.executescript("""
+_LEGACY_SQL = """
             CREATE TABLE IF NOT EXISTS processed_videos (
                 video_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
                 published_at TEXT, title TEXT, state TEXT NOT NULL,
@@ -89,18 +82,19 @@ class Store:
                 run_id TEXT NOT NULL, failed_at_kst TEXT NOT NULL,
                 reason_code TEXT NOT NULL, screenshot_path TEXT
             );
-        """)
-        # Kept separate from the legacy CLI table so its history and constraints
-        # remain intact. A partial unique index permits only pre-click failures
-        # to be retried, while retaining every failed decision for audit.
-        self.db.executescript("""
+"""
+
+# Kept separate from the legacy CLI table so its history and constraints
+# remain intact. A partial unique index permits only pre-click failures
+# to be retried, while retaining every failed decision for audit.
+_DASHBOARD_SQL = """
             CREATE TABLE IF NOT EXISTS dashboard_post_reservations (
                 attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL,
                 channel_id TEXT NOT NULL, title TEXT NOT NULL,
                 body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL,
                 profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
                 reserved_at TEXT NOT NULL, status TEXT NOT NULL
-                    CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED')),
+                    CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED','DISMISSED')),
                 reason_code TEXT, screenshot_path TEXT, verified_at TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS dashboard_one_active_video
@@ -129,7 +123,108 @@ class Store:
             CREATE TABLE IF NOT EXISTS dashboard_post_bodies (
                 attempt_id TEXT PRIMARY KEY, body TEXT NOT NULL
             );
-        """)
+            -- IMP-35: who closed an OUTCOME_UNKNOWN attempt by hand, and as what.
+            CREATE TABLE IF NOT EXISTS dashboard_outcome_resolutions (
+                attempt_id TEXT PRIMARY KEY, outcome TEXT NOT NULL,
+                reviewer TEXT NOT NULL, resolved_at TEXT NOT NULL
+            );
+"""
+
+
+def _run_script(db: sqlite3.Connection, script: str) -> None:
+    """Run statements one by one; executescript would COMMIT the open transaction."""
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            db.execute(buffer)
+            buffer = ""
+    if any(l.strip() and not l.strip().startswith("--") for l in buffer.splitlines()):
+        raise ValueError("incomplete SQL statement in schema script")
+
+
+def _allow_dismissed_status(db: sqlite3.Connection) -> None:
+    """Rebuild an older reservation table whose CHECK lacks DISMISSED (IMP-35).
+
+    Runs inside the caller's migration transaction.
+    """
+    row = db.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                     "AND name='dashboard_post_reservations'").fetchone()
+    if row is None or "DISMISSED" in row["sql"]:
+        return
+    db.execute("ALTER TABLE dashboard_post_reservations RENAME TO dashboard_post_reservations_old")
+    db.execute("DROP INDEX IF EXISTS dashboard_one_active_video")
+    db.execute("DROP INDEX IF EXISTS dashboard_post_day")
+    db.execute("""CREATE TABLE dashboard_post_reservations (
+        attempt_id TEXT PRIMARY KEY, video_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL, title TEXT NOT NULL,
+        body_hash TEXT NOT NULL, approval_hash TEXT NOT NULL,
+        profile TEXT NOT NULL, attempt_date_kst TEXT NOT NULL,
+        reserved_at TEXT NOT NULL, status TEXT NOT NULL
+            CHECK(status IN ('RESERVED','SUBMITTING','PRECHECK_FAILED','OUTCOME_UNKNOWN','POSTED','DISMISSED')),
+        reason_code TEXT, screenshot_path TEXT, verified_at TEXT)""")
+    db.execute("""INSERT INTO dashboard_post_reservations
+        (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,
+         reserved_at,status,reason_code,screenshot_path,verified_at)
+        SELECT attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,
+         reserved_at,status,reason_code,screenshot_path,verified_at
+        FROM dashboard_post_reservations_old""")
+    db.execute("DROP TABLE dashboard_post_reservations_old")
+
+
+def _migration_1(db: sqlite3.Connection) -> None:
+    """Baseline schema; safe on databases created before versioning existed."""
+    _run_script(db, _LEGACY_SQL)
+    _allow_dismissed_status(db)
+    _run_script(db, _DASHBOARD_SQL)
+
+
+# Append-only, ordered. Entry N upgrades a database from version N-1 to N.
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_migration_1]
+SCHEMA_VERSION = len(MIGRATIONS)
+
+
+class Store:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        self.db.row_factory = sqlite3.Row
+        try:
+            self.db.execute("PRAGMA foreign_keys = ON")
+            self.db.execute("PRAGMA busy_timeout = 30000")
+            self._migrate()
+        except BaseException:
+            self.db.close()
+            raise
+
+    def _migrate(self) -> None:
+        """Apply pending MIGRATIONS in one transaction; refuse a newer database."""
+        target = len(MIGRATIONS)
+
+        def current() -> int:
+            return self.db.execute("PRAGMA user_version").fetchone()[0]
+
+        def check_not_newer(version: int) -> None:
+            if version > target:
+                raise ValueError("DB_SCHEMA_NEWER")
+
+        version = current()
+        check_not_newer(version)
+        if version == target:
+            return
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            # Another process may have migrated while we waited for the lock.
+            version = current()
+            check_not_newer(version)
+            for number in range(version, target):
+                MIGRATIONS[number](self.db)
+            self.db.execute(f"PRAGMA user_version = {target}")
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
 
     def assign_dashboard_videos(self, cards, candidates: list[str], when: datetime) -> None:
         """Assign only new videos in stable order, with one durable round-robin cursor."""
@@ -335,13 +430,15 @@ class Store:
     def reserve_reviewed_post(self, *, video_id: str, channel_id: str, title: str,
                               body_hash: str, approval_hash: str, profile: str,
                               when: datetime, daily_limit: int = 10, local_tz=KST,
-                              body: str = "") -> str:
+                              body: str = "", cooldown_minutes: int = 0) -> str:
         """Reserve across processes before any Chrome work; include legacy posts."""
         utc = _aware(when)
         if not all(isinstance(x, str) and x for x in (video_id, channel_id, title, body_hash, approval_hash, profile)):
             raise ValueError("reservation fields cannot be empty")
         if isinstance(daily_limit, bool) or not isinstance(daily_limit, int) or daily_limit <= 0:
             raise ValueError("daily_limit must be positive")
+        if isinstance(cooldown_minutes, bool) or not isinstance(cooldown_minutes, int) or cooldown_minutes < 0:
+            raise ValueError("cooldown_minutes must be a non-negative integer")
         day = utc.astimezone(local_tz).date().isoformat()
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -349,6 +446,13 @@ class Store:
                 raise ReservationBlocked("ALREADY_ATTEMPTED")
             if self._dashboard_count(day) >= daily_limit:
                 raise ReservationBlocked("DAILY_LIMIT")
+            if cooldown_minutes:
+                # reserved_at is always a fixed-width UTC _stamp, so compare in the same form.
+                since = _stamp(utc - timedelta(minutes=cooldown_minutes))
+                if self.db.execute("SELECT 1 FROM dashboard_post_reservations WHERE channel_id=? "
+                                   "AND status != 'PRECHECK_FAILED' AND reserved_at > ? LIMIT 1",
+                                   (channel_id, since)).fetchone():
+                    raise ReservationBlocked("CHANNEL_COOLDOWN")
             attempt_id = uuid4().hex
             self.db.execute("""INSERT INTO dashboard_post_reservations
                 (attempt_id,video_id,channel_id,title,body_hash,approval_hash,profile,attempt_date_kst,reserved_at,status)
@@ -373,6 +477,30 @@ class Store:
             if row["attempt_date_kst"] != day and self._dashboard_count(day) >= daily_limit:
                 raise ReservationBlocked("DAILY_LIMIT")
             self.db.execute("UPDATE dashboard_post_reservations SET status='SUBMITTING', attempt_date_kst=? WHERE attempt_id=?", (day, attempt_id))
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def resolve_dashboard_outcome(self, video_id: str, outcome: str, reviewer: str, when: datetime) -> None:
+        """Human closes an OUTCOME_UNKNOWN attempt as POSTED or DISMISSED (never reposts)."""
+        if outcome not in {"POSTED", "DISMISSED"}:
+            raise ValueError("OUTCOME_INVALID")
+        if (not isinstance(reviewer, str) or not 1 <= len(reviewer.strip()) <= 40
+                or any(ord(ch) <= 0x1F or ord(ch) == 0x7F for ch in reviewer)):
+            raise ValueError("REVIEWER_INVALID")
+        reviewer = reviewer.strip()
+        stamp = _stamp(when)
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute("SELECT attempt_id,status FROM dashboard_post_reservations "
+                                  "WHERE video_id=? AND status!='PRECHECK_FAILED'", (video_id,)).fetchone()
+            if row is None or row["status"] != "OUTCOME_UNKNOWN":
+                raise ValueError("OUTCOME_NOT_UNKNOWN")
+            self.db.execute("UPDATE dashboard_post_reservations SET status=?, verified_at=? WHERE attempt_id=?",
+                            (outcome, stamp if outcome == "POSTED" else None, row["attempt_id"]))
+            self.db.execute("INSERT INTO dashboard_outcome_resolutions VALUES(?,?,?,?)",
+                            (row["attempt_id"], outcome, reviewer, stamp))
             self.db.execute("COMMIT")
         except BaseException:
             self.db.execute("ROLLBACK")

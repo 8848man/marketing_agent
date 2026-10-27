@@ -180,6 +180,23 @@ T11의 README·PROCESS를 현재 코드와 확인된 증거에 맞춰 갱신했�
 - [x] IMP-15 2차 필터(검사 → AI 재작성 최대 2회, 감사 기록)와 프롬프트 v7. 자동 시험 통과. 사용자 PC 재생성으로 효과 확인 필요.
 - [x] IMP-16 2차 필터 설정 토글(기본 켬)·검토·승인 화면 열기·2차 필터 다시 적용·`SAME_QUOTE` 검사. 자동 시험 통과, 실제 화면 확인은 사용자 PC.
 - [x] IMP-17 필수 설정 n/m 버튼·점검 화면·설정하기 포커스 이동. 자동 시험과 헤드리스 화면 확인(데스크톱·390px, 채널 ID 입력 포커스 이동) 완료.
+- [x] IMP-41 `dashboard.py`(HTTP, 690줄)·`dashboard_service.py`·`chrome_launch.py` 분리, 이동 대조(정의 10개 중 9개 원문 동일), 토큰 비교 단일화, 경계 시험 절대 import 보강.
+- [x] IMP-42 페이지 응답마다 nonce, `script-src`에서 `unsafe-inline` 제거(그 밖 응답은 `'none'`), nonce 검사 RuntimeError. 헤드리스 CSP 확인은 브라우저 없어 skip — 사용자 브라우저 콘솔 확인 필요(V3).
+- [x] IMP-43 `task_constraints.py`(운명원·10 불변), `ClaudeClient` 기본 모델 일치, 앱 루트 검증(`MARKETING_AGENT_HOME`). 데모 기동·페어링·CSP 실행 확인.
+- [x] IMP-38 `http_client.py`(NoRedirectHandler·read_limited)로 4곳 통합, 모듈별 오류 코드 동일. 자동 시험(로컬 서버).
+- [x] IMP-39 제품·레거시 import 경계 시험, 발견된 위반(`drafts.py`→`writer`) 해소: `LINK`를 `drafts.py`로 이동. `legacy-scope.md` 갱신.
+- [x] IMP-40 `PRAGMA user_version` 마이그레이션(버전 1 = 현 스키마 + IMP-35 재구성, 단일 트랜잭션, 새 버전 DB 거부). 원래 main·라운드 3 DB 승격 검증.
+- [x] IMP-34 브라우저 락(Chrome 프로필 사용·변경)과 설정 락 분리, AI 생성은 스냅샷 후 락 밖 호출·저장 직전 재검증. 동시성 자동 시험(5회 반복).
+- [x] IMP-35 `POST /api/posts/resolve`·실행 기록 버튼으로 `OUTCOME_UNKNOWN` → `POSTED`/`DISMISSED`(재게시 차단 유지, 해소 기록). 기존 DB 상태 제약 재구성(이전 버전 DB로 행·인덱스 보존 확인). 키 저장소 오류 문구. 화면 실조작(V3) 미수행.
+- [x] IMP-36 `RequestLogger`(안전 필드만, 5MB 회전), `X-Request-Id`, 503 예외 클래스 기록. 자동 시험(20회 반복).
+- [x] IMP-37 게시 날짜 KST 고정, 개별 초안 우선·`latest.json` 폴백. 자동 시험.
+- [x] IMP-31 페어링 주소로만 대시보드 페이지 발급(포트별 `ma_pair_<포트>` 쿠키, 303 보안 헤더, 비ASCII 입력 403), 세션 토큰 비교 단일화, mac-smoke 갱신. 자동 시험. mac-smoke 실행은 push 후.
+- [x] IMP-32 Windows DPAPI 키 저장소(`secret_store.py`), `.env` 키 이전(.env 값 우선), 손상 파일만 타임스탬프 격리·일시 오류는 격리 안 함. 가짜 암호화 함수 자동 시험. Windows 실기(V4) 미수행.
+- [x] IMP-33 같은 대상 채널 60분 간격(예약 트랜잭션 안), 간격·한도 거부에 한국어 안내. 자동 시험.
+- [x] IMP-27 작업 게이트 도구 `scripts/round_gate.py`(G0~G6, 이동 파일·데코레이터·한글 접두 이메일 검출 포함). 자동 시험 13개.
+- [x] IMP-28 게시 가드 허용 채널 주입(`ConfiguredPostingService`는 설정 채널), 설정 오류 시 `CHANNEL_CONFIG_UNAVAILABLE`로 예약 전 차단. 자동 시험.
+- [x] IMP-29 `youtube-transcript-api` 선택 의존성(`captions`) 기본 설치, `CAPTIONS_LIBRARY_MISSING` 안내. 자동 시험 4개. Windows `start.bat` 설치 확인(V4) 미수행.
+- [x] IMP-30 `scripts/package.py`(git 추적 파일만, 금지 이름 대소문자 무시·키 패턴 검사), README 배포 안내. 실제 저장소 패키징 151개 항목·위반 0. 다른 폴더 압축 해제 후 실행(V4) 미수행.
 - [x] IMP-26 새 폴더 승인 실패 수정: 브랜드 일치 검사를 이름·글자 수만 비교, 예시 설정 설명을 제출 초안과 일치, 승인 실패 문구 한국어화. 자동 시험 177 passed, `config.yaml` 없는 새 폴더(심사 모드)에서 화면으로 승인 성공 확인.
 - [x] IMP-25 SDD·AGENTS 정합: 색인·그래프에 코드 노드 11개 추가(2차 필터·게시 서비스·저장소·근거·관문·CLI·실행 파일·README·설정 안내·제작 노트·AGENTS), `check_sdd.py`에 대시보드 모듈 커버리지·프롬프트 버전·AGENTS 경로 검사 추가(음성 시험으로 검출 확인), workflow를 Merge commit·`submitment` 고정으로 정정, AGENTS.md에 문서 지도·자동 검사·제출 브랜치 반영.
 - [x] IMP-24 문서: README 실행 파일 안내·오픈소스 출처(부록 D), `HOW_TO_SETTING.md`(키는 채팅으로 받지 않음), PROCESS 재구성(UI/UX·실행·SDD 섹션 추가, 실패 5에 2026-10-19 사고 기록), `drafts/README.md` 두 상태 설명.

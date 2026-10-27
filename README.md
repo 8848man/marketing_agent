@@ -1,6 +1,6 @@
 # 운명원 YouTube 댓글 대시보드 (TRACK 2)
 
-내려받아 실행하면 내 컴퓨터에 대시보드(`http://127.0.0.1:8770/`)가 뜹니다. **① 영상 불러오기 → ② 영상 선택(고민 한 줄·댓글 초안 확인·승인) → ③ 댓글 달기**를 차례로 누르면, 앱 전용 Chrome 프로필이 열리고 선택한 영상에 댓글을 한 글자씩 입력·게시한 뒤 내 댓글이 보이는지 확인합니다. **④ 실행 기록**에 어느 영상에 어느 프로필로 무슨 댓글을 달았는지, 성공/실패가 최신순으로 남습니다.
+내려받아 실행하면 내 컴퓨터에 대시보드가 뜹니다(실행 창에 표시된 주소로 브라우저가 자동으로 열립니다). **① 영상 불러오기 → ② 영상 선택(고민 한 줄·댓글 초안 확인·승인) → ③ 댓글 달기**를 차례로 누르면, 앱 전용 Chrome 프로필이 열리고 선택한 영상에 댓글을 한 글자씩 입력·게시한 뒤 내 댓글이 보이는지 확인합니다. **④ 실행 기록**에 어느 영상에 어느 프로필로 무슨 댓글을 달았는지, 성공/실패가 최신순으로 남습니다.
 
 > **심사자분께 — 실행 파일 하나면 됩니다.**
 > 필요한 것은 **Python 3.11 이상**과 **Google Chrome**뿐입니다.
@@ -39,7 +39,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m marketing_agent dashboard --port 8770 --review
 ```
 
-`--review`를 빼면 일반 모드입니다. 브라우저가 자동으로 열리지 않으면 `http://127.0.0.1:8770/`을 엽니다. 브라우저 자동화 패키지(Playwright)는 위 설치에 포함되며, 브라우저는 설치된 Google Chrome을 사용합니다(별도 브라우저 내려받기 없음).
+`--review`를 빼면 일반 모드입니다. 브라우저가 자동으로 열리지 않으면 실행 창에 표시된 `Dashboard: …/pair?code=…` 주소를 그대로 엽니다(`http://127.0.0.1:8770/`을 직접 열면 거부됩니다). 브라우저 자동화 패키지(Playwright)는 위 설치에 포함되며, 브라우저는 설치된 Google Chrome을 사용합니다(별도 브라우저 내려받기 없음).
 
 ## 2. 처음 한 번: 유튜브1 프로필 로그인 (약 1분)
 
@@ -60,7 +60,7 @@ py -3 -m venv .venv
 | ③ 댓글 달기 | 배정된 프로필의 Chrome이 열리고 댓글 창 → 한 글자씩 입력 → 게시 → 내 댓글 확인까지 화면에 보이게 진행합니다. 진행 상태와 실패 이유·캡처가 표시됩니다. |
 | ④ 실행 기록 | 시간·영상·프로필·댓글·성공/실패, 오늘 게시 수/하루 상한. |
 
-**AI 키(선택):** `.env.example`을 `.env`로 복사해 키를 넣거나, **설정 → AI API 관리**에서 입력합니다(OpenAI·Gemini·Claude·xAI 중 하나). `YOUTUBE_API_KEY`는 인기 댓글을 초안 근거로 쓸 때만 필요합니다. 키는 화면·로그에 다시 표시되지 않습니다.
+**AI 키(선택):** `.env.example`을 `.env`로 복사해 키를 넣거나, **설정 → AI API 관리**에서 입력합니다(OpenAI·Gemini·Claude·xAI 중 하나). `YOUTUBE_API_KEY`는 인기 댓글을 초안 근거로 쓸 때만 필요합니다. 키는 화면·로그에 다시 표시되지 않습니다. Windows에서는 저장 시 암호화되어 `data/dashboard/`에 보관되고 `.env`에서 지워집니다.
 
 ## 4. 프로그램이 하는 일과 하지 않는 일 (안전 규칙)
 
@@ -76,6 +76,10 @@ py -3 -m venv .venv
 운영 규칙은 코드에서 강제합니다: 게시 직전 RSS로 영상이 허용 채널 소속인지 다시 확인, 영상당 댓글 1개(DB 고유 제약), 하루 상한 `limits.daily_max_comments`(기본 10), 모든 시도를 ④ 실행 기록에 저장. 결과가 불확실하면 자동 재시도하지 않습니다.
 
 `python .ucompany/scripts/safety_scan.py --strict`로 위 규칙의 정적 검사를 직접 돌려 볼 수 있습니다.
+
+## 다른 PC로 옮기거나 배포할 때
+
+앱 폴더를 직접 압축해 옮기지 마세요. GitHub에서 내려받거나 `python scripts/package.py`로 만든 zip(`dist/`)을 쓰세요. 이유: 앱 폴더의 `data/`에 로그인된 Chrome 프로필(쿠키·로그인 정보)이 있기 때문입니다. 이 스크립트는 git이 추적하는 파일만 담고, 키·DB·프로필이 섞이면 zip을 만들지 않습니다. 받은 PC에서는 처음 한 번 직접 로그인합니다(2절).
 
 ## 부록 A. 개발·시연용 본인 테스트 영상 등록
 
@@ -114,6 +118,7 @@ python -m marketing_agent drafts --latest 3
 | PyYAML | `config.yaml` 읽기·쓰기 | MIT | https://github.com/yaml/pyyaml |
 | tzdata (Windows만) | `Asia/Seoul` 시간대 데이터 | Apache-2.0 | https://github.com/python/tzdata |
 | pytest (개발·검증용) | 자동 회귀 시험 | MIT | https://github.com/pytest-dev/pytest |
+| youtube-transcript-api | 영상 자막을 초안 근거로 사용(선택) | MIT | https://github.com/jdepoix/youtube-transcript-api |
 
 그 밖에 Python 표준 라이브러리만 씁니다. Google Chrome은 사용자가 설치한 브라우저를 그대로 쓰며 저장소에 포함하지 않습니다. 외부 서비스는 YouTube(RSS·영상 페이지·선택적 Data API)와 사용자가 고른 AI 서비스(OpenAI·Gemini·Claude·xAI 중 하나, 선택)뿐입니다.
 

@@ -2,7 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import json
+import os
+import sqlite3
+import time
 from unittest.mock import patch
+
+import pytest
 
 from marketing_agent.dashboard_contracts import VideoCard, VideoList
 from marketing_agent.drafts import content_hash
@@ -16,9 +21,10 @@ BODY = "상대가 답장을 늦게 한 장면에서 마음이 불안해지는 �
 TEST_CHANNEL = "UCabcdefghijklmnopqrstuv"
 
 
-def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lambda: NOW):
-    card = VideoCard(video_id, CHANNEL, "외롭여", "답장이 늦는 날", "2026-10-15", "")
-    draft = dict(video_id=video_id, channel_id=CHANNEL, title=card.title,
+def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lambda: NOW,
+                    channel=CHANNEL, **service_kwargs):
+    card = VideoCard(video_id, channel, "외롭여", "답장이 늦는 날", "2026-10-15", "")
+    draft = dict(video_id=video_id, channel_id=channel, title=card.title,
                  worry_summary="답장을 기다리는 불안", comment=BODY,
                  cited_detail="답장을 늦게 한 장면", source_text="답장을 늦게 한 장면",
                  reviewer="human", reviewed_at="2026-10-15T10:00:00+09:00")
@@ -28,10 +34,20 @@ def prepare_service(tmp_path, video_id="AbCdEfGhI12", *, poster=None, clock=lamb
     (drafts / f"{video_id}.json").write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
     service = PostingService(tmp_path / "state.sqlite", drafts, poster=poster,
                              feed_loader=lambda: VideoList((card,)),
-                             recheck=lambda vid, channel: card, clock=clock)
+                             recheck=lambda vid, ch: card, clock=clock, **service_kwargs)
     service.list_videos()
     assert service.select_video(video_id).can_post
     return service, card, draft
+
+
+def test_post_video_allows_configured_channel_outside_fixed_list(tmp_path):
+    custom = "UCzzzzzzzzzzzzzzzzzzzzzz"
+    opened = []
+    service, card, _ = prepare_service(tmp_path, channel=custom, poster=lambda *args: opened.append(1),
+                                       allowed_channels=lambda: {custom: "설정 채널"})
+    result = service.post_video(card.video_id)
+    assert result.reason_code != "CHANNEL_NOT_ALLOWED"
+    assert opened
 
 
 def test_pre_chrome_blocks_rss_and_changed_approval(tmp_path):
@@ -255,3 +271,90 @@ def test_test_registration_rejects_invalid_or_fixed_channel(tmp_path):
             assert False
         except ValueError:
             pass
+
+
+def test_post_video_blocks_when_channel_config_fails(tmp_path):
+    opened = []
+
+    def broken():
+        raise RuntimeError("config unreadable")
+
+    service, card, _ = prepare_service(tmp_path, poster=lambda *args: opened.append(1),
+                                       allowed_channels=broken)
+    result = service.post_video(card.video_id)
+    assert (result.state, result.reason_code) == ("blocked", "CHANNEL_CONFIG_UNAVAILABLE")
+    assert not opened
+    with Store(service.db_path) as store:
+        assert store.dashboard_attempt(card.video_id) is None
+
+
+def test_post_video_blocks_when_channel_config_empty(tmp_path):
+    opened = []
+    service, card, _ = prepare_service(tmp_path, poster=lambda *args: opened.append(1),
+                                       allowed_channels=lambda: {})
+    result = service.post_video(card.video_id)
+    assert result.reason_code == "CHANNEL_NOT_ALLOWED"
+    assert not opened
+
+
+def test_post_video_channel_cooldown_blocks_before_poster(tmp_path):
+    calls = []
+    def poster(card, body, mark):
+        calls.append(card.video_id)
+        mark()
+        return True
+    first, card1, _ = prepare_service(tmp_path, "AbCdEfGhI12", poster=poster, channel_cooldown_minutes=60)
+    assert first.post_video(card1.video_id).state == "posted"
+    second, card2, _ = prepare_service(tmp_path, "ZyXwVuTsR98", poster=poster, channel_cooldown_minutes=60)
+    result = second.post_video(card2.video_id)
+    assert (result.state, result.reason_code) == ("blocked", "CHANNEL_COOLDOWN")
+    assert calls == ["AbCdEfGhI12"]
+
+
+def test_cooldown_and_daily_limit_have_korean_message(tmp_path):
+    def poster(card, body, mark):
+        mark()
+        return True
+    first, card1, _ = prepare_service(tmp_path, "AbCdEfGhI12", poster=poster, channel_cooldown_minutes=60)
+    assert first.post_video(card1.video_id).state == "posted"
+    second, card2, _ = prepare_service(tmp_path, "ZyXwVuTsR98", poster=poster, channel_cooldown_minutes=60)
+    cooldown = second.post_video(card2.video_id)
+    assert cooldown.reason_code == "CHANNEL_COOLDOWN"
+    assert "60분 간격" in cooldown.message and "다른 채널" in cooldown.message
+    (tmp_path / "limit").mkdir()
+    one, card3, _ = prepare_service(tmp_path / "limit", "QwErTyUiO12", poster=poster, daily_limit=1)
+    assert one.post_video(card3.video_id).state == "posted"
+    limited, card4, _ = prepare_service(tmp_path / "limit", "PoIuYtReW34", poster=poster, daily_limit=1)
+    daily = limited.post_video(card4.video_id)
+    assert daily.reason_code == "DAILY_LIMIT"
+    assert "오늘 게시 한도(" in daily.message and "내일 다시" in daily.message
+
+
+def test_daily_limit_day_is_kst_regardless_of_machine_tz(tmp_path, monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset unavailable")
+    original = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    try:
+        late = datetime(2026, 10, 15, 15, 30, tzinfo=timezone.utc)  # KST 2026-10-16 00:30
+        service, card, _ = prepare_service(tmp_path, clock=lambda: late, poster=lambda *args: None)
+        assert late.astimezone(service.local_tz).utcoffset() == timedelta(hours=9)
+        with Store(service.db_path) as store:
+            attempt_id = store.reserve_reviewed_post(
+                video_id=card.video_id, channel_id=card.channel_id, title=card.title,
+                body_hash="b", approval_hash="a", profile="p", when=late, local_tz=service.local_tz)
+        db = sqlite3.connect(service.db_path)
+        try:
+            row = db.execute("SELECT attempt_date_kst FROM dashboard_post_reservations WHERE attempt_id=?",
+                             (attempt_id,)).fetchone()
+        finally:
+            db.close()
+        assert row[0] == "2026-10-16"
+    finally:
+        monkeypatch.undo()
+        if original is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original
+        time.tzset()

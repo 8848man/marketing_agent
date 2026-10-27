@@ -57,6 +57,16 @@
     },
     {
       "from": "DOC-TRACK2",
+      "to": "CODE-SECRETS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
+      "to": "CODE-CONSTRAINTS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
       "to": "VAL-TRACK2",
       "type": "validated_by"
     },
@@ -279,8 +289,28 @@
       "status": "in_progress"
     },
     {
+      "id": "CODE-HTTP",
+      "path": "src/marketing_agent/http_client.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-LOGGING",
+      "path": "src/marketing_agent/logging.py",
+      "type": "code"
+    },
+    {
       "id": "CODE-SETTINGS",
       "path": "src/marketing_agent/dashboard_settings.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-CONSTRAINTS",
+      "path": "src/marketing_agent/task_constraints.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-SECRETS",
+      "path": "src/marketing_agent/secret_store.py",
       "type": "code"
     },
     {
@@ -317,6 +347,16 @@
     {
       "id": "CODE-PROMPT",
       "path": "src/marketing_agent/prompt_policy.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-SERVICE",
+      "path": "src/marketing_agent/dashboard_service.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-CHROME",
+      "path": "src/marketing_agent/chrome_launch.py",
       "type": "code"
     },
     {

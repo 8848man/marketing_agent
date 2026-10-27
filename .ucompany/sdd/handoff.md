@@ -1,5 +1,15 @@
 # Handoff
 
+- IMP-41~43 개선 라운드 5 (2026-10-27): 구조 개선 B. `dashboard.py` 분리, 스크립트 CSP nonce, 과제 고정값 상수화·모델 기본값·앱 루트 검증. 5라운드 개선 완료(IMP-27~43). 검증: V1 0·0, V2 278 passed·1 skipped, 데모 기동 확인. V3·V4(화면·Windows·Mac 실기)는 사용자 확인 필요 — `improve_plan/09_final_report/` 참고. 브랜치는 `chore/normalize-eol` → 라운드 1~5 순으로 쌓여 있다.
+
+- IMP-38~40 개선 라운드 4 (2026-10-27): 구조 개선 A. 외부 호출 공통 계층(`http_client.py`), 제품·레거시 import 경계 시험(실제 위반 1건 해소), DB 스키마 버전(시작 시 버전 0 DB를 1로 승격). 로그 회전 잠금·검토자 이름 제어문자 거부. 검증: V1 0·0, V2 263 passed. 다음: 라운드 5.
+
+- IMP-34~37 개선 라운드 3 (2026-10-27): 운영 안정성. 게시·AI 생성 중 화면 멈춤 해소(브라우저 락 분리로 게시 중 다른 계정 전환도 차단), 결과 불명 게시의 사람 해소, 요청 구조화 로그, KST 날짜·개별 초안 우선. 기존 DB의 예약 테이블은 시작 시 한 번 재구성된다(DISMISSED 허용). 검증: V1 0·0, V2 250 passed, V3·V4 미수행. 다음: 라운드 4.
+
+- IMP-31~33 개선 라운드 2 (2026-10-27): 보안·승인 무결성. [ADR-0004](decisions/ADR-0004-pairing-and-key-storage.md)(제안)대로 보고서의 HMAC 대신 페어링으로 다른 OS 사용자의 토큰 획득 경로를 막고, Windows는 DPAPI 키 저장소, 같은 채널 60분 간격([ADR-0005](decisions/ADR-0005-youtube-policy-review.md) 정책 검토, 제안). 검토 차단 2건·메인 정독 결함 2건 반영. 검증: V1 0·0, V2 233 passed, V3·V4 미수행(Windows DPAPI·mac-smoke·실제 페어링 화면). 다음: 라운드 3.
+
+- IMP-27~30 개선 라운드 1 (2026-10-27): 코드베이스 분석 보고서의 즉시 조치 항목. 계획·방법론·기록은 `improve_plan/`(라운드 1: `improve_plan/05_rounds/round1_immediate/`). 메인(Opus)이 계약서를 쓰고 하위 에이전트(Sonnet)가 구현, `scripts/round_gate.py`로 작업마다 범위·동결·커밋·비밀 검사, 별도 에이전트가 검토(차단 4건 반영). 설정 채널 게시 결함(H2) 수정, 자막 라이브러리 선언(M6), 추적 파일 기반 배포 패키징(H4). 검증: V1 check_sdd 0·safety 0, V2 206 passed, V3·V4 미수행. 다음: 라운드 2(페어링·Windows 키 저장·채널 간격), 사용자 push·PR.
+
 - IMP-26 (2026-10-19): `ma_review_2`(submitment 새로 받기)에서 "초안 승인에 실패했습니다" 제보. 원인은 예시 설정의 브랜드 설명과 초안의 설명이 달라 `BRAND_CHANGED_REGENERATE`. 설명은 비교에서 빼고(이름·글자 수만), 예시 설명을 제출 초안과 맞췄다. `submitment`를 수정본으로 다시 고정.
 
 - IMP-22~25 제출 마무리 (2026-10-19): 2026-10-19 02시대 시연 녹화 중 `ma_review` 폴더(개발 가드 없음)에서 우리 채널 3건(`ZmEIpurPTCA`·`k_0c0m0Hk5k`·`c-QzU4kuu90`)이 게시됐고 사용자가 같은 날 아침 모두 삭제했다(누적 10건 모두 삭제, PROCESS 실패 5). 심사 모드(`--review`, '테스트용' 추천)와 더블클릭 실행 파일, 제출 초안 세트(15건: 승인 5·승인 전 10), HOW_TO_SETTING·오픈소스 출처·PROCESS 재구성, SDD 커버리지 검사를 반영했다. 제출 버전은 `submitment` 브랜치·`submission-20261019` 태그. 검증: V1 check_sdd 0·safety 0, V2 pytest, V3 Linux 실행 파일·헤드리스 화면, mac-smoke(실행 파일 단계 포함). V4 Mac 실기기 미수행.

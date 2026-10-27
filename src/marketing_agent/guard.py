@@ -46,8 +46,9 @@ class GuardDecision:
     owner_channel_id: str | None = None
 
 
-def check_rss_membership(video: str, channel_id: str, *, recheck=None) -> GuardDecision:
-    """Only a fresh entry in one of the fixed feeds proves ownership.
+def check_rss_membership(video: str, channel_id: str, *, recheck=None,
+                         allowed_channels=None) -> GuardDecision:
+    """Only a fresh entry in one of the configured feeds (default: fixed list) proves ownership.
 
     A direct URL may supply an ID, but an ID absent from the RSS is blocked;
     this function never opens an unverified video page.
@@ -58,7 +59,8 @@ def check_rss_membership(video: str, channel_id: str, *, recheck=None) -> GuardD
         video_id = normalize_video_id(video)
     except ValueError:
         return GuardDecision(False, "INVALID_VIDEO_ID", str(video))
-    if channel_id not in CHANNELS:
+    allowed = CHANNELS if allowed_channels is None else allowed_channels
+    if channel_id not in allowed:
         return GuardDecision(False, "CHANNEL_NOT_ALLOWED", video_id)
     try:
         card = (recheck or recheck_video)(video_id, channel_id)

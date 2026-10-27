@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,8 @@ import yaml
 from .ai_client import PROVIDERS, validate_model
 from .posting_service import CHANNEL_ID
 from .rss_feed import CHANNELS
+from .secret_store import DpapiFileStore, default_store
+from .task_constraints import BRAND_NAME as FIXED_BRAND, DAILY_MAX_COMMENTS
 
 CHANNEL_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}\Z")
 PROFILE_MEMO_MAX = 40
@@ -23,8 +26,10 @@ PROFILE_LABEL = re.compile(r'[^\x00-\x1f\x7f\\/:*?"<>|]{1,30}\Z')
 PROFILE_ID = re.compile(r"(?:youtube[123]|p-[a-f0-9]{16})\Z")
 BRAND_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,80}\Z")
 BRAND_DESCRIPTION = re.compile(r"[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]{1,1000}\Z")
-DEFAULT_BRAND = {"name": "운명원", "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
+DEFAULT_BRAND = {"name": FIXED_BRAND, "description": "연애 고민을 사주 관점에서 살펴보는 서비스", "reference_url": ""}
 DEFAULT_COMMENT_LIMITS = {"min_chars": 40, "max_chars": 120}
+YOUTUBE_KEY_NAME = "YOUTUBE_API_KEY"
+_DEFAULT = object()
 
 
 def validate_comment_limits(min_chars: object, max_chars: object) -> dict[str, int]:
@@ -40,23 +45,168 @@ class DashboardSettings:
     DEFAULT = {
         "profiles": ["유튜브1", "유튜브2", "유튜브3"],
         "channels": list(CHANNELS),
-        "comment": {"min_chars": 40, "max_chars": 120, "brand": "운명원"},
-        "limits": {"daily_max_comments": 10},
+        "comment": {"min_chars": 40, "max_chars": 120, "brand": FIXED_BRAND},
+        "limits": {"daily_max_comments": DAILY_MAX_COMMENTS},
     }
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, secret_store: DpapiFileStore | None = _DEFAULT):
         self.path = Path(path)
         self._lock = RLock()
+        self.secret_store_error: str | None = None
+        self._store = default_store(self.path.parent) if secret_store is _DEFAULT else secret_store
         self._current = self._validate(self._read_full())
         self._migrate_legacy_ai_env()
         self._migrate_legacy_ai_key()
+        self._migrate_env_secrets()
 
     def _ai_env_path(self) -> Path:
         return self.path.parent / ".env"
 
+    def _secret_names(self) -> list[str]:
+        return [details[1] for details in PROVIDERS.values()] + [YOUTUBE_KEY_NAME]
+
+    def _remove_env_keys(self, names: set[str]) -> None:
+        path = self._ai_env_path()
+        if path.is_symlink():
+            raise ValueError("AI_ENV_FILE_UNSAFE")
+        if not path.exists():
+            return
+        if not path.is_file() or path.stat().st_size > 16384:
+            raise ValueError("AI_ENV_FILE_INVALID")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        kept = [line for line in lines if line.partition("=")[0] not in names]
+        if len(kept) == len(lines):
+            return
+        fd, temporary = tempfile.mkstemp(prefix="env-", suffix=".tmp", dir=path.parent)
+        try:
+            os.chmod(temporary, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write("".join(line + "\n" for line in kept))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            os.chmod(path, 0o600)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def _env_secret(self, name: str) -> str:
+        """Value of one key line in .env (empty when absent)."""
+        path = self._ai_env_path()
+        if path.is_symlink():
+            raise ValueError("AI_ENV_FILE_UNSAFE")
+        if not path.exists():
+            return ""
+        if not path.is_file() or path.stat().st_size > 16384:
+            raise ValueError("AI_ENV_FILE_INVALID")
+        found = None
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            key, separator, value = line.partition("=")
+            if key != name:
+                continue
+            if not separator or found is not None:
+                raise ValueError("AI_ENV_FILE_INVALID")
+            try:
+                found = json.loads(value) if value.startswith('"') else value
+            except json.JSONDecodeError as exc:
+                raise ValueError("AI_ENV_FILE_INVALID") from exc
+            if not isinstance(found, str):
+                raise ValueError("AI_ENV_FILE_INVALID")
+        return found or ""
+
+    def _note_store_error(self, exc: Exception) -> None:
+        code = str(exc)
+        self.secret_store_error = code if code in ("SECRET_STORE_INVALID", "SECRET_STORE_UNREADABLE") \
+            else "SECRET_STORE_UNREADABLE"
+
+    def _store_get(self, name: str) -> str | None:
+        """Read one stored key; an unusable store counts as empty (callers fall back to .env)."""
+        try:
+            return self._store.get(name)
+        except (ValueError, OSError) as exc:
+            self._note_store_error(exc)
+            return None
+
+    def _store_usable(self) -> bool:
+        try:
+            for name in self._store.names():
+                self._store.get(name)
+        except (ValueError, OSError):
+            return False
+        return True
+
+    def _store_write(self, action) -> None:
+        """Run a store write. Only a malformed store file is quarantined (to a
+        timestamped .bad-* name) before one retry; transient read/write errors
+        never move the file and surface as SECRET_STORE_UNAVAILABLE."""
+        try:
+            action()
+        except (ValueError, OSError) as exc:
+            path = self._store.path
+            invalid = False
+            if path.exists() or path.is_symlink():
+                try:
+                    for name in self._store.names():
+                        self._store.get(name)
+                except ValueError as probe:
+                    invalid = str(probe) == "SECRET_STORE_INVALID"
+                except OSError:
+                    pass
+            if not invalid:
+                if isinstance(exc, OSError) or str(exc) == "SECRET_STORE_UNREADABLE":
+                    raise ValueError("SECRET_STORE_UNAVAILABLE") from exc
+                raise
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            target = path.with_name(f"{path.name}.bad-{stamp}")
+            counter = 1
+            while target.exists() or target.is_symlink():
+                target = path.with_name(f"{path.name}.bad-{stamp}-{counter}")
+                counter += 1
+            os.replace(path, target)
+            action()
+        self.secret_store_error = None
+
+    def _migrate_env_secrets(self) -> None:
+        """Move key lines from .env into the secure store; keep .env if the store fails.
+
+        A nonempty .env value is the user's latest input and replaces any stored value."""
+        if self._store is None:
+            return
+        with self._lock:
+            moved = set()
+            for name in self._secret_names():
+                value = self._env_secret(name)
+                if not value:
+                    continue
+                try:
+                    self._store.set(name, value)
+                except (ValueError, OSError) as exc:
+                    self._note_store_error(exc)
+                    continue
+                moved.add(name)
+            if moved:
+                self._remove_env_keys(moved)
+
+    def _ai_key_values(self) -> dict[str, str]:
+        """AI keys: secure store first, then .env."""
+        values = self._read_ai_env()
+        if self._store is not None:
+            for details in PROVIDERS.values():
+                stored = self._store_get(details[1])
+                if stored:
+                    values[details[1]] = stored
+        return values
+
     def youtube_api_key(self) -> str:
         """Read the project's YouTube key for each explicit draft request."""
         with self._lock:
+            if self._store is not None:
+                self._migrate_env_secrets()
+                stored = self._store_get(YOUTUBE_KEY_NAME)
+                if stored:
+                    return stored
             path = self._ai_env_path()
             if path.is_symlink():
                 raise ValueError("AI_ENV_FILE_UNSAFE")
@@ -87,6 +237,10 @@ class DashboardSettings:
                 or any(ord(char) < 33 or ord(char) > 126 for char in key)):
             raise ValueError("YOUTUBE_KEY_INVALID")
         with self._lock:
+            if self._store is not None:
+                self._store_write(lambda: self._store.set(YOUTUBE_KEY_NAME, key))
+                self._remove_env_keys({YOUTUBE_KEY_NAME})
+                return {"has_key": True}
             path = self._ai_env_path()
             if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_size > 16384)):
                 raise ValueError("AI_ENV_FILE_UNSAFE")
@@ -232,15 +386,15 @@ class DashboardSettings:
                 or any(not isinstance(item, str) or not CHANNEL_ID.fullmatch(item) for item in channels)
                 or len(set(channels)) != len(channels)):
             raise ValueError("SETTINGS_CHANNELS_INVALID")
-        if not isinstance(comment, dict) or comment.get("brand", "운명원") != "운명원":
+        if not isinstance(comment, dict) or comment.get("brand", FIXED_BRAND) != FIXED_BRAND:
             raise ValueError("SETTINGS_COMMENT_INVALID")
         limits_for_comment = validate_comment_limits(
             comment.get("min_chars", 40), comment.get("max_chars", 120))
-        if (not isinstance(limits, dict) or limits.get("daily_max_comments") != 10):
+        if (not isinstance(limits, dict) or limits.get("daily_max_comments") != DAILY_MAX_COMMENTS):
             raise ValueError("SETTINGS_LIMIT_PDF_LOCKED")
         return {"profiles": list(profiles), "channels": list(channels),
-                "comment": {**limits_for_comment, "brand": "운명원"},
-                "limits": {"daily_max_comments": 10}}
+                "comment": {**limits_for_comment, "brand": FIXED_BRAND},
+                "limits": {"daily_max_comments": DAILY_MAX_COMMENTS}}
 
     def channels(self) -> dict[str, str]:
         with self._lock:
@@ -311,7 +465,7 @@ class DashboardSettings:
         with self._lock:
             full = self._read_full()
             full["brand_settings"] = brand
-            full["comment"] = {**full.get("comment", {}), "brand": "운명원", **lengths,
+            full["comment"] = {**full.get("comment", {}), "brand": FIXED_BRAND, **lengths,
                                "review_filter": review_filter}
             normalized = self._validate(full)
             self._write_full(full)
@@ -339,7 +493,9 @@ class DashboardSettings:
         if provider not in PROVIDERS:
             raise ValueError("AI_PROVIDER_INVALID")
         model = validate_model(saved.get("model", PROVIDERS[provider][0]))
-        key = self._read_ai_env().get(PROVIDERS[provider][1], "")
+        if self._store is not None:
+            self._migrate_env_secrets()
+        key = self._ai_key_values().get(PROVIDERS[provider][1], "")
         return provider, model, key
 
     def ai_public(self) -> dict[str, object]:
@@ -525,13 +681,21 @@ class DashboardSettings:
             raise ValueError("AI_KEY_INVALID")
         with self._lock:
             full = self._read_full()
-            values = self._read_ai_env()
             name = PROVIDERS[provider][1]
-            if clear_key:
-                values.pop(name, None)
-            elif api_key:
-                values[name] = api_key
-            self._write_ai_env(values)
+            if self._store is not None:
+                if clear_key:
+                    self._store_write(lambda: self._store.delete(name))
+                    self._remove_env_keys({name})
+                elif api_key:
+                    self._store_write(lambda: self._store.set(name, api_key))
+                    self._remove_env_keys({name})
+            else:
+                values = self._read_ai_env()
+                if clear_key:
+                    values.pop(name, None)
+                elif api_key:
+                    values[name] = api_key
+                self._write_ai_env(values)
             full["ai"] = {"provider": provider, "model": model}
             self._write_full(full)
             return self.ai_public()
@@ -584,8 +748,8 @@ class DashboardSettings:
                 label = CHANNELS.get(channel_id, "")
                 rows.append(f"  - {channel_id}" + (f"  # {label}" if label else ""))
             comment = current["comment"]
-            rows.extend([f"comment: {{ min_chars: {comment['min_chars']}, max_chars: {comment['max_chars']}, brand: 운명원 }}",
-                         "limits: { daily_max_comments: 10 }", ""])
+            rows.extend([f"comment: {{ min_chars: {comment['min_chars']}, max_chars: {comment['max_chars']}, brand: {FIXED_BRAND} }}",
+                         f"limits: {{ daily_max_comments: {DAILY_MAX_COMMENTS} }}", ""])
             return "\n".join(rows)
 
     def save_yaml(self, source: str, *, forbidden_channels=()) -> str:

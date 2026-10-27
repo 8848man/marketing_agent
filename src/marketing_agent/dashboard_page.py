@@ -8,7 +8,7 @@ from .dashboard_ui import _page as base_page
 from .rss_feed import CHANNELS
 
 
-def render_page(token: str, *, demo: bool = False) -> bytes:
+def render_page(token: str, *, demo: bool = False, nonce: str = "") -> bytes:
     page = base_page(token).decode("utf-8")
     provider_options = "".join(
         f'<option value="{escape(name)}">{escape(details["label"])}</option>'
@@ -383,4 +383,11 @@ $('load').addEventListener('click',()=>setTimeout(refreshSetup,4000));
 refreshSetup();
 """
     page = page.replace("</script>", setup_script + "</script>", 1)
-    return page.replace("</script>", progress + "</script>").encode("utf-8")
+    page = page.replace("</script>", progress + "</script>")
+    if not nonce:
+        raise ValueError("NONCE_REQUIRED")
+    opening = page.count("<script")
+    page = page.replace("<script>", f'<script nonce="{nonce}">')
+    if opening != page.count("<script nonce=") or opening != 1:
+        raise RuntimeError("SCRIPT_NONCE_MISMATCH")
+    return page.encode("utf-8")

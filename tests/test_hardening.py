@@ -117,7 +117,7 @@ def test_registered_provider_uses_same_settings_and_ui_contract():
             factory=lambda key, model, transport: MockClient())
         assert ai_client.PROVIDERS["mock"] == ("mock-1", "MOCK_API_KEY")
         assert isinstance(ai_client.create_ai_client("mock", "mock-1", "test"), MockClient)
-        page = render_page("test-token").decode("utf-8")
+        page = render_page("test-token", nonce="x").decode("utf-8")
         assert '<option value="mock">Mock provider</option>' in page
         assert '"mock": [{"id": "mock-1", "label": "Mock 1", "recommended": true}]' in page
     finally:
@@ -147,3 +147,87 @@ def test_examples_match_both_loaders_without_secret_values(tmp_path):
                   if line and not line.startswith("#"))
     assert set(values) == {"YOUTUBE_API_KEY", *(details[1] for details in ai_client.PROVIDERS.values())}
     assert all(value == "" for value in values.values())
+
+
+def test_request_logger_writes_safe_fields(tmp_path):
+    from marketing_agent.logging import RequestLogger
+    path = tmp_path / "logs" / "req.jsonl"
+    RequestLogger(path).emit(request_id="abc123def456", method="POST", route="/api/videos/AbCdEfGhI12/post",
+                             status=409, reason_code="ALREADY_POSTED", duration_ms=12)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert set(record) == {"timestamp", "request_id", "method", "route", "status", "reason_code",
+                           "duration_ms", "error_type"}
+    assert record["route"] == "/api/videos/{video_id}/post"
+    assert "AbCdEfGhI12" not in lines[0]
+    assert record["status"] == 409 and record["error_type"] == ""
+
+
+def test_request_logger_rejects_unsafe_codes_and_rotates(tmp_path):
+    from marketing_agent.logging import RequestLogger
+    path = tmp_path / "req.jsonl"
+    logger = RequestLogger(path)
+    logger.emit(request_id="r1", method="GET", route="/", status=500, reason_code="bad code!",
+                duration_ms=1, error_type="Err or\n")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["reason_code"] == "INVALID" and record["error_type"] == "INVALID"
+    path.write_bytes(b"x" * (5 * 1024 * 1024 + 1))
+    logger.emit(request_id="r2", method="GET", route="/", status=200, duration_ms=1)
+    assert (tmp_path / "req.jsonl.1").stat().st_size == 5 * 1024 * 1024 + 1
+    assert json.loads(path.read_text(encoding="utf-8"))["request_id"] == "r2"
+
+
+def test_request_logger_concurrent_writes_keep_all_records(tmp_path, monkeypatch):
+    import os
+    import threading
+    import time
+    from marketing_agent.logging import RequestLogger
+    real_replace = os.replace
+
+    stale: list[int] = []
+
+    def slow_replace(src, dst):  # widen the stat -> replace window so an unlocked rotation races reliably
+        time.sleep(0.002)
+        try:
+            size = os.path.getsize(src)
+        except FileNotFoundError:
+            size = -1
+        if size <= max_bytes:  # decision went stale: another thread already rotated this file
+            stale.append(size)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", slow_replace)
+    path = tmp_path / "req.jsonl"
+    max_bytes = 2000
+    logger = RequestLogger(path, max_bytes=max_bytes)
+    errors: list[BaseException] = []
+
+    def work(worker: int) -> None:
+        try:
+            for index in range(50):
+                logger.emit(request_id=f"w{worker}n{index}", method="GET", route="/", status=200, duration_ms=1)
+        except BaseException as exc:  # noqa: BLE001 - the test asserts none escape
+            errors.append(exc)
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(8)]
+    started = time.monotonic()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert time.monotonic() - started < 5
+    assert errors == []
+    assert stale == []  # every rotation acted on a file that was still over the limit
+    rotated = path.with_name(path.name + ".1")
+    ids: list[str] = []
+    for file in (path, rotated):
+        if file.exists():
+            for line in file.read_text(encoding="utf-8").splitlines():
+                ids.append(json.loads(line)["request_id"])  # every line is whole JSON
+    assert len(ids) == len(set(ids)) <= 8 * 50
+    # Rotation only happens past max_bytes, so a serialized rotation always leaves a full-size .1;
+    # a racing second rotation would replace it with a nearly empty file and lose records.
+    assert rotated.stat().st_size > max_bytes
+    assert path.stat().st_size <= max_bytes + 400

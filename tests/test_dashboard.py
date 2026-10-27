@@ -13,6 +13,7 @@ import re
 import sys
 from tempfile import TemporaryDirectory
 import threading
+import time
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -68,33 +69,58 @@ def no_post_attempts(db_path) -> bool:
                    for table in ("dashboard_post_reservations", "post_results") if table in tables)
 
 
+class PairedPort(int):
+    """Port number that also carries the server's pairing code."""
+
+    def __new__(cls, port, pair_code):
+        obj = super().__new__(cls, port)
+        obj.pair_code = pair_code
+        return obj
+
+
 @contextmanager
 def running_server(service, **kwargs):
     server = create_server(service, **kwargs)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.server_port
+        yield PairedPort(server.server_port, server.pair_code)
     finally:
         server.shutdown()
         thread.join(timeout=3)
         server.server_close()
 
 
-def request(port, method, path, *, host=None, origin=None, token=None, body=None):
-    connection = http.client.HTTPConnection(HOST, port, timeout=3)
+def _raw_request(port, method, path, *, host=None, origin=None, token=None, body=None, cookie=None):
+    connection = http.client.HTTPConnection(HOST, int(port), timeout=3)
     headers = {"Host": host if host is not None else f"{HOST}:{port}"}
     if origin is not None:
         headers["Origin"] = origin
     if token is not None:
         headers["X-Session-Token"] = token
+    if cookie is not None:
+        headers["Cookie"] = cookie
     if body is not None:
         headers["Content-Type"] = "application/json"
     connection.request(method, path, body=body, headers=headers)
     response = connection.getresponse()
-    result = response.status, response.read().decode("utf-8")
+    result = response.status, response.read().decode("utf-8"), response.getheaders()
     connection.close()
     return result
+
+
+def pair_cookie(port):
+    """Pair like the browser does and return the Cookie header value."""
+    status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+    assert status == 303
+    cookie = next(v for k, v in headers if k.lower() == "set-cookie")
+    return cookie.split(";", 1)[0]
+
+
+def request(port, method, path, *, host=None, origin=None, token=None, body=None, pair=True):
+    """Page requests ('/') are paired first unless pair=False."""
+    cookie = pair_cookie(port) if pair and method == "GET" and path == "/" and hasattr(port, "pair_code") else None
+    return _raw_request(port, method, path, host=host, origin=origin, token=token, body=body, cookie=cookie)[:2]
 
 
 def test_dashboard_is_loopback_and_has_three_panels():
@@ -212,6 +238,14 @@ def test_profile_memo_http_requires_local_token_and_valid_body(tmp_path):
         assert request(port, "POST", "/api/profile/email", origin=origin, token=token, body=body)[0] == 404
         assert request(port, "POST", "/api/profile/memo", origin=origin, token=token, body=body)[0] == 200
         assert settings.profile_options_public()["options"][0]["memo"] == "운명원 2호"
+
+
+def test_configured_service_uses_settings_channels(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    assert set(service.allowed_channels()) == set(settings.channels())
 
 
 def test_account_check_needs_no_video_and_never_posts(tmp_path):
@@ -634,7 +668,7 @@ def test_ai_settings_are_write_only_and_test_requires_local_request_checks(tmp_p
         assert "PRIVATE_AI_TEST_KEY" not in settings.yaml_text()
         settings.save_channels(settings.channel_ids())
         assert settings.ai_credentials()[2] == "PRIVATE_AI_TEST_KEY"
-        with patch("marketing_agent.dashboard.test_ai_connection", return_value=True) as probe:
+        with patch("marketing_agent.dashboard_service.test_ai_connection", return_value=True) as probe:
             assert request(port, "POST", "/api/ai/test", host="evil.example",
                            token=token, origin=f"http://{HOST}:{port}", body="{}")[0] == 403
             assert request(port, "POST", "/api/ai/test", token=token,
@@ -1199,7 +1233,7 @@ def test_default_chrome_user_data_root_blocks_before_store_or_chrome(tmp_path, m
     poster = VisibleChromePoster(root, "Profile 1", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", poster=poster)
     assert service._profile_reason() == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
-    with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+    with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
         result = service.post_video(VIDEO_ID)
     assert result.reason_code == "DEFAULT_CHROME_USER_DATA_DIR_UNSUPPORTED"
     post.assert_not_called()
@@ -1211,7 +1245,7 @@ def test_missing_profile_blocks_before_store_or_chrome():
         poster = VisibleChromePoster(root, "", screenshot_dir=Path(root) / "screenshots")
         service = ConfiguredPostingService(Path(root) / "posts.db", Path(root) / "drafts",
                                            poster=poster)
-        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+        with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
             result = service.post_video(VIDEO_ID)
         assert result.reason_code == "PROFILE_NOT_CONFIGURED"
         post.assert_not_called()
@@ -1228,7 +1262,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     poster = VisibleChromePoster(prior, "Default", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window",
+    with patch("marketing_agent.dashboard_service._open_login_window",
                side_effect=ValueError("CHROME_NOT_FOUND")):
         try:
             service.open_app_profile()
@@ -1238,7 +1272,7 @@ def test_app_profile_setup_is_explicit_and_keeps_existing_profile_on_failure(tmp
     assert settings.profile_public()["user_data_dir"] == str(prior)
     assert poster.user_data_dir == prior
     root = tmp_path / "data" / "dashboard" / "chrome-profile-youtube1"
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         saved = service.open_app_profile("유튜브1")
     launch.assert_called_once_with(root, "akn-AvCeHBI")
     assert saved["profile_directory"] == "Default"
@@ -1260,17 +1294,17 @@ def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
     from marketing_agent.storage import Store
     with Store(tmp_path / "posts.db") as store:   # IMP-19: 유튜브1 confirmed first
         store.set_profile_active("유튜브1", True, datetime.now(timezone.utc))
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         service.open_app_profile("유튜브2")
         launch.assert_called_once_with(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
     assert settings.profile_public()["label"] == "유튜브1"
     assert settings.profile_options_public()["options"][1]["connected"] is True
     assert poster.user_data_dir == tmp_path
     assert no_post_attempts(tmp_path / "posts.db")
-    with patch("marketing_agent.dashboard._installed_chrome", return_value=Path("chrome.exe")), \
-         patch("marketing_agent.dashboard.subprocess.Popen") as start:
-        from marketing_agent import dashboard as dashboard_module
-        from marketing_agent.dashboard import _open_login_window
+    with patch("marketing_agent.chrome_launch._installed_chrome", return_value=Path("chrome.exe")), \
+         patch("marketing_agent.chrome_launch.subprocess.Popen") as start:
+        from marketing_agent import chrome_launch as dashboard_module
+        from marketing_agent.chrome_launch import _open_login_window
         _open_login_window(settings.app_profile_root("유튜브2"), "akn-AvCeHBI")
         second = start.call_args.args[0]
         _open_login_window(settings.app_profile_root("유튜브1"), "akn-AvCeHBI")
@@ -1279,8 +1313,10 @@ def test_login_window_opens_allowed_watch_page_not_google(tmp_path):
             _open_login_window(settings.app_profile_root("유튜브1"), "https://accounts.google.com/")
     assert second[-1] == first[-1] == "https://www.youtube.com/watch?v=akn-AvCeHBI&hl=ko"
     assert not hasattr(dashboard_module, "GOOGLE_LOGIN_URL")
-    source = Path(dashboard_module.__file__).read_text(encoding="utf-8")
-    assert "accounts.google.com" not in source and "myaccount.google.com" not in source
+    from marketing_agent import dashboard as dashboard_main, dashboard_service
+    for module in (dashboard_main, dashboard_service, dashboard_module):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        assert "accounts.google.com" not in source and "myaccount.google.com" not in source
     assert f"--user-data-dir={settings.app_profile_root('유튜브2')}" in second
     assert f"--user-data-dir={settings.app_profile_root('유튜브1')}" in first
     assert first != second
@@ -1293,7 +1329,7 @@ def test_app_profile_setup_http_boundary(tmp_path):
     poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         with running_server(service) as port:
             page = request(port, "GET", "/")[1]
             assert "profile-setup" in page
@@ -1350,14 +1386,14 @@ def test_app_login_window_blocks_post_until_closed(tmp_path):
     poster = VisibleChromePoster(tmp_path, "", screenshot_dir=tmp_path / "screenshots")
     service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts",
                                        poster=poster, settings=settings)
-    with patch("marketing_agent.dashboard._open_login_window") as launch:
+    with patch("marketing_agent.dashboard_service._open_login_window") as launch:
         launch.return_value.poll.return_value = None
         service.open_app_profile()
         poster.user_data_dir = settings.app_profile_root("유튜브1")
         poster.profile_directory = "Default"
         service.profile = "유튜브1"
         assert service._profile_reason() == "PROFILE_LOCKED"
-        with patch("marketing_agent.dashboard.PostingService.post_video") as post:
+        with patch("marketing_agent.dashboard_service.PostingService.post_video") as post:
             result = service.post_video(VIDEO_ID)
         assert result.reason_code == "PROFILE_LOCKED"
         post.assert_not_called()
@@ -1365,3 +1401,443 @@ def test_app_login_window_blocks_post_until_closed(tmp_path):
         assert no_post_attempts(tmp_path / "posts.db")
         launch.return_value.poll.return_value = 0
         assert service._profile_reason() == ""
+
+
+def test_page_requires_pairing_cookie():
+    with running_server(FakeService()) as port:
+        status, page = request(port, "GET", "/", pair=False)
+        assert status == 403
+        assert "session-token" not in page
+        assert "다시 여세요" in page
+
+
+def test_pair_sets_cookie_and_page_has_token():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        assert status == 303
+        assert dict(headers)["Location"] == "/"
+        cookie = next(v for k, v in headers if k.lower() == "set-cookie")
+        assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+        status, page, _ = _raw_request(port, "GET", "/", cookie=cookie.split(";", 1)[0])
+        assert status == 200
+        assert 'name="session-token"' in page
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        assert token not in cookie
+        # The code stays valid for repeated use.
+        assert _raw_request(port, "GET", f"/pair?code={port.pair_code}")[0] == 303
+
+
+def test_pair_rejects_wrong_code():
+    with running_server(FakeService()) as port:
+        for path in ("/pair?code=wrong", "/pair"):
+            status, _, headers = _raw_request(port, "GET", path)
+            assert status == 403
+            assert not any(k.lower() == "set-cookie" for k, _ in headers)
+        status, page, _ = _raw_request(port, "GET", "/", cookie="ma_pair=wrong")
+        assert status == 403 and "session-token" not in page
+
+
+def test_pair_rejects_non_ascii_code_and_cookie():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", "/pair?code=%C3%A9")
+        assert status == 403
+        assert not any(k.lower() == "set-cookie" for k, _ in headers)
+        status, page, _ = _raw_request(port, "GET", "/", cookie=f"ma_pair_{int(port)}=\u00e9")
+        assert status == 403 and "session-token" not in page
+        status, _, _ = _raw_request(port, "POST", "/api/post", token="\u00e9", origin=f"http://{HOST}:{int(port)}",
+                                    body="{}")
+        assert status == 403
+
+
+def test_pair_cookie_name_includes_port_and_redirect_has_security_headers():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        assert status == 303
+        names = {k.lower(): v for k, v in headers}
+        assert names["set-cookie"].startswith(f"ma_pair_{int(port)}=")
+        assert names["x-content-type-options"] == "nosniff"
+        assert names["x-frame-options"] == "DENY"
+        assert "default-src 'self'" in names["content-security-policy"]
+
+
+def test_pair_checks_host():
+    with running_server(FakeService()) as port:
+        status, _, headers = _raw_request(port, "GET", f"/pair?code={port.pair_code}", host="evil.example")
+        assert status == 403
+        assert not any(k.lower() == "set-cookie" for k, _ in headers)
+
+
+def test_run_dashboard_prints_pair_url(capsys, monkeypatch):
+    import marketing_agent.dashboard as dashboard
+
+    holder = {}
+    real_create = dashboard.create_server
+
+    def capture(*args, **kwargs):
+        holder["server"] = real_create(*args, **kwargs)
+        return holder["server"]
+
+    monkeypatch.setattr(dashboard, "create_server", capture)
+    thread = threading.Thread(
+        target=lambda: dashboard.run_dashboard(port=0, service=FakeService(), open_browser=False), daemon=True)
+    thread.start()
+    try:
+        deadline = time.time() + 5
+        out = ""
+        while time.time() < deadline and "Dashboard: " not in out:
+            out += capsys.readouterr().out
+            time.sleep(0.05)
+        server = holder["server"]
+        assert f"Dashboard: http://127.0.0.1:{server.server_port}/pair?code={server.pair_code}" in out
+    finally:
+        if "server" in holder:
+            holder["server"].shutdown()
+        thread.join(timeout=5)
+
+
+def test_configured_service_uses_60_minute_cooldown(tmp_path):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings)
+    assert service.channel_cooldown_minutes == 60
+
+
+# --- R3-T1 (IMP-34): the settings lock and the browser lock are separate ---------------
+
+def _lock_service(tmp_path, generator=None, posting=True):
+    (tmp_path / "config.example.yaml").write_text(
+        yaml.safe_dump(DashboardSettings.DEFAULT, allow_unicode=True), encoding="utf-8")
+    settings = DashboardSettings(tmp_path / "config.yaml")
+    settings.save_ai("openai", "gpt-5.4-mini", "PRIVATE_AI_TEST_KEY")
+    for label in ("유튜브1", "유튜브2"):
+        (settings.app_profile_root(label) / "Default").mkdir(parents=True)
+        settings.save_profile(label)
+    settings.save_profile("유튜브1")
+    root = settings.app_profile_root("유튜브1")
+    poster = VisibleChromePoster(root, "Default", screenshot_dir=tmp_path / "shots")
+    card = VideoCard(VIDEO_ID, "UCxlc0Ky0aWoD8uI09ad44Tg", "채널", "답장이 늦어질 때", "2026-10-15", "")
+    evidence = type("Evidence", (), {"collect": lambda self, _card: EvidenceResult(
+        "답장이 늦어질 때 자막 장면", ("자막",))})()
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts", settings=settings,
+                                       poster=poster, evidence_provider=evidence,
+                                       draft_generator=generator,
+                                       feed_loader=lambda: VideoList((card,)))
+    service.list_videos()
+    return service, settings, poster
+
+
+@contextmanager
+def _blocked_post(service):
+    """Hold a posting run inside the (faked) Chrome step until the test releases it."""
+    started, release, seen = threading.Event(), threading.Event(), {}
+
+    def slow_post(_self, video_id):
+        seen["during"] = service.poster.user_data_dir
+        started.set()
+        release.wait(5)
+        seen["after"] = service.poster.user_data_dir
+        return PostStatus("posted")
+
+    result = {}
+    with patch("marketing_agent.dashboard_service.PostingService.post_video", slow_post):
+        thread = threading.Thread(target=lambda: result.update(
+            status=service.post_video(VIDEO_ID)), daemon=True)
+        thread.start()
+        try:
+            assert started.wait(5)
+            yield seen, release
+        finally:
+            release.set()
+            thread.join(5)
+    assert not thread.is_alive()
+
+
+def _finishes_within(seconds, func):
+    done, out = threading.Event(), {}
+
+    def run():
+        try:
+            out["value"] = func()
+        except Exception as exc:  # surfaced to the assertion below
+            out["error"] = exc
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return done.wait(seconds), out
+
+
+def test_reads_do_not_wait_for_posting(tmp_path):
+    service, _settings, _poster = _lock_service(tmp_path)
+    with _blocked_post(service):
+        for call in (service.video_states, lambda: service.select_video(VIDEO_ID),
+                     service.list_videos):
+            finished, out = _finishes_within(1, call)
+            assert finished and "error" not in out
+
+
+def test_verify_profile_waits_for_posting(tmp_path):
+    service, settings, poster = _lock_service(tmp_path)
+    service._set_profile_active("유튜브1", True)
+    assigned_root = settings.app_profile_root(service._assigned_profile(VIDEO_ID))
+    other = "유튜브2" if assigned_root == settings.app_profile_root("유튜브1") else "유튜브1"
+    checked = threading.Event()
+    with patch.object(poster, "check_signed_in", side_effect=lambda _id: checked.set() or ""):
+        with _blocked_post(service) as (seen, release):
+            verify = threading.Thread(target=lambda: service.verify_profile(other), daemon=True)
+            save = threading.Thread(target=lambda: service.save_profile(other), daemon=True)
+            verify.start()
+            save.start()
+            assert not checked.wait(0.5)
+            assert poster.user_data_dir == assigned_root
+            release.set()
+            verify.join(5)
+            save.join(5)
+        assert not verify.is_alive() and not save.is_alive()
+    assert seen["during"] == assigned_root and seen["after"] == assigned_root
+    assert checked.is_set()
+
+
+def test_generate_draft_does_not_hold_settings_lock(tmp_path):
+    started, release = threading.Event(), threading.Event()
+
+    class SlowGenerator:
+        def generate(self, provider, model, key, prompt):
+            started.set()
+            release.wait(5)
+            return {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
+                    "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
+
+    service, _settings, _poster = _lock_service(tmp_path, SlowGenerator())
+    worker = threading.Thread(target=lambda: service.generate_draft(VIDEO_ID), daemon=True)
+    worker.start()
+    try:
+        assert started.wait(5)
+        finished, out = _finishes_within(1, service.video_states)
+        assert finished and "error" not in out
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+
+
+def test_generate_draft_discards_when_brand_changed(tmp_path):
+    holder = {}
+
+    class ChangingGenerator:
+        def generate(self, provider, model, key, prompt):
+            holder["service"].save_brand("다른브랜드", "설명", "")
+            return {"worry_summary": "답장이 늦어 불안한 마음", "cited_detail": "답장이 늦어질 때",
+                    "comment": "답장이 늦어질 때 마음이 특히 남네요. 기다리는 동안 운명원 연애 사주로 관계의 흐름을 살펴보고 싶어져요."}
+
+    service, _settings, _poster = _lock_service(tmp_path, ChangingGenerator())
+    holder["service"] = service
+    with pytest.raises(ValueError, match="BRAND_CHANGED_REGENERATE"):
+        service.generate_draft(VIDEO_ID)
+    assert not (tmp_path / "drafts" / f"{VIDEO_ID}.json").exists()
+
+
+def _unknown_service(tmp_path):
+    service = ConfiguredPostingService(tmp_path / "posts.db", tmp_path / "drafts")
+    with Store(tmp_path / "posts.db") as store:
+        when = datetime(2026, 10, 15, 3, 0, tzinfo=timezone.utc)
+        attempt = store.reserve_reviewed_post(video_id=VIDEO_ID, channel_id="ch", title="t", body_hash="b",
+                                              approval_hash="a", profile="p", when=when)
+        store.begin_dashboard_submit(attempt, when)
+        store.finish_dashboard_post(attempt, "OUTCOME_UNKNOWN", reason_code="COMMENT_NOT_CONFIRMED")
+    return service
+
+
+def test_resolve_api_requires_token_and_schema(tmp_path):
+    service = _unknown_service(tmp_path)
+    with running_server(service) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        origin = f"http://{HOST}:{port}"
+        good = {"video_id": VIDEO_ID, "outcome": "DISMISSED", "reviewer": "홍길동"}
+        path = "/api/posts/resolve"
+        assert request(port, "POST", path, body=json.dumps(good))[0] == 403
+        assert request(port, "POST", path, origin=origin, token=token,
+                       body=json.dumps({"video_id": VIDEO_ID, "outcome": "POSTED"}))[0] == 400
+        assert request(port, "POST", path, origin=origin, token=token,
+                       body=json.dumps(good | {"extra": "x"}))[0] == 400
+        status, body = request(port, "POST", path, origin=origin, token=token,
+                               body=json.dumps(good | {"outcome": "RESERVED"}))
+        assert status == 409 and json.loads(body)["reason_code"] == "OUTCOME_INVALID"
+        status, body = request(port, "POST", path, origin=origin, token=token, body=json.dumps(good))
+        assert status == 200 and json.loads(body) == {"video_id": VIDEO_ID, "status": "DISMISSED"}
+        status, body = request(port, "POST", path, origin=origin, token=token, body=json.dumps(good))
+        assert status == 409 and json.loads(body)["reason_code"] == "OUTCOME_NOT_UNKNOWN"
+
+
+def test_history_ui_has_resolve_controls(tmp_path):
+    import shutil
+    import subprocess
+    with running_server(FakeService()) as port:
+        page = request(port, "GET", "/")[1]
+    assert "/api/posts/resolve" in page and "종료됨(재게시 안 함)" in page
+    assert "YouTube에서 댓글이 달렸는지 직접 확인한 뒤 선택하세요" in page
+    assert "댓글 확인됨" in page and "댓글 없음 — 종료" in page
+    for code in ("SECRET_STORE_UNAVAILABLE", "SECRET_STORE_UNREADABLE", "SECRET_STORE_INVALID"):
+        assert code in page
+    assert "secrets.dpapi.json" in page
+    assert "alert(" not in page.split("const HIST_STATUS", 1)[1] and "confirm(" not in page.split("const HIST_STATUS", 1)[1]
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", page, re.S)
+    assert scripts
+    js = tmp_path / "page.js"
+    js.write_text("\n".join(scripts), encoding="utf-8")
+    result = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def _wait_log(path, ready):
+    """The handler logs after it responds, so poll for the expected records."""
+    deadline = time.monotonic() + 3
+    records = []
+    while time.monotonic() < deadline:
+        if path.exists():
+            records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if ready(records):
+                break
+        time.sleep(0.02)
+    return records
+
+
+def test_server_logs_requests_without_secrets(tmp_path):
+    log = tmp_path / "logs" / "req.jsonl"
+    from marketing_agent.logging import RequestLogger
+    with running_server(FakeService(), request_log=RequestLogger(log)) as port:
+        secret = "SECRET-TOKEN-VALUE-123"
+        status, _, headers = _raw_request(port, "POST", "/api/post", token=secret,
+                                          origin=f"http://{HOST}:{port}", body=json.dumps({"video_id": VIDEO_ID}))
+        assert status == 403
+        request_id = next(v for k, v in headers if k.lower() == "x-request-id")
+        _raw_request(port, "GET", f"/pair?code={port.pair_code}")
+        records = _wait_log(log, lambda rs: any(r["request_id"] == request_id for r in rs)
+                            and any(r["route"] == "/pair" for r in rs))
+    text = log.read_text(encoding="utf-8")
+    assert secret not in text and port.pair_code not in text and VIDEO_ID not in text
+    post = next(r for r in records if r["request_id"] == request_id)
+    assert (post["method"], post["route"], post["status"]) == ("POST", "/api/post", 403)
+    assert post["reason_code"] == "FORBIDDEN" and post["error_type"] == ""
+    assert any(r["route"] == "/pair" and r["status"] == 303 for r in records)
+
+
+def test_server_logs_error_type_on_503(tmp_path):
+    class Boom(FakeService):
+        def post_video(self, video_id):
+            raise RuntimeError("private detail xyz")
+
+    log = tmp_path / "req.jsonl"
+    from marketing_agent.logging import RequestLogger
+    with running_server(Boom(), request_log=RequestLogger(log)) as port:
+        page = request(port, "GET", "/")[1]
+        token = re.search(r'name="session-token" content="([^"]+)"', page).group(1)
+        status, _ = request(port, "POST", "/api/post", origin=f"http://{HOST}:{port}", token=token,
+                            body=json.dumps({"video_id": VIDEO_ID}))
+        assert status == 503
+        records = _wait_log(log, lambda rs: any(r["status"] == 503 for r in rs))
+    assert "private detail" not in log.read_text(encoding="utf-8")
+    record = next(r for r in records if r["status"] == 503)
+    assert record["status"] == 503 and record["error_type"] == "RuntimeError"
+
+
+def _page_with_headers(port):
+    status, body, headers = _raw_request(port, "GET", "/", cookie=pair_cookie(port))
+    assert status == 200
+    csp = next(v for k, v in headers if k.lower() == "content-security-policy")
+    return body, csp
+
+
+def _csp_nonce(csp):
+    match = re.search(r"script-src ([^;]*)", csp)
+    assert match, csp
+    found = re.findall(r"'nonce-([A-Za-z0-9_-]+)'", match.group(1))
+    assert len(found) == 1, csp
+    return found[0]
+
+
+def test_page_csp_uses_nonce_without_unsafe_inline_script():
+    with running_server(FakeService()) as port:
+        _, csp = _page_with_headers(port)
+        script_src = re.search(r"script-src ([^;]*)", csp).group(1)
+        assert "unsafe-inline" not in script_src
+        assert "nonce-" in script_src
+        assert "style-src 'unsafe-inline'" in csp
+        status, _, headers = _raw_request(port, "GET", "/api/videos", cookie=pair_cookie(port))
+        json_csp = next(v for k, v in headers if k.lower() == "content-security-policy")
+        assert "script-src 'none'" in json_csp
+        status, _, headers = _raw_request(port, "GET", "/", host="evil.example")
+        assert status == 403
+        assert "script-src 'none'" in next(v for k, v in headers if k.lower() == "content-security-policy")
+
+
+def test_every_script_tag_has_matching_nonce():
+    with running_server(FakeService()) as port:
+        page, csp = _page_with_headers(port)
+    nonce = _csp_nonce(csp)
+    tags = re.findall(r"<script\b[^>]*>", page)
+    assert tags and len(tags) == page.count("<script")
+    assert all(tag == f'<script nonce="{nonce}">' for tag in tags)
+
+
+def test_nonce_changes_per_request():
+    with running_server(FakeService()) as port:
+        _, first = _page_with_headers(port)
+        _, second = _page_with_headers(port)
+    assert _csp_nonce(first) != _csp_nonce(second)
+
+
+def test_rendered_scripts_pass_node_check(tmp_path):
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    from marketing_agent.dashboard_page import render_page
+    for demo in (False, True):
+        page = render_page("tok", demo=demo, nonce="abc").decode("utf-8")
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", page, re.S)
+        assert scripts
+        for index, body in enumerate(scripts):
+            path = tmp_path / f"s{int(demo)}{index}.js"
+            path.write_text(body, encoding="utf-8")
+            result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+
+
+def test_page_has_no_csp_violations_in_headless_browser():
+    sync_api = pytest.importorskip("playwright.sync_api")
+    try:
+        with sync_api.sync_playwright() as pw:
+            browser = pw.chromium.launch()
+    except Exception as exc:  # browser binary missing
+        pytest.skip(f"chromium unavailable: {type(exc).__name__}")
+    with running_server(FakeService()) as port, browser:
+        page = browser.new_page()
+        messages = []
+        page.on("console", lambda m: messages.append(m.text))
+        page.context.add_cookies([{"name": pair_cookie(port).split("=", 1)[0],
+                                   "value": pair_cookie(port).split("=", 1)[1],
+                                   "url": f"http://{HOST}:{int(port)}/"}])
+        page.goto(f"http://{HOST}:{int(port)}/")
+        page.wait_for_timeout(500)
+    assert [m for m in messages if "Content Security Policy" in m] == []
+
+
+def test_render_page_requires_nonce():
+    from marketing_agent.dashboard_page import render_page
+    with pytest.raises(ValueError, match="NONCE_REQUIRED"):
+        render_page("tok", nonce="")
+
+
+def test_render_page_nonce_check_survives_optimize():
+    import ast
+    import marketing_agent.dashboard_page as page_module
+    tree = ast.parse(Path(page_module.__file__).read_text(encoding="utf-8"))
+    nonce_asserts = [n for n in ast.walk(tree) if isinstance(n, ast.Assert)
+                     and "nonce" in ast.dump(n.test) + (ast.dump(n.msg) if n.msg else "")]
+    assert nonce_asserts == []

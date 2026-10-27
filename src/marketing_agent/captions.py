@@ -6,10 +6,11 @@ import json
 import os
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request, build_opener
 from urllib.parse import urlencode
 
 from .dashboard_contracts import VideoCard
+from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
 
 MAX_PRIMARY_CHARS = 12_000
 MAX_COMMENT_CHARS = 500
@@ -35,7 +36,9 @@ class YouTubeCaptions:
     def fetch(self, video_id: str) -> CaptionResult:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-
+        except ImportError:
+            return CaptionResult(failure_reason="CAPTIONS_LIBRARY_MISSING")
+        try:
             api = YouTubeTranscriptApi()
             snippets = api.fetch(video_id, languages=["ko", "en"])
             text = " ".join(item.text for item in snippets).strip()
@@ -55,11 +58,6 @@ class PopularCommentsProvider(Protocol):
     def fetch(self, video_id: str) -> tuple[str, ...]: ...
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
-
-
 class YouTubeDataComments:
     """Optional public-comment source; resolve its key only for explicit fetches."""
 
@@ -77,14 +75,14 @@ class YouTubeDataComments:
         request = Request(f"https://www.googleapis.com/youtube/v3/commentThreads?{query}",
                           headers={"Accept": "application/json"})
         try:
-            with build_opener(_NoRedirect()).open(request, timeout=10) as response:
-                raw = response.read(200_001)
+            with build_opener(NoRedirectHandler()).open(request, timeout=10) as response:
+                raw = read_limited(response, 200_000)
         except HTTPError as exc:
             raise ValueError("COMMENTS_KEY_INVALID" if exc.code in (400, 401) else "COMMENTS_UNAVAILABLE") from None
+        except ResponseTooLarge:
+            raise ValueError("COMMENTS_UNAVAILABLE") from None
         except (URLError, OSError, TimeoutError):
             raise ValueError("COMMENTS_UNAVAILABLE") from None
-        if len(raw) > 200_000:
-            raise ValueError("COMMENTS_UNAVAILABLE")
         try:
             data = json.loads(raw)
             rows = data.get("items", [])
@@ -113,6 +111,9 @@ class VideoEvidence:
             sources = ["제목", *( ["설명"] if card.description.strip() else [])]
         if not primary.strip():
             raise ValueError("EVIDENCE_MISSING")
+        library_notice = ""
+        if not caption.available and caption.failure_reason == "CAPTIONS_LIBRARY_MISSING":
+            library_notice = "자막 라이브러리(youtube-transcript-api)가 설치되지 않아 제목·설명을 근거로 사용합니다."
         notice = ""
         try:
             popular = self.comments.fetch(card.video_id)
@@ -123,6 +124,7 @@ class VideoEvidence:
                 notice = "YouTube Data API 키가 없어 인기 댓글 없이 자막 또는 제목·설명만 근거로 사용합니다."
             elif str(exc) == "COMMENTS_KEY_INVALID":
                 notice = "YouTube Data API 키가 유효하지 않아 인기 댓글 없이 자막 또는 제목·설명만 근거로 사용합니다."
+        notice = " ".join(part for part in (library_notice, notice) if part)
         if popular:
             primary += "\n\n[인기 댓글]\n" + "\n".join(comment[:MAX_COMMENT_CHARS] for comment in popular[:10])
             sources.append("인기 댓글")

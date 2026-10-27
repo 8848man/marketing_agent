@@ -149,8 +149,19 @@ const result=await response.json();
 $('post-state').textContent=[result.state,result.reason_code,result.message].filter(Boolean).join(' · ');$('post-state').classList.toggle('error',result.state!=='posted'&&result.state!=='simulated');
 if(result.screenshot_url)await loadCapture(result.screenshot_url);if(result.reason_code==='LOGIN_REQUIRED'&&typeof openLoginAfterPost==='function')await openLoginAfterPost();
 }}catch(error){{$('post-state').classList.add('error');$('post-state').textContent='게시 결과를 확인하지 못했습니다: '+error.message+' · 자동 재시도하지 않습니다.';}}}}
-const HIST_STATUS={{POSTED:['게시 완료','ok'],PRECHECK_FAILED:['게시 전 중단','fail'],OUTCOME_UNKNOWN:['결과 확인 필요','warn'],RESERVED:['진행 중','warn'],SUBMITTING:['진행 중','warn']}};
-const REASON_KO={{LOGIN_REQUIRED:'로그인 필요',PROFILE_LOCKED:'프로필 창이 열려 있음',BROWSER_LAUNCH_FAILED:'Chrome 실행 실패',ChromeLaunchFailed:'Chrome 실행 실패',YOUTUBE_NAVIGATION_FAILED:'YouTube 화면 이동 실패',COMMENT_EDITOR_MISSING:'댓글 입력창 없음',COMMENT_NOT_CONFIRMED:'게시 후 내 댓글 확인 실패',SERVER_RESTART_BEFORE_SUBMIT:'게시 전 서버 재시작',DAILY_LIMIT:'하루 상한 도달',ALREADY_ATTEMPTED:'이미 시도한 영상'}};
+const HIST_STATUS={{POSTED:['게시 완료','ok'],PRECHECK_FAILED:['게시 전 중단','fail'],OUTCOME_UNKNOWN:['결과 확인 필요','warn'],DISMISSED:['종료됨(재게시 안 함)','warn'],RESERVED:['진행 중','warn'],SUBMITTING:['진행 중','warn']}};
+const REASON_KO={{LOGIN_REQUIRED:'로그인 필요',PROFILE_LOCKED:'프로필 창이 열려 있음',BROWSER_LAUNCH_FAILED:'Chrome 실행 실패',ChromeLaunchFailed:'Chrome 실행 실패',YOUTUBE_NAVIGATION_FAILED:'YouTube 화면 이동 실패',COMMENT_EDITOR_MISSING:'댓글 입력창 없음',COMMENT_NOT_CONFIRMED:'게시 후 내 댓글 확인 실패',SERVER_RESTART_BEFORE_SUBMIT:'게시 전 서버 재시작',DAILY_LIMIT:'하루 상한 도달',ALREADY_ATTEMPTED:'이미 시도한 영상',SECRET_STORE_UNAVAILABLE:'키 저장소를 읽을 수 없습니다. data/dashboard/secrets.dpapi.json을 지우고 키를 다시 입력하세요.',SECRET_STORE_UNREADABLE:'키 저장소를 읽을 수 없습니다. data/dashboard/secrets.dpapi.json을 지우고 키를 다시 입력하세요.',SECRET_STORE_INVALID:'키 저장소 파일이 올바르지 않습니다. data/dashboard/secrets.dpapi.json을 지우고 키를 다시 입력하세요.',OUTCOME_NOT_UNKNOWN:'이미 정리되었거나 결과 확인 대상이 아닙니다.',REVIEWER_INVALID:'검토자 이름을 1~40자로 입력하세요.',CHANNEL_COOLDOWN:'같은 채널에는 60분 간격으로만 댓글을 달 수 있습니다. 다른 채널 영상을 선택하거나 잠시 뒤 다시 시도하세요.'}};
+function resolveControls(box,item){{const wrap=document.createElement('div');wrap.className='resolve';
+line(wrap,'p','YouTube에서 댓글이 달렸는지 직접 확인한 뒤 선택하세요').className='reason';
+const who=document.createElement('input');who.type='text';who.maxLength=40;who.placeholder='검토자 이름';who.setAttribute('aria-label','검토자 이름');wrap.append(who);
+const msg=document.createElement('span');msg.className='reason';
+const send=async outcome=>{{const reviewer=who.value.trim();if(!reviewer){{msg.textContent=REASON_KO.REVIEWER_INVALID;return;}}
+for(const b of wrap.querySelectorAll('button'))b.disabled=true;
+try{{const response=await fetch('/api/posts/resolve',{{method:'POST',headers:{{'Content-Type':'application/json','X-Session-Token':token}},body:JSON.stringify({{video_id:item.video_id,outcome:outcome,reviewer:reviewer}})}});
+const result=await response.json();if(!response.ok){{msg.textContent=REASON_KO[result.reason_code]||result.reason_code||'정리하지 못했습니다.';for(const b of wrap.querySelectorAll('button'))b.disabled=false;return;}}
+loadHistory();}}catch(error){{msg.textContent='정리하지 못했습니다: '+error.message;for(const b of wrap.querySelectorAll('button'))b.disabled=false;}}}};
+for(const [text,outcome] of [['댓글 확인됨','POSTED'],['댓글 없음 — 종료','DISMISSED']]){{const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=text;b.addEventListener('click',()=>send(outcome));wrap.append(b);}}
+wrap.append(msg);box.append(wrap);}}
 async function loadHistory(){{const list=$('history-list');try{{const data=await json(await fetch('/api/history',{{headers:{{'X-Session-Token':token}}}}));
  $('history-meter').textContent=data.unavailable?'연습 모드에는 기록이 없습니다.':'오늘 게시 '+data.posted_today+' / '+data.daily_limit;
  if(!data.items.length){{list.replaceChildren();line(list,'p','아직 게시 기록이 없습니다.').className='empty';return;}}
@@ -162,6 +173,7 @@ async function loadHistory(){{const list=$('history-list');try{{const data=await
   const state=document.createElement('div');const [label,tone]=HIST_STATUS[item.status]||[item.status,'warn'];line(state,'span',label).className='pill '+tone;
   if(item.reason_code)line(state,'span',REASON_KO[item.reason_code]||item.reason_code).className='reason';
   if(item.screenshot_url){{const shot=document.createElement('button');shot.type='button';shot.className='secondary';shot.textContent='실패 캡처 보기';shot.addEventListener('click',()=>loadCapture(item.screenshot_url));state.append(shot);}}
+  if(item.status==='OUTCOME_UNKNOWN')resolveControls(state,item);
   row.append(state);list.append(row);}}
 }}catch(error){{list.replaceChildren();line(list,'p','실행 기록을 불러오지 못했습니다: '+error.message).className='status error';}}}}
 $('load').addEventListener('click',loadVideos);$('post').addEventListener('click',async()=>{{await postComment();loadHistory();}});

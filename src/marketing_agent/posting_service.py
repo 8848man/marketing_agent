@@ -14,8 +14,10 @@ import xml.etree.ElementTree as ET
 from .dashboard_contracts import DraftPreview, PostStatus, VideoCard, VideoList
 from .drafts import _load_record, content_hash, preview
 from .guard import check_rss_membership, normalize_video_id
-from .rss_feed import CHANNELS, VIDEO_ID, _NoRedirect, list_videos, recheck_video
-from .storage import ReservationBlocked, Store
+from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
+from .rss_feed import CHANNELS, VIDEO_ID, FeedError, list_videos, recheck_video
+from .storage import KST, ReservationBlocked, Store
+from .task_constraints import DAILY_MAX_COMMENTS
 
 
 @dataclass(frozen=True)
@@ -40,10 +42,12 @@ def recheck_test_video(video_id: str, channel_id: str) -> VideoCard | None:
         raise ValueError("TEST_VIDEO_INVALID")
     url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     request = Request(url, headers={"User-Agent": "marketing-agent-rss/1.0", "Accept": "application/atom+xml"})
-    with build_opener(_NoRedirect()).open(request, timeout=10) as response:
-        data = response.read(MAX_FEED_BYTES + 1)
-    if len(data) > MAX_FEED_BYTES:
-        raise ValueError("TEST_FEED_TOO_LARGE")
+    client = build_opener(NoRedirectHandler(lambda: FeedError("RSS_REDIRECT_BLOCKED")))
+    try:
+        with client.open(request, timeout=10) as response:
+            data = read_limited(response, MAX_FEED_BYTES)
+    except ResponseTooLarge:
+        raise ValueError("TEST_FEED_TOO_LARGE") from None
     root = ET.fromstring(data)
     if root.tag != f"{ATOM}feed" or root.findtext(f"{YT}channelId") != channel_id:
         raise ValueError("TEST_FEED_CHANNEL_MISMATCH")
@@ -86,20 +90,23 @@ class PostingService:
 
     def __init__(self, db_path: str | Path, drafts_dir: str | Path, *,
                  poster: Callable | None = None, profile: str = "유튜브1",
-                 daily_limit: int = 10, feed_loader=list_videos,
+                 daily_limit: int = DAILY_MAX_COMMENTS, feed_loader=list_videos,
                  recheck=recheck_video, clock=None, test_videos=(),
-                 test_recheck=recheck_test_video):
+                 test_recheck=recheck_test_video, allowed_channels=None,
+                 channel_cooldown_minutes: int = 0, local_tz=None):
         self.db_path = Path(db_path)
         self.drafts_dir = Path(drafts_dir)
         self.poster = poster
         self.profile = profile
         self.daily_limit = daily_limit
+        self.channel_cooldown_minutes = channel_cooldown_minutes
         self.feed_loader = feed_loader
         self.recheck = recheck
         self.test_recheck = test_recheck
+        self.allowed_channels = allowed_channels
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.test_videos = _test_cards(test_videos)
-        self.local_tz = datetime.now().astimezone().tzinfo
+        self.local_tz = local_tz or KST
         self._videos: dict[str, VideoCard] = {}
         self._selected: dict[str, _Selection] = {}
 
@@ -219,7 +226,13 @@ class PostingService:
                 fresh = self.recheck(video_id, card.channel_id)
             except Exception:
                 fresh = None
-            decision = check_rss_membership(video_id, card.channel_id, recheck=lambda *_: fresh)
+            try:
+                allowed = self.allowed_channels() if self.allowed_channels else None
+            except Exception:
+                return PostStatus("blocked", "CHANNEL_CONFIG_UNAVAILABLE")
+            decision = check_rss_membership(
+                video_id, card.channel_id, recheck=lambda *_: fresh,
+                allowed_channels=allowed)
             if not decision.allowed:
                 return PostStatus("blocked", decision.reason)
             if fresh is None or fresh.video_id != card.video_id or fresh.channel_id != card.channel_id or fresh.title != card.title:
@@ -244,9 +257,16 @@ class PostingService:
                     body_hash=sha256(selection.body.encode("utf-8")).hexdigest(),
                     approval_hash=selection.approval_hash,
                     profile=self.profile, when=self.clock(), daily_limit=self.daily_limit,
-                    local_tz=self.local_tz, body=selection.body)
+                    local_tz=self.local_tz, body=selection.body,
+                    cooldown_minutes=self.channel_cooldown_minutes)
             except ReservationBlocked as exc:
-                return PostStatus("blocked", exc.reason)
+                message = ""
+                if exc.reason == "CHANNEL_COOLDOWN":
+                    message = (f"같은 채널에는 {self.channel_cooldown_minutes}분 간격으로만 댓글을 달 수 있습니다. "
+                               "다른 채널 영상을 선택하거나 잠시 뒤 다시 시도하세요.")
+                elif exc.reason == "DAILY_LIMIT":
+                    message = f"오늘 게시 한도({self.daily_limit}개)에 도달했습니다. 내일 다시 시도하세요."
+                return PostStatus("blocked", exc.reason, message=message)
             clicked = False
 
             def before_click() -> None:

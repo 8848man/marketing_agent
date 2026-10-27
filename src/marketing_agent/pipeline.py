@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request, build_opener
 from uuid import uuid4
 
 from .ai_client import ClaudeClient
@@ -16,6 +16,7 @@ from .captions import YouTubeCaptions
 from .classifier import Classifier, Video
 from .config import AgentConfig, load_config
 from .dry_run import save_comment
+from .http_client import NoRedirectHandler, ResponseTooLarge, read_limited
 from .fixtures import OFFLINE_VIDEO, OfflineAI, OfflineCaptions
 from .logging import EventLogger
 from .search_budget import SearchBudget
@@ -23,11 +24,6 @@ from .storage import Store
 from .trigger import evaluate
 from .watcher import Watcher
 from .writer import Writer
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
 
 
 class YouTubeDataAPI:
@@ -42,12 +38,12 @@ class YouTubeDataAPI:
         query = urlencode({**params, "key": self.key})
         request = Request(f"https://www.googleapis.com/youtube/v3/{resource}?{query}")
         try:
-            with build_opener(_NoRedirect()).open(request, timeout=30) as response:
-                raw = response.read(1_000_001)
+            with build_opener(NoRedirectHandler()).open(request, timeout=30) as response:
+                raw = read_limited(response, 1_000_000)
+        except ResponseTooLarge:
+            raise ValueError("YOUTUBE_API_RESPONSE_TOO_LARGE") from None
         except (HTTPError, URLError, OSError, TimeoutError):
             raise ValueError("YOUTUBE_API_FAILED") from None
-        if len(raw) > 1_000_000:
-            raise ValueError("YOUTUBE_API_RESPONSE_TOO_LARGE")
         try:
             result = json.loads(raw)
         except (ValueError, UnicodeDecodeError):

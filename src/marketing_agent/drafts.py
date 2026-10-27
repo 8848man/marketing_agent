@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 
 from .dashboard_contracts import DraftPreview, VideoCard
 from .rss_feed import VIDEO_ID
-from .writer import LINK
 
 
+LINK = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|www\.|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/|\b))")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 HASHTAG = re.compile(r"(?<!\w)#[\w가-힣]+")
 APPROVED_FIELDS = ("video_id", "channel_id", "title", "worry_summary", "comment", "cited_detail", "source_text")
@@ -155,34 +155,30 @@ def _load_record(drafts_dir: Path, video_id: str) -> dict | None:
         return None
     if drafts_dir.is_symlink():
         raise ValueError("DRAFT_PATH_BLOCKED")
-    path = drafts_dir / "latest.json"
-    if path.is_symlink():
-        raise ValueError("DRAFT_PATH_BLOCKED")
-    if path.exists():
-        if not path.is_file() or path.stat().st_size > MAX_DRAFT_BYTES:
-            raise ValueError("DRAFT_UNREADABLE")
-        data = json.loads(path.read_text(encoding="utf-8"))
-        records = data.get("drafts", data) if isinstance(data, dict) else data
-        if isinstance(records, dict):
-            record = records.get(video_id)
-            if isinstance(record, dict):
-                return record
-        elif isinstance(records, list):
-            record = next((item for item in records if isinstance(item, dict) and item.get("video_id") == video_id), None)
-            if record is not None:
-                return record
-        else:
-            return None
-    # Also accept the documented per-video format, without traversing paths.
+    # The per-video file is authoritative; latest.json is only a fallback.
     individual = drafts_dir / f"{video_id}.json"
     if individual.is_symlink():
         raise ValueError("DRAFT_PATH_BLOCKED")
-    if not individual.is_file():
+    if individual.is_file():
+        if individual.stat().st_size > MAX_DRAFT_BYTES:
+            raise ValueError("DRAFT_UNREADABLE")
+        data = json.loads(individual.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    path = drafts_dir / "latest.json"
+    if path.is_symlink():
+        raise ValueError("DRAFT_PATH_BLOCKED")
+    if not path.exists():
         return None
-    if individual.stat().st_size > MAX_DRAFT_BYTES:
+    if not path.is_file() or path.stat().st_size > MAX_DRAFT_BYTES:
         raise ValueError("DRAFT_UNREADABLE")
-    data = json.loads(individual.read_text(encoding="utf-8"))
-    return data if isinstance(data, dict) else None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    records = data.get("drafts", data) if isinstance(data, dict) else data
+    if isinstance(records, dict):
+        record = records.get(video_id)
+        return record if isinstance(record, dict) else None
+    if isinstance(records, list):
+        return next((item for item in records if isinstance(item, dict) and item.get("video_id") == video_id), None)
+    return None
 
 
 def _write_record(drafts_dir: Path, video_id: str, record: dict) -> None:

@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
+import threading
 
 _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_REQUEST_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9]{1,32}$")
+_VIDEO_SEGMENT = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_LITERAL_SEGMENTS = {"youtube-key"}  # 11-character route names that are not video IDs
+_MAX_LOG_BYTES = 5 * 1024 * 1024
 _SECRET = re.compile(r"(?i)(api[_-]?key|cookie|token|authorization|bearer|secret|password)\s*(?:[:=]|\s)\s*[^\s,;]+")
 
 
@@ -43,6 +50,48 @@ class EventLogger:
             record["precheck_event_id"] = _redact(precheck_event_id)
         with self.path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+        return record
+
+
+def request_route(path: str) -> str:
+    """Path only (no query); video-ID-shaped segments become {video_id}."""
+    parts = path.split("?", 1)[0].split("#", 1)[0].split("/")
+    safe = ["{video_id}" if _VIDEO_SEGMENT.fullmatch(p) and p not in _LITERAL_SEGMENTS
+            else re.sub(r"[^A-Za-z0-9_.\-]", "?", p)[:60] for p in parts]
+    return "/".join(safe)[:200]
+
+
+class RequestLogger:
+    """Dashboard request records: fixed safe fields only, never query, body, headers or messages."""
+    # Assumes one process and one instance write a given file; the lock is per instance, not cross-process.
+
+    def __init__(self, path: str | Path, *, max_bytes: int = _MAX_LOG_BYTES):
+        self.path = Path(path)
+        self.max_bytes = max_bytes
+        self._lock = threading.Lock()
+
+    def emit(self, *, request_id: str, method: str, route: str, status: int, reason_code: str = "",
+             duration_ms: int, error_type: str = "") -> dict[str, object]:
+        def code(value: str) -> str:
+            return value if not value or _REQUEST_CODE.fullmatch(value) else "INVALID"
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": str(request_id) if _REQUEST_ID.fullmatch(str(request_id)) else "INVALID",
+            "method": str(method) if str(method).isalpha() and len(str(method)) <= 10 else "INVALID",
+            "route": request_route(str(route)), "status": int(status),
+            "reason_code": code(str(reason_code)), "duration_ms": int(duration_ms),
+            "error_type": code(str(error_type)),
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        with self._lock:  # rotation check, rotation and append form one critical section
+            try:
+                if self.path.stat().st_size > self.max_bytes:
+                    os.replace(self.path, self.path.with_name(self.path.name + ".1"))
+            except FileNotFoundError:
+                pass
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(line)
         return record
 
 

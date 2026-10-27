@@ -9,12 +9,14 @@ __pycache__/
 *.egg-info/
 data/
 logs/
+!improve_plan/logs/
 chrome-profile/
 chrome_profile/
 **/Chrome/User Data/
 **/cookies*
 **/*session*.json
 data/screenshots/
+dist/
 screenshots/
 
 # drafts/ is tracked: PDF requires pre-approved drafts in the repository (IMP-05)
