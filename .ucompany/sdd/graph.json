@@ -57,6 +57,11 @@
     },
     {
       "from": "DOC-TRACK2",
+      "to": "CODE-SECRETS",
+      "type": "touches"
+    },
+    {
+      "from": "DOC-TRACK2",
       "to": "VAL-TRACK2",
       "type": "validated_by"
     },
@@ -281,6 +286,11 @@
     {
       "id": "CODE-SETTINGS",
       "path": "src/marketing_agent/dashboard_settings.py",
+      "type": "code"
+    },
+    {
+      "id": "CODE-SECRETS",
+      "path": "src/marketing_agent/secret_store.py",
       "type": "code"
     },
     {

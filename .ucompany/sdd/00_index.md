@@ -69,6 +69,7 @@
 | CODE-TRACK2-UI | code | [dashboard_ui.py](../../src/marketing_agent/dashboard_ui.py) | 3단계 화면과 상태 안내 |
 | CODE-AI | code | [ai_client.py](../../src/marketing_agent/ai_client.py) | 제공사별 공통 JSON 호출 인터페이스 |
 | CODE-SETTINGS | code | [dashboard_settings.py](../../src/marketing_agent/dashboard_settings.py) | 대시보드 설정·키 파일 경계 |
+| CODE-SECRETS | code | [secret_store.py](../../src/marketing_agent/secret_store.py) | Windows DPAPI 키 저장소(암호문 파일, 그 외 OS는 `.env`) |
 | CODE-CONTRACTS | code | [dashboard_contracts.py](../../src/marketing_agent/dashboard_contracts.py) | 대시보드 기본·선택 기능 계약 |
 | CODE-GENERATOR | code | [draft_generation.py](../../src/marketing_agent/draft_generation.py) | 주입 가능한 AI 초안 생성 계약 |
 | CODE-PROMPT | code | [prompt_policy.py](../../src/marketing_agent/prompt_policy.py) | 공통 프롬프트 원본(현행 `draft-v7-scene-first-reviewed`, `check_sdd.py`가 대조) |
